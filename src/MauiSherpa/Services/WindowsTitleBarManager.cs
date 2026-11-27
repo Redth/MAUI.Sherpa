@@ -47,7 +47,6 @@ public class WindowsTitleBarManager : IDisposable
 
     private static readonly HashSet<string> GoogleRoutes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "/firebase-push"
     };
 
     private IReadOnlyList<AppleIdentity>? _cachedAppleIdentities;
@@ -561,6 +560,11 @@ public class WindowsTitleBarManager : IDisposable
             var menu = new MenuFlyout();
             foreach (var child in children)
             {
+                if (child.IsSeparator)
+                {
+                    menu.Add(new MenuFlyoutSeparator());
+                    continue;
+                }
                 var id = child.Id;
                 var item = new MenuFlyoutItem { Text = child.Label, IsEnabled = _toolbarService.IsItemEnabled(id) };
                 item.Clicked += (_, _) => _toolbarService.InvokeToolbarItemClicked(id);

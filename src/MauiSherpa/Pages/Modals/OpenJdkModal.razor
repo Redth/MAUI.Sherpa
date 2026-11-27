@@ -11,10 +11,12 @@
 
 <div class="jdk-dialog">
     <div class="jdk-header">
-        <div class="jdk-mode" role="group" aria-label="OpenJDK action">
-            <button type="button" class="@(!install ? "selected" : "")" aria-pressed="@(!install)" disabled="@loading" @onclick="() => SetModeAsync(false)">Installed</button>
-            <button type="button" class="@(install ? "selected" : "")" aria-pressed="@install" disabled="@loading" @onclick="() => SetModeAsync(true)">Install New</button>
-        </div>
+        <SherpaSegmentedControl TValue="bool"
+                                Value="@install"
+                                ValueChanged="@(v => SetModeAsync(v == true))"
+                                Options="ModeOptions"
+                                AriaLabel="OpenJDK action"
+                                Class="jdk-mode" />
         <button id="refresh-openjdk" type="button" class="jdk-refresh" title="Refresh OpenJDK" disabled="@loading" @onclick="() => LoadAsync(true)">
             <i class="fa-solid fa-rotate @(loading ? "fa-spin" : "")" aria-hidden="true"></i> Refresh
         </button>
@@ -22,23 +24,25 @@
     <p class="jdk-help">@(install ? "Choose a Java major version. Sherpa installs Microsoft's latest release for your computer." : "Choose the JDK Sherpa uses for Android packages, emulators, and keystores, or remove versions Sherpa installed.")</p>
     @if (loading)
     {
-        <p role="status"><i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Checking OpenJDK...</p>
+        <SherpaListSkeleton Rows="4" Label="Checking OpenJDK..." />
     }
     else if (install)
     {
         <fieldset class="jdk-options">
             <legend>Java version</legend>
-            @foreach (var release in releases.OrderBy(r => r.MajorVersion == OpenJdkService.RecommendedMajorVersion ? 0 : 1).ThenByDescending(r => r.MajorVersion))
-            {
-                <label class="jdk-option @(major == release.MajorVersion ? "selected" : "")">
-                    <input id="jdk-major-@release.MajorVersion" type="radio" name="jdk-major" checked="@(major == release.MajorVersion)" @onchange="() => SelectMajor(release.MajorVersion)" />
-                    <span class="jdk-copy"><strong>OpenJDK @release.MajorVersion</strong><span>Latest release: @release.Version</span></span>
-                    @if (release.MajorVersion == OpenJdkService.RecommendedMajorVersion)
-                    {
-                        <span class="jdk-status">Recommended for Android</span>
-                    }
-                </label>
-            }
+            <div class="jdk-option-list sherpa-list">
+                @foreach (var release in releases.OrderBy(r => r.MajorVersion == OpenJdkService.RecommendedMajorVersion ? 0 : 1).ThenByDescending(r => r.MajorVersion))
+                {
+                    <label class="jdk-option sherpa-list-row sherpa-list-row-interactive @(major == release.MajorVersion ? "selected" : "")">
+                        <input id="jdk-major-@release.MajorVersion" type="radio" name="jdk-major" checked="@(major == release.MajorVersion)" @onchange="() => SelectMajor(release.MajorVersion)" />
+                        <span class="jdk-copy"><strong>OpenJDK @release.MajorVersion</strong><span>Latest release: @release.Version</span></span>
+                        @if (release.MajorVersion == OpenJdkService.RecommendedMajorVersion)
+                        {
+                            <span class="jdk-status">Recommended for Android</span>
+                        }
+                    </label>
+                }
+            </div>
         </fieldset>
         @if (major != OpenJdkService.RecommendedMajorVersion)
         {
@@ -54,41 +58,46 @@
             {
                 <p class="jdk-help">No working JDK found. Install Microsoft OpenJDK to continue.</p>
             }
-            @foreach (var jdk in installations)
+            @if (installations.Count > 0)
             {
-                <label class="jdk-option @(path == jdk.Path ? "selected" : "")">
-                    <input type="radio" name="jdk-home" checked="@(path == jdk.Path)" @onchange="() => SelectPath(jdk.Path)" />
-                    <span class="jdk-copy"><strong>@(jdk.IsMicrosoft ? "Microsoft OpenJDK" : "OpenJDK") @jdk.Version</strong><span class="mono text-selectable">@jdk.Path</span></span>
-                    @if (confirmRemove == jdk.Path)
+                <div class="jdk-option-list sherpa-list">
+                    @foreach (var jdk in installations)
                     {
-                        <span class="jdk-row-confirm">
-                            <button type="button" class="jdk-row-btn" disabled="@removing" @onclick="() => confirmRemove = null" @onclick:preventDefault @onclick:stopPropagation>Cancel</button>
-                            <button type="button" class="jdk-row-btn is-danger" disabled="@removing" @onclick="() => RemoveAsync(jdk.Path)" @onclick:preventDefault @onclick:stopPropagation>
-                                @if (removing) { <i class="fas fa-spinner fa-spin" aria-hidden="true"></i> <span>Removing...</span> } else { <span>Remove</span> }
-                            </button>
-                        </span>
+                        <label class="jdk-option sherpa-list-row sherpa-list-row-interactive @(path == jdk.Path ? "selected" : "")">
+                            <input type="radio" name="jdk-home" checked="@(path == jdk.Path)" @onchange="() => SelectPath(jdk.Path)" />
+                            <span class="jdk-copy"><strong>@(jdk.IsMicrosoft ? "Microsoft OpenJDK" : "OpenJDK") @jdk.Version</strong><span class="mono text-selectable">@jdk.Path</span></span>
+                            @if (confirmRemove == jdk.Path)
+                            {
+                                <span class="jdk-row-confirm">
+                                    <button type="button" class="btn btn-secondary btn-sm jdk-row-btn" disabled="@removing" @onclick="() => confirmRemove = null" @onclick:preventDefault @onclick:stopPropagation>Cancel</button>
+                                    <button type="button" class="btn btn-ghost-danger btn-sm jdk-row-btn is-danger" disabled="@removing" @onclick="() => RemoveAsync(jdk.Path)" @onclick:preventDefault @onclick:stopPropagation>
+                                        @if (removing) { <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> <span>Removing...</span> } else { <span>Remove</span> }
+                                    </button>
+                                </span>
+                            }
+                            else
+                            {
+                                @if (jdk.IsActive) { <span class="jdk-status">Active</span> }
+                                else if (Jdks.AvailableUpdates.Any(u => u.Installed.Path == jdk.Path)) { <span class="jdk-status">Update available</span> }
+                                else if (!jdk.IsManaged) { <span class="jdk-status is-muted">Installed by another tool</span> }
+                                @if (jdk.IsManaged && !jdk.IsActive)
+                                {
+                                    <button type="button" class="jdk-row-icon" title="Remove this JDK" aria-label="Remove OpenJDK @jdk.Version" disabled="@removing" @onclick="() => { confirmRemove = jdk.Path; error = null; }" @onclick:preventDefault @onclick:stopPropagation><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>
+                                }
+                            }
+                        </label>
                     }
-                    else
-                    {
-                        @if (jdk.IsActive) { <span class="jdk-status">Active</span> }
-                        else if (Jdks.AvailableUpdates.Any(u => u.Installed.Path == jdk.Path)) { <span class="jdk-status">Update available</span> }
-                        else if (!jdk.IsManaged) { <span class="jdk-status is-muted">Installed by another tool</span> }
-                        @if (jdk.IsManaged && !jdk.IsActive)
-                        {
-                            <button type="button" class="jdk-row-icon" title="Remove this JDK" aria-label="Remove OpenJDK @jdk.Version" disabled="@removing" @onclick="() => { confirmRemove = jdk.Path; error = null; }" @onclick:preventDefault @onclick:stopPropagation><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>
-                        }
-                    }
-                </label>
+                </div>
             }
         </fieldset>
         @if (confirmRemove != null)
         {
-            <p class="jdk-remove-warning" role="alert"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> Removing deletes this JDK from Sherpa's application data folder.</p>
+            <p class="jdk-remove-warning" role="alert"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> Removing deletes this JDK from Sherpa's application data folder.</p>
         }
         <label class="jdk-folder-label" for="jdk-home">JDK home folder</label>
-        <div class="jdk-folder-row">
+        <div class="jdk-folder-row sherpa-input-group">
             <input id="jdk-home" class="mono" value="@path" @oninput="OnPathInput" placeholder="Absolute path to the JDK home" />
-            <button type="button" class="btn btn-secondary btn-sm" @onclick="BrowseAsync">Browse...</button>
+            <button type="button" class="sherpa-input-group-btn" @onclick="BrowseAsync">Browse...</button>
         </div>
     }
     @if (!string.IsNullOrEmpty(error))
@@ -101,43 +110,34 @@
 </div>
 
 <style>
-    .jdk-dialog { padding: 14px 24px 22px; color: var(--text-primary); font-size: 13px; }
+    .jdk-dialog { padding: 16px 24px; color: var(--text-primary); font-size: 13px; }
     .jdk-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-    .jdk-refresh { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 32px; padding: 0 10px; flex: none; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
-    .jdk-refresh:hover:not(:disabled) { background: var(--bg-tertiary); color: var(--text-primary); }
-    .jdk-mode { display: inline-flex; gap: 2px; padding: 3px; background: var(--bg-tertiary); border-radius: 8px; }
-    .jdk-mode button { padding: 5px 14px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
-    .jdk-mode button.selected { background: var(--input-bg); color: var(--text-primary); }
+    .jdk-refresh { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 32px; padding: 0 10px; flex: none; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+    .jdk-refresh:hover:not(:disabled) { background: var(--surface-well); color: var(--text-primary); }
     .jdk-dialog button:disabled { opacity: .55; cursor: default; }
     .jdk-help { color: var(--text-secondary); line-height: 1.5; margin: 12px 0 18px; }
     .jdk-options { border: 0; padding: 0; margin: 0; min-width: 0; }
-    .jdk-options legend, .jdk-folder-label { font-weight: 600; margin-bottom: 8px; }
-    .jdk-option { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--bg-tertiary); cursor: pointer; }
-    .jdk-option + .jdk-option { border-top: 1px solid var(--input-border); }
-    .jdk-option:first-of-type { border-radius: 8px 8px 0 0; }
-    .jdk-option:last-of-type { border-radius: 0 0 8px 8px; }
-    .jdk-option:only-of-type { border-radius: 8px; }
-    .jdk-option:hover { background: var(--bg-hover); }
-    .jdk-option.selected { background: color-mix(in srgb, var(--accent-purple) 10%, var(--bg-tertiary)); }
-    .jdk-option input { appearance: auto; accent-color: var(--accent-purple); flex: none; }
+    .jdk-options legend, .jdk-folder-label { font-size: var(--font-size-xs); font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+    .jdk-option-list { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; }
+    .jdk-option { padding: 12px; background: var(--surface-card); cursor: pointer; }
+    .jdk-option:hover { background: var(--surface-card-hover); }
+    .jdk-option.selected { background: var(--accent-soft); }
+    .jdk-option input { appearance: auto; accent-color: var(--accent); flex: none; }
     .jdk-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; }
     .jdk-copy > span { font-size: 11.5px; color: var(--text-secondary); overflow-wrap: anywhere; }
     .jdk-status { font-size: 11.5px; color: var(--text-primary); text-align: right; }
     .jdk-status.is-muted { color: var(--text-muted); }
-    .jdk-row-icon { display: grid; place-items: center; flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer; }
-    .jdk-row-icon:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-danger) 12%, transparent); color: var(--accent-danger); }
+    .jdk-row-icon { display: grid; place-items: center; flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer; }
+    .jdk-row-icon:hover:not(:disabled) { background: var(--status-error-bg); color: var(--status-error-fg); }
     .jdk-row-confirm { display: flex; flex: none; gap: 6px; }
-    .jdk-row-btn { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
-    .jdk-row-btn.is-danger { border-color: transparent; background: var(--accent-danger); color: #fff; }
-    .jdk-row-btn.is-danger:hover:not(:disabled) { background: var(--accent-danger-hover); }
-    .jdk-remove-warning { display: flex; align-items: baseline; gap: 7px; margin: 10px 2px 0; color: var(--status-warning-text); font-size: 11.5px; line-height: 1.45; }
-    .theme-dark .jdk-remove-warning { color: #fbd38d; }
+    .jdk-row-btn { min-height: var(--control-height-sm); }
+    .jdk-remove-warning { display: flex; align-items: baseline; gap: 7px; margin: 10px 2px 0; color: var(--status-warning-fg); font-size: 11.5px; line-height: 1.45; }
     .jdk-folder-label { display: block; margin-top: 20px; }
-    .jdk-folder-row { display: flex; gap: 8px; }
-    .jdk-folder-row input { flex: 1; min-width: 0; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); padding: 5px 8px; font-size: 12px; }
+    .jdk-folder-row { display: flex; }
+    .jdk-folder-row input { font-family: var(--font-mono); font-size: 12px; }
     .jdk-footer { margin-top: 18px; }
     .jdk-footer p { margin: 0; color: var(--text-secondary); font-size: 11.5px; line-height: 1.5; }
-    .jdk-dialog :focus-visible { outline: 2px solid var(--accent-purple); outline-offset: 2px; }
+    .jdk-dialog :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     @@media (max-width: 540px) { .jdk-status { max-width: 100px; } .jdk-header, .jdk-mode, .jdk-folder-row { flex-wrap: wrap; } }
 </style>
 
@@ -151,6 +151,11 @@
     private int major = OpenJdkService.RecommendedMajorVersion;
     private string path = "";
     private string? error;
+    private IReadOnlyList<SherpaSegmentOption<bool>> ModeOptions =>
+    [
+        new(false, "Installed", "fa-solid fa-box-open", Disabled: loading),
+        new(true, "Install New", "fa-solid fa-download", Disabled: loading)
+    ];
 
     protected override async Task OnInitializedAsync()
     {
@@ -162,7 +167,7 @@
         path = await Settings.GetEffectiveJdkPathAsync() ?? "";
         await LoadAsync();
     }
-    private async Task SetModeAsync(bool value) { install = value; await LoadAsync(); }
+    private async Task SetModeAsync(bool? value) { install = value ?? false; await LoadAsync(); }
     private async Task LoadAsync(bool force = false)
     {
         loading = true;

@@ -18,17 +18,17 @@
                     <option value="DELETE">DELETE</option>
                     <option value="PATCH">PATCH</option>
                 </select>
-                <button class="btn-icon @(showColumnFilters ? "active" : "")" @onclick="() => showColumnFilters = !showColumnFilters" title="Column filters">
-                    <i class="fas fa-filter"></i>
+                <button class="btn-icon @(showColumnFilters ? "active" : "")" @onclick="() => showColumnFilters = !showColumnFilters" title="Column filters" aria-label="Column filters">
+                    <i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i>
                 </button>
-                <button class="btn-icon" @onclick="ResetGrid" title="Reset grid">
-                    <i class="fas fa-undo"></i>
+                <button class="btn-icon" @onclick="ResetGrid" title="Reset grid" aria-label="Reset grid">
+                    <i class="fa-solid fa-rotate-left fa-fw" aria-hidden="true"></i>
                 </button>
-                <button class="btn-icon" @onclick="ToggleStreaming" title="@(isStreaming ? "Pause" : "Resume")">
-                    <i class="fas @(isStreaming ? "fa-pause" : "fa-play")"></i>
+                <button class="btn-icon" @onclick="ToggleStreaming" title="@(isStreaming ? "Pause" : "Resume")" aria-label="@(isStreaming ? "Pause network capture" : "Resume network capture")">
+                    <i class="fa-solid @(isStreaming ? "fa-pause" : "fa-play") fa-fw" aria-hidden="true"></i>
                 </button>
-                <button class="btn-icon" @onclick="ClearRequests" title="Clear">
-                    <i class="fas fa-trash"></i>
+                <button class="btn-icon" @onclick="ClearRequests" title="Clear requests" aria-label="Clear requests">
+                    <i class="fa-solid fa-trash-can fa-fw" aria-hidden="true"></i>
                 </button>
             </div>
         </div>
@@ -118,7 +118,7 @@
                         }
                         else if (selectedDetail.Error != null)
                         {
-                            <div class="body-error"><i class="fas fa-exclamation-triangle"></i> @selectedDetail.Error</div>
+                            <div class="body-error"><i class="fa-solid fa-exclamation-triangle"></i> @selectedDetail.Error</div>
                         }
                         else
                         {
@@ -161,7 +161,7 @@
         else
         {
             <div class="detail-empty">
-                <i class="fas fa-hand-pointer"></i>
+                <i class="fa-solid fa-hand-pointer"></i>
                 <span>Select a request to view details</span>
             </div>
         }
@@ -444,7 +444,7 @@
 
     .network-list-pane {
         flex: 1;
-        border-right: 1px solid var(--border-color);
+        border-right: 1px solid var(--border-subtle);
         display: flex;
         flex-direction: column;
         min-width: 0;
@@ -461,8 +461,8 @@
         align-items: center;
         justify-content: space-between;
         padding: 0.5rem 0.75rem;
-        background: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
+        background: var(--surface-well);
+        border-bottom: 1px solid var(--border-hairline);
         font-size: 0.85rem;
         font-weight: 600;
         flex-shrink: 0;
@@ -476,30 +476,30 @@
     }
 
     .btn-icon {
-        background: none;
-        border: none;
+        background: transparent;
+        border: 1px solid transparent;
         color: var(--text-secondary);
         cursor: pointer;
-        padding: 0.25rem 0.4rem;
-        border-radius: 4px;
+        padding: 0;
+        border-radius: var(--radius-sm);
         font-size: 0.8rem;
     }
 
     .btn-icon:hover {
         color: var(--text-primary);
-        background: var(--bg-tertiary);
+        background: var(--surface-card-hover);
     }
 
     .btn-icon.active {
-        color: var(--accent-color, #3b82f6);
+        color: var(--accent);
     }
 
     .network-search {
         font-size: 0.75rem;
         padding: 0.2rem 0.5rem;
-        border-radius: 4px;
-        border: 1px solid var(--border-color);
-        background: var(--bg-primary);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-control);
+        background: var(--surface-control);
         color: var(--text-primary);
         width: 140px;
     }
@@ -507,9 +507,9 @@
     .method-filter {
         font-size: 0.75rem;
         padding: 0.15rem 0.4rem;
-        border-radius: 4px;
-        border: 1px solid var(--border-color);
-        background: var(--bg-primary);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-control);
+        background: var(--surface-control);
         color: var(--text-primary);
     }
 
@@ -545,14 +545,14 @@
         font-size: 0.7rem;
         font-weight: 700;
         padding: 0.05rem 0.3rem;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
     }
 
-    .status-2xx { color: #22c55e; }
-    .status-3xx { color: #3b82f6; }
-    .status-4xx { color: #f59e0b; }
-    .status-5xx { color: #ef4444; }
-    .status-error { color: #ef4444; }
+    .status-2xx { color: var(--status-success-fg); }
+    .status-3xx { color: var(--status-info-fg); }
+    .status-4xx { color: var(--status-warning-fg); }
+    .status-5xx { color: var(--status-error-fg); }
+    .status-error { color: var(--status-error-fg); }
     .status-pending { color: var(--text-tertiary); }
 
     .method-label {
@@ -560,20 +560,20 @@
         font-size: 0.75rem;
     }
 
-    .method-get { color: #22c55e; }
-    .method-post { color: #3b82f6; }
-    .method-put { color: #f59e0b; }
-    .method-delete { color: #ef4444; }
-    .method-patch { color: #a855f7; }
+    .method-get { color: var(--status-success-fg); }
+    .method-post { color: var(--status-info-fg); }
+    .method-put { color: var(--status-warning-fg); }
+    .method-delete { color: var(--status-error-fg); }
+    .method-patch { color: var(--data-purple); }
 
     .row-error {
-        background: rgba(239, 68, 68, 0.05);
+        background: var(--status-error-bg);
     }
 
     /* Detail pane */
     .detail-tabs {
         display: flex;
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-hairline);
     }
 
     .detail-tab {
@@ -587,8 +587,8 @@
     }
 
     .detail-tab.active {
-        color: var(--accent-color, #8b5cf6);
-        border-bottom-color: var(--accent-color, #8b5cf6);
+        color: var(--accent);
+        border-bottom-color: var(--accent);
     }
 
     .detail-content {
@@ -624,7 +624,7 @@
 
     .header-section {
         padding: 0.5rem 0;
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-hairline);
     }
 
     .header-section-title {
@@ -642,7 +642,7 @@
     }
 
     .header-key {
-        color: #2196F3;
+        color: var(--status-info-fg);
         min-width: 120px;
         flex-shrink: 0;
         font-weight: 500;
@@ -667,23 +667,25 @@
         padding: 0.4rem 0.5rem;
         font-size: 0.75rem;
         color: var(--text-tertiary);
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-hairline);
         margin-bottom: 0.5rem;
     }
 
     .truncated-badge {
-        color: #f59e0b;
+        color: var(--status-warning-fg);
         font-weight: 600;
     }
 
     .body-content {
         padding: 0;
-        background: var(--bg-secondary);
-        border-radius: 4px;
+        background: var(--surface-console);
+        border: 1px solid var(--border-console);
+        border-radius: var(--radius-md);
+        color: var(--console-text);
         overflow: auto;
         flex: 1;
         min-height: 0;
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-family: var(--font-mono);
         font-size: 0.75rem;
         white-space: pre-wrap;
         word-break: break-all;
@@ -703,7 +705,7 @@
     }
 
     .body-error {
-        color: #ef4444;
+        color: var(--status-error-fg);
     }
 
     .timing-section {
@@ -726,16 +728,16 @@
 
     .timing-bar {
         height: 6px;
-        background: var(--bg-tertiary);
-        border-radius: 3px;
+        background: var(--surface-well);
+        border-radius: var(--radius-pill);
         margin-top: 1rem;
         overflow: hidden;
     }
 
     .timing-bar-fill {
         height: 100%;
-        background: var(--accent-color, #8b5cf6);
-        border-radius: 3px;
+        background: var(--accent);
+        border-radius: var(--radius-pill);
         transition: width 0.3s ease;
     }
 
@@ -749,7 +751,7 @@
         margin: 0 -2px;
     }
     .resize-handle:hover, .resize-handle:active {
-        background: var(--accent-color, #3b82f6);
+        background: var(--accent);
         opacity: 0.5;
     }
     .resize-overlay {

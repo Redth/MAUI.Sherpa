@@ -8,38 +8,43 @@
 
 <div class="devflow-inspector">
     <div class="inspector-toolbar">
-        <div class="inspector-title">
-            <i class="fas fa-wand-magic-sparkles"></i>
-            <span>@(agentStatus?.AppName ?? QueryAppName ?? "DevFlow")</span>
+        <div class="inspector-title" title="@(agentStatus?.AppName ?? QueryAppName ?? "DevFlow")">
+            <span class="inspector-icon">
+                <i class="fa-solid fa-wand-magic-sparkles fa-fw" aria-hidden="true"></i>
+            </span>
+            <span class="inspector-app-name">@(agentStatus?.AppName ?? QueryAppName ?? "DevFlow")</span>
             @if (agentStatus != null)
             {
                 <span class="toolbar-platform">@agentStatus.Platform</span>
             }
-            <span class="toolbar-connection @(isConnected ? "connected" : "disconnected")">
-                <i class="fas fa-circle"></i>
-            </span>
         </div>
-        <div class="inspector-tabs">
-            <button class="tab-btn @(activeTab == "tree" ? "active" : "")" @onclick='@(() => SwitchTab("tree"))'>
-                <i class="fas fa-sitemap"></i> Visual Tree
+        <div class="inspector-tabs" role="tablist" aria-label="DevFlow inspector tools">
+            <button role="tab" aria-selected="@(activeTab == "tree")" class="tab-btn @(activeTab == "tree" ? "active" : "")" @onclick='@(() => SwitchTab("tree"))'>
+                <i class="fa-solid fa-sitemap fa-fw" aria-hidden="true"></i> Visual Tree
             </button>
-            <button class="tab-btn @(activeTab == "network" ? "active" : "")" @onclick='@(() => SwitchTab("network"))'>
-                <i class="fas fa-network-wired"></i> Network
+            <button role="tab" aria-selected="@(activeTab == "network")" class="tab-btn @(activeTab == "network" ? "active" : "")" @onclick='@(() => SwitchTab("network"))'>
+                <i class="fa-solid fa-network-wired fa-fw" aria-hidden="true"></i> Network
             </button>
-            <button class="tab-btn @(activeTab == "profiling" ? "active" : "")" @onclick='@(() => SwitchTab("profiling"))'>
-                <i class="fas fa-chart-line"></i> Profiling
+            <button role="tab" aria-selected="@(activeTab == "profiling")" class="tab-btn @(activeTab == "profiling" ? "active" : "")" @onclick='@(() => SwitchTab("profiling"))'>
+                <i class="fa-solid fa-chart-line fa-fw" aria-hidden="true"></i> Profiling
             </button>
-            <button class="tab-btn @(activeTab == "webview" ? "active" : "")" @onclick='@(() => SwitchTab("webview"))'>
-                <i class="fas fa-globe"></i> WebView
+            <button role="tab" aria-selected="@(activeTab == "webview")" class="tab-btn @(activeTab == "webview" ? "active" : "")" @onclick='@(() => SwitchTab("webview"))'>
+                <i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> WebView
             </button>
-            <button class="tab-btn @(activeTab == "logs" ? "active" : "")" @onclick='@(() => SwitchTab("logs"))'>
-                <i class="fas fa-scroll"></i> Logs
+            <button role="tab" aria-selected="@(activeTab == "logs")" class="tab-btn @(activeTab == "logs" ? "active" : "")" @onclick='@(() => SwitchTab("logs"))'>
+                <i class="fa-solid fa-scroll fa-fw" aria-hidden="true"></i> Logs
             </button>
-            <button class="tab-btn @(activeTab == "platform" ? "active" : "")" @onclick='@(() => SwitchTab("platform"))'>
-                <i class="fas fa-microchip"></i> Platform
+            <button role="tab" aria-selected="@(activeTab == "platform")" class="tab-btn @(activeTab == "platform" ? "active" : "")" @onclick='@(() => SwitchTab("platform"))'>
+                <i class="fa-solid fa-microchip fa-fw" aria-hidden="true"></i> Platform
             </button>
-            <button class="tab-btn refresh-btn" @onclick="ReconnectAsync" title="Reconnect to agent">
-                <i class="fas fa-arrows-rotate @(isReconnecting ? "fa-spin" : "")"></i>
+        </div>
+        <div class="inspector-actions">
+            <span class="connection-badge @(isConnected ? "connected" : "disconnected")">
+                <span class="connection-dot"></span>
+                @(isConnected ? "Connected" : "Offline")
+            </span>
+            <button class="btn-icon reconnect-btn" @onclick="ReconnectAsync" disabled="@isReconnecting" title="Reconnect to agent" aria-label="Reconnect to agent">
+                <i class="fa-solid fa-arrows-rotate fa-fw @(isReconnecting ? "fa-spin" : "")" aria-hidden="true"></i>
             </button>
         </div>
     </div>
@@ -48,7 +53,7 @@
         @if (!isConnected)
         {
             <div class="connecting-overlay">
-                <i class="fas fa-spinner fa-spin"></i>
+                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
                 <p>Connecting to agent at @agentHost:@agentPort...</p>
             </div>
         }
@@ -340,91 +345,161 @@
         display: flex;
         flex-direction: column;
         height: 100vh;
-        background: var(--bg-primary);
+        background: var(--surface-canvas);
         color: var(--text-primary);
+        overflow: hidden;
     }
 
     .inspector-toolbar {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        padding: 0.5rem 1rem;
-        background: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
+        min-height: 42px;
+        padding: 0;
+        background: var(--surface-card);
+        border: 0;
+        border-bottom: 1px solid var(--border-subtle);
+        border-radius: 0;
         flex-shrink: 0;
     }
 
     .inspector-title {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 7px;
+        min-width: 180px;
+        max-width: 280px;
+        height: 41px;
+        padding: 0 12px;
+        border-right: 1px solid var(--border-hairline);
         font-weight: 600;
-        font-size: 0.95rem;
+        font-size: var(--font-size-md);
+    }
+
+    .inspector-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        flex: 0 0 24px;
+        color: var(--accent);
+        background: var(--accent-soft);
+        border: 1px solid var(--accent-border);
+        border-radius: var(--radius-sm);
+        font-size: 11px;
+    }
+
+    .inspector-app-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .toolbar-platform {
-        font-size: 0.75rem;
-        padding: 0.1rem 0.5rem;
-        border-radius: 4px;
-        background: var(--bg-tertiary);
+        min-height: 18px;
+        padding: 1px 6px;
+        background: var(--surface-well);
         color: var(--text-secondary);
-        font-weight: 400;
-    }
-
-    .toolbar-connection {
-        font-size: 0.4rem;
-    }
-
-    .toolbar-connection.connected {
-        color: #22c55e;
-    }
-
-    .toolbar-connection.disconnected {
-        color: #ef4444;
+        font-size: 0.68rem;
     }
 
     .inspector-tabs {
         display: flex;
+        align-self: stretch;
+        flex: 1 1 auto;
         gap: 0;
+        min-width: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
     }
 
     .tab-btn {
-        padding: 0.5rem 1rem;
-        background: none;
-        border: none;
-        border-bottom: 2px solid transparent;
-        color: var(--text-secondary);
-        cursor: pointer;
-        font-size: 0.85rem;
-        transition: all 0.2s ease;
+        position: relative;
         display: flex;
         align-items: center;
-        gap: 0.4rem;
+        gap: 6px;
+        height: 41px;
+        padding: 0 11px;
+        flex: 0 0 auto;
+        color: var(--text-secondary);
+        background: transparent;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        cursor: pointer;
+        font-size: var(--font-size-sm);
+        font-weight: 550;
+        box-shadow: none;
+        transition: color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
     }
 
     .tab-btn:hover {
         color: var(--text-primary);
-        background: var(--bg-tertiary);
+        background: var(--surface-card-hover);
     }
 
     .tab-btn.active {
-        color: var(--accent-color, #8b5cf6);
-        border-bottom-color: var(--accent-color, #8b5cf6);
+        color: var(--accent);
+        background: transparent;
+        border-bottom-color: var(--accent);
     }
 
-    .tab-btn.refresh-btn {
-        margin-left: auto;
-        border-bottom: none;
-        color: var(--text-tertiary);
-        padding: 0.5rem 0.75rem;
+    .inspector-actions {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 41px;
+        padding: 0 10px;
+        border-left: 1px solid var(--border-hairline);
     }
 
-    .tab-btn.refresh-btn:hover {
-        color: var(--accent-color, #8b5cf6);
+    .connection-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        min-height: 20px;
+        padding: 2px 7px;
+        color: var(--text-secondary);
+        background: var(--surface-well);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-pill);
+        font-size: 0.68rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .connection-badge.connected {
+        color: var(--status-success-fg);
+        background: var(--status-success-bg);
+        border-color: var(--status-success-border);
+    }
+
+    .connection-badge.disconnected {
+        color: var(--text-muted);
+    }
+
+    .connection-dot {
+        width: 7px;
+        height: 7px;
+        flex: 0 0 7px;
+        background: var(--text-muted);
+        border-radius: var(--radius-pill);
+    }
+
+    .connection-badge.connected .connection-dot {
+        background: var(--status-success-dot);
+    }
+
+    .reconnect-btn {
+        width: var(--control-height-sm);
+        height: var(--control-height-sm);
+        min-height: var(--control-height-sm);
     }
 
     .inspector-content {
         flex: 1;
+        min-height: 0;
         overflow: hidden;
     }
 
@@ -434,11 +509,30 @@
         align-items: center;
         justify-content: center;
         height: 100%;
-        gap: 1rem;
+        gap: var(--space-3);
         color: var(--text-secondary);
+        background: var(--surface-canvas);
     }
 
     .connecting-overlay i {
-        font-size: 2rem;
+        color: var(--accent);
+        font-size: 20px;
+    }
+
+    .connecting-overlay p {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: var(--font-size-sm);
+    }
+
+    @@media (max-width: 900px) {
+        .inspector-title {
+            min-width: 150px;
+            max-width: 210px;
+        }
+
+        .tab-btn {
+            padding-inline: 9px;
+        }
     }
 </style>

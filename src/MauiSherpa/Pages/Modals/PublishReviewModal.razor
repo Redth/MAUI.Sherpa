@@ -15,7 +15,7 @@
     @if (isResolving)
     {
         <div class="resolving-state">
-            <i class="fa-solid fa-spinner fa-spin" style="font-size: 24px; color: var(--accent-color, #3b82f6);"></i>
+            <i class="fa-solid fa-spinner fa-spin" style="font-size: 24px; color: var(--accent);"></i>
             <h3>Resolving Secrets</h3>
             <p class="step-description">@resolvingStatus</p>
         </div>
@@ -23,7 +23,7 @@
     else if (resolveError is not null)
     {
         <div class="resolving-state">
-            <i class="fa-solid fa-circle-xmark" style="font-size: 24px; color: #ef4444;"></i>
+            <i class="fa-solid fa-circle-xmark" style="font-size: 24px; color: var(--status-error-dot);"></i>
             <h3>Failed to Resolve</h3>
             <p class="step-description">@resolveError</p>
         </div>
@@ -35,7 +35,7 @@
 
         @if (resolveWarnings.Count > 0)
         {
-            <div class="resolve-warnings">
+            <div class="resolve-warnings sherpa-banner sherpa-banner-warning">
                 <i class="fa-solid fa-triangle-exclamation"></i>
                 <div>
                     <strong>Some items could not be resolved:</strong>
@@ -56,10 +56,10 @@
             </button>
         </div>
 
-        <div class="secrets-checklist">
+        <div class="secrets-checklist sherpa-list">
             @foreach (var key in secretKeys)
             {
-                <label class="check-item">
+                <label class="check-item sherpa-list-row sherpa-list-row-interactive">
                     <input type="checkbox" checked="@checkedSecrets[key]"
                            @onchange="@(e => { checkedSecrets[key] = (bool)(e.Value ?? false); UpdateWizardState(); })" />
                     <span class="check-label mono">@key</span>
@@ -74,10 +74,10 @@
 
         @if (destinations.Any())
         {
-            <div class="destinations-checklist">
+            <div class="destinations-checklist sherpa-list">
                 @foreach (var dest in destinations)
                 {
-                    <label class="check-item destination-item">
+                    <label class="check-item destination-item sherpa-list-row sherpa-list-row-interactive">
                         <input type="checkbox" checked="@dest.Checked"
                                @onchange="@(e => { dest.Checked = (bool)(e.Value ?? false); UpdateWizardState(); })" />
                         <div class="dest-info">
@@ -104,19 +104,19 @@
         }
         else
         {
-            <div class="add-dest-section">
+            <div class="add-dest-section sherpa-card">
                 @if (addDestStep == 0)
                 {
                     <div class="add-dest-header">
                         <span class="add-dest-title">Choose Provider</span>
                         <button class="btn-icon-action" @onclick="@(() => showAddDestination = false)">
-                            <i class="fa-solid fa-xmark"></i>
+                            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                         </button>
                     </div>
-                    <div class="selection-list compact">
+                    <div class="selection-list compact sherpa-list">
                         @foreach (var pub in allPublishers)
                         {
-                            <label class="selection-item" @onclick="@(() => SelectAddPublisher(pub))">
+                            <label class="selection-item sherpa-list-row sherpa-list-row-interactive" @onclick="@(() => SelectAddPublisher(pub))">
                                 <div class="item-content">
                                     <div class="item-name"><i class="@GetProviderIcon(pub.ProviderId)" style="margin-right: 6px;"></i>@pub.Name</div>
                                     <div class="item-detail">@pub.ProviderId</div>
@@ -133,16 +133,16 @@
                             <i class="fa-solid fa-arrow-left"></i> Back
                         </button>
                         <button class="btn-icon-action" @onclick="@(() => { showAddDestination = false; addDestStep = 0; addDestPublisher = null; })">
-                            <i class="fa-solid fa-xmark"></i>
+                            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                         </button>
                     </div>
                     <div class="search-box">
-                        <i class="fas fa-search"></i>
+                        <i class="fa-solid fa-search"></i>
                         <input type="text" @bind="addDestRepoSearch" @bind:event="oninput"
                                placeholder="Search repositories..." />
                         @if (!string.IsNullOrEmpty(addDestRepoSearch))
                         {
-                            <button class="clear-search" @onclick="@(() => addDestRepoSearch = "")">×</button>
+                            <button class="clear-search" @onclick="@(() => addDestRepoSearch = "")"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
                         }
                     </div>
                     @if (addDestLoadingRepos)
@@ -151,10 +151,10 @@
                     }
                     else if (addDestFilteredRepos.Any())
                     {
-                        <div class="selection-list compact">
+                        <div class="selection-list compact sherpa-list">
                             @foreach (var repo in addDestFilteredRepos.Take(20))
                             {
-                                <label class="selection-item" @onclick="@(() => AddNewDestination(repo))">
+                                <label class="selection-item sherpa-list-row sherpa-list-row-interactive" @onclick="@(() => AddNewDestination(repo))">
                                     <div class="item-content">
                                         <div class="item-name">@repo.FullName</div>
                                         <div class="item-detail">@(string.IsNullOrEmpty(repo.Description) ? "\u00A0" : repo.Description)</div>
@@ -185,22 +185,22 @@
             }
         </p>
 
-        <div class="publish-status-list">
+        <div class="publish-status-list sherpa-list">
             @foreach (var dest in destinations.Where(d => d.Checked))
             {
-                <div class="publish-status-row">
+                <div class="publish-status-row sherpa-list-row">
                     <div class="status-icon">
                         @if (dest.Status == PublishStatus.InProgress)
                         {
-                            <i class="fa-solid fa-spinner fa-spin" style="color: var(--accent-color, #3b82f6);"></i>
+                            <i class="fa-solid fa-spinner fa-spin" style="color: var(--accent);"></i>
                         }
                         else if (dest.Status == PublishStatus.Success)
                         {
-                            <i class="fa-solid fa-circle-check" style="color: #22c55e;"></i>
+                            <i class="fa-solid fa-circle-check" style="color: var(--status-success-dot);"></i>
                         }
                         else if (dest.Status == PublishStatus.Error)
                         {
-                            <i class="fa-solid fa-circle-xmark" style="color: #ef4444;"></i>
+                            <i class="fa-solid fa-circle-xmark" style="color: var(--status-error-dot);"></i>
                         }
                         else
                         {
@@ -222,15 +222,15 @@
         {
             var successCount = destinations.Count(d => d.Checked && d.Status == PublishStatus.Success);
             var errorCount = destinations.Count(d => d.Checked && d.Status == PublishStatus.Error);
-            <div class="publish-summary-bar">
+            <div class="publish-summary-bar sherpa-banner">
                 @if (errorCount == 0)
                 {
-                    <i class="fa-solid fa-circle-check" style="color: #22c55e;"></i>
+                    <i class="fa-solid fa-circle-check" style="color: var(--status-success-dot);"></i>
                     <span>Published @selectedSecretCount secret(s) to @successCount destination(s)</span>
                 }
                 else
                 {
-                    <i class="fa-solid fa-triangle-exclamation" style="color: #f59e0b;"></i>
+                    <i class="fa-solid fa-triangle-exclamation" style="color: var(--status-warning-dot);"></i>
                     <span>@successCount succeeded, @errorCount failed</span>
                 }
             </div>
@@ -274,15 +274,11 @@
         gap: 8px;
         padding: 8px 12px;
         margin-bottom: 10px;
-        background: rgba(234, 179, 8, 0.1);
-        border: 1px solid rgba(234, 179, 8, 0.3);
-        border-radius: 6px;
         font-size: 11px;
-        color: var(--text-secondary);
     }
 
     .resolve-warnings i {
-        color: #eab308;
+        color: var(--status-warning-dot);
         margin-top: 2px;
         flex-shrink: 0;
     }
@@ -311,32 +307,20 @@
     .secrets-checklist, .destinations-checklist {
         display: flex;
         flex-direction: column;
+        overflow-x: hidden;
         overflow-y: auto;
+        overscroll-behavior: contain;
         max-height: 360px;
     }
 
     .check-item {
-        display: flex;
         align-items: center;
         gap: 8px;
-        padding: 6px 8px;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
-        cursor: pointer;
+        padding: 7px 12px;
     }
 
-    .check-item:last-child {
-        border-bottom: none;
-    }
-
-    .check-item:hover {
-        border-radius: 0.25rem;
-    }
-
-    .check-item input[type="checkbox"] {
-        width: 16px;
-        height: 16px;
-        flex-shrink: 0;
-        accent-color: var(--accent-color, #3b82f6);
+    .check-item:has(input:checked) {
+        background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface-card));
     }
 
     .check-label {
@@ -385,7 +369,7 @@
     .btn-text-action {
         background: none;
         border: none;
-        color: var(--accent-color, #3b82f6);
+        color: var(--accent);
         font-size: 13px;
         cursor: pointer;
         padding: 4px 0;
@@ -409,10 +393,7 @@
 
     .add-dest-section {
         margin-top: 8px;
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 0.5rem;
         padding: 10px;
-        background: var(--card-bg, #fff);
     }
 
     .add-dest-header {
@@ -428,55 +409,14 @@
         color: var(--text-primary);
     }
 
-    .search-box {
-        position: relative;
-        display: flex;
-        align-items: center;
-        border: 1px solid var(--border-color, #d1d5db);
-        border-radius: 0.375rem;
-        background: var(--input-bg, #fff);
-        padding: 0;
-        gap: 0;
-        margin-bottom: 8px;
-    }
-
-    .search-box:focus-within {
-        border-color: var(--accent-color, #3b82f6);
-        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
-    }
-
-    .search-box i {
-        position: absolute;
-        left: 8px;
-        color: var(--text-muted);
-        font-size: 12px;
-        pointer-events: none;
-    }
-
-    .search-box input {
-        flex: 1;
-        border: none;
-        background: transparent;
-        padding: 4px 26px;
-        font-size: 13px;
-        color: var(--text-primary);
-        outline: none;
-    }
-
-    .clear-search {
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        cursor: pointer;
-        padding: 0 8px;
-        font-size: 16px;
-    }
+    .search-box { margin-bottom: 8px; }
 
     .selection-list {
         display: flex;
         flex-direction: column;
         max-height: 200px;
         overflow-y: auto;
+        overscroll-behavior: contain;
     }
 
     .selection-list.compact .selection-item {
@@ -484,20 +424,9 @@
     }
 
     .selection-item {
-        display: flex;
         align-items: center;
         gap: 8px;
         padding: 8px;
-        cursor: pointer;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
-    }
-
-    .selection-item:last-child {
-        border-bottom: none;
-    }
-
-    .selection-item:hover {
-        border-radius: 0.25rem;
     }
 
     .item-content {
@@ -530,19 +459,12 @@
     .publish-status-list {
         display: flex;
         flex-direction: column;
-        gap: 2px;
     }
 
     .publish-status-row {
-        display: flex;
         align-items: flex-start;
         gap: 10px;
         padding: 10px 8px;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
-    }
-
-    .publish-status-row:last-child {
-        border-bottom: none;
     }
 
     .status-icon {
@@ -577,8 +499,7 @@
         gap: 8px;
         padding: 12px;
         margin-top: 12px;
-        background: var(--bg-tertiary, #f1f5f9);
-        border-radius: 0.5rem;
+        background: var(--surface-well);
         font-size: 13px;
         font-weight: 500;
         color: var(--text-primary);

@@ -19,7 +19,7 @@ namespace MauiSherpa.Pages.Forms;
 public abstract class HybridViewPage : ContentPage, INativeModalDismissible
 {
     private readonly TaskCompletionSource _tcs = new();
-    private View? _webView;
+    private HybridLoadingView? _loadingView;
 
     protected abstract string FormTitle { get; }
     protected abstract string BlazorRoute { get; }
@@ -52,7 +52,7 @@ public abstract class HybridViewPage : ContentPage, INativeModalDismissible
 
     protected void CompleteClose()
     {
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
+        _loadingView?.StopLoading();
         _tcs.TrySetResult();
     }
 
@@ -63,34 +63,29 @@ public abstract class HybridViewPage : ContentPage, INativeModalDismissible
             Text = FormTitle,
             FontSize = 18,
             FontAttributes = FontAttributes.Bold,
-            Margin = new Thickness(28, 24, 28, 12),
+            Margin = new Thickness(24, 18, 24, 12),
         };
         titleLabel.SetDynamicResource(Label.TextColorProperty, FormTheme.TextPrimary);
 
         var headerSeparator = new BoxView { HeightRequest = 1 };
         headerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
 
-        ModalWebViewReadySignal.Ready += OnBlazorReady;
-        View webView;
 #if MACOSAPP
-        var blazorWebView = new MacOSBlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = BlazorRoute,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new BlazorRootComponent
         {
             Selector = "#app",
             ComponentType = typeof(Components.ModalApp)
         });
-        webView = blazorWebView;
 #else
-        var blazorWebView = new BlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = BlazorRoute,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new RootComponent
         {
@@ -98,9 +93,9 @@ public abstract class HybridViewPage : ContentPage, INativeModalDismissible
             ComponentType = typeof(Components.ModalApp)
         });
         HandlerProperties.SetDisconnectPolicy(blazorWebView, HandlerDisconnectPolicy.Manual);
-        webView = blazorWebView;
 #endif
-        _webView = webView;
+        var webView = new HybridLoadingView(blazorWebView);
+        _loadingView = webView;
 
         var footerSeparator = new BoxView { HeightRequest = 1 };
         footerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
@@ -109,20 +104,21 @@ public abstract class HybridViewPage : ContentPage, INativeModalDismissible
         {
             Text = "Close",
             FontSize = 13,
-            BackgroundColor = Colors.Transparent,
-            BorderWidth = 0,
-            CornerRadius = 5,
+            BorderWidth = 1,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
         };
-        closeButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimary);
+        closeButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.SecondaryButtonBg);
+        closeButton.SetDynamicResource(Button.BorderColorProperty, FormTheme.ButtonOutlineBorder);
+        closeButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextPrimary);
         closeButton.Clicked += OnCloseClicked;
 
         var footerLayout = new HorizontalStackLayout
         {
             Spacing = 12,
             HorizontalOptions = LayoutOptions.End,
-            Margin = new Thickness(28, 12, 28, 24),
+            Margin = new Thickness(24, 12, 24, 18),
             Children = { closeButton },
         };
 
@@ -139,6 +135,7 @@ public abstract class HybridViewPage : ContentPage, INativeModalDismissible
             Padding = 0,
             RowSpacing = 0,
         };
+        grid.SetDynamicResource(Grid.BackgroundColorProperty, FormTheme.PageBg);
 
         Grid.SetRow(titleLabel, 0);
         Grid.SetRow(headerSeparator, 1);
@@ -158,15 +155,5 @@ public abstract class HybridViewPage : ContentPage, INativeModalDismissible
     private void OnCloseClicked(object? sender, EventArgs e)
     {
         CompleteClose();
-    }
-
-    private void OnBlazorReady(double contentHeight)
-    {
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
-        Dispatcher.Dispatch(async () =>
-        {
-            if (_webView != null)
-                await _webView.FadeToAsync(1, 200, Easing.CubicIn);
-        });
     }
 }

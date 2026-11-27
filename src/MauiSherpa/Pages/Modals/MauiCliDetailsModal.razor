@@ -1,219 +1,207 @@
 @page "/modal/maui-cli-details"
+@using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Models.Profiling
 @using MauiSherpa.Pages.Forms
 @inject ModalParameterService ModalParams
+@inject IFileSystemService FileSystem
+@inject IAlertService AlertService
+@inject IJSRuntime JS
 
 @if (session is null)
 {
-    <div class="maui-cli-details-state">
-        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
-        <span>MAUI CLI details are unavailable.</span>
+    <div class="sherpa-form">
+        <div class="sherpa-banner sherpa-banner-warning">
+            <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i>
+            <span>MAUI CLI details are unavailable.</span>
+        </div>
     </div>
 }
 else
 {
-    <div class="maui-cli-details">
-        <div class="maui-cli-details-summary @StatusClass">
-            <i class="fa-regular @StatusIcon" aria-hidden="true"></i>
-            <div>
-                <strong>@StatusTitle</strong>
-                <span>@StatusDescription</span>
+    <div class="sherpa-form tool-details">
+        <div class="sherpa-banner @BannerClass tool-banner">
+            <div class="tool-banner-copy">
+                <i class="fa-solid @StatusIcon fa-fw" aria-hidden="true"></i>
+                <div>
+                    <strong>@StatusTitle</strong>
+                    <span>@StatusDescription</span>
+                </div>
+            </div>
+            <div class="tool-banner-actions">
+                @if (session.Status.State == MauiCliToolState.Missing)
+                {
+                    <button type="button"
+                            class="btn btn-primary btn-sm"
+                            @onclick="() => SelectAction(MauiCliDetailsAction.Install)">
+                        <i class="fa-solid fa-download fa-fw" aria-hidden="true"></i>
+                        <span>Install</span>
+                    </button>
+                }
+                else
+                {
+                    <button type="button"
+                            class="btn btn-sm @(UpdateAvailable || session.Status.State == MauiCliToolState.UpdateRequired ? "btn-primary" : "btn-secondary")"
+                            @onclick="() => SelectAction(MauiCliDetailsAction.Update)">
+                        <i class="fa-solid fa-arrow-up fa-fw" aria-hidden="true"></i>
+                        <span>@(UpdateAvailable ? "Update" : "Update anyway")</span>
+                    </button>
+                    <button type="button"
+                            class="btn btn-secondary btn-sm"
+                            @onclick="() => SelectAction(MauiCliDetailsAction.Recheck)">
+                        <i class="fa-solid fa-rotate fa-fw" aria-hidden="true"></i>
+                        <span>Check again</span>
+                    </button>
+                }
             </div>
         </div>
 
-        <dl class="maui-cli-details-facts">
-            <div class="maui-cli-details-fact">
-                <dt>Installed version</dt>
-                <dd class="mono">@ValueOrFallback(InstalledVersion)</dd>
+        <div class="sherpa-card tool-card">
+            <div class="tool-facts-grid">
+                <div class="tool-fact">
+                    <span class="sherpa-meta-label">Installed version</span>
+                    <span class="sherpa-meta-value mono">@ValueOrFallback(InstalledVersion)</span>
+                </div>
+                <div class="tool-fact">
+                    <span class="sherpa-meta-label">Latest available</span>
+                    @if (UpdateAvailable && !string.IsNullOrWhiteSpace(session.UpdateInfo?.LatestVersion))
+                    {
+                        <span class="tool-fact-inline">
+                            <span class="sherpa-badge sherpa-badge-accent mono">@session.UpdateInfo!.LatestVersion</span>
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="sherpa-meta-value mono">@ValueOrFallback(session.UpdateInfo?.LatestVersion)</span>
+                    }
+                </div>
             </div>
-            <div class="maui-cli-details-fact">
-                <dt>Latest on NuGet</dt>
-                <dd class="mono @(UpdateAvailable ? "update-version" : null)">@ValueOrFallback(session.UpdateInfo?.LatestVersion)</dd>
-            </div>
+
             @if (!string.IsNullOrWhiteSpace(session.Status.ExecutablePath))
             {
-                <div class="maui-cli-details-fact full-width">
-                    <dt>Binary path</dt>
-                    <dd class="mono path-value" title="@session.Status.ExecutablePath">@session.Status.ExecutablePath</dd>
+                <div class="tool-paths">
+                    <div class="tool-path-row">
+                        <div class="sherpa-row-stack">
+                            <span class="sherpa-meta-label">Binary path</span>
+                            <span class="sherpa-meta-value mono text-selectable tool-path-text" title="@session.Status.ExecutablePath">@session.Status.ExecutablePath</span>
+                        </div>
+                        <div class="sherpa-row-actions">
+                            <button type="button" class="btn btn-ghost btn-icon btn-sm" title="Copy binary path" aria-label="Copy binary path" @onclick="() => CopyAsync(session.Status.ExecutablePath!)">
+                                <i class="fa-regular fa-copy fa-fw" aria-hidden="true"></i>
+                            </button>
+                            <button type="button" class="btn btn-ghost btn-icon btn-sm" title="Reveal in file manager" aria-label="Reveal binary in file manager" @onclick="() => FileSystem.RevealInFileManager(session.Status.ExecutablePath!)">
+                                <i class="fa-solid fa-arrow-up-right-from-square fa-fw" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             }
-        </dl>
+        </div>
 
         @if (!string.IsNullOrWhiteSpace(session.UpdateInfo?.Message) && !UpdateAvailable)
         {
-            <p class="maui-cli-details-note">@session.UpdateInfo!.Message</p>
+            <p class="sherpa-field-help" style="margin:0;">@session.UpdateInfo!.Message</p>
         }
-
-        <div class="maui-cli-details-actions">
-            @if (session.Status.State == MauiCliToolState.Missing)
-            {
-                <button type="button"
-                        class="btn btn-primary"
-                        @onclick="() => SelectAction(MauiCliDetailsAction.Install)">
-                    <i class="fas fa-download" aria-hidden="true"></i>
-                    <span>Install MAUI CLI</span>
-                </button>
-            }
-            else
-            {
-                <button type="button"
-                        class="btn @(UpdateAvailable || session.Status.State == MauiCliToolState.UpdateRequired ? "btn-primary" : "btn-secondary")"
-                        @onclick="() => SelectAction(MauiCliDetailsAction.Update)">
-                    <i class="fas fa-arrow-up" aria-hidden="true"></i>
-                    <span>@(UpdateAvailable ? "Update" : "Update anyway")</span>
-                </button>
-                <button type="button"
-                        class="btn btn-secondary"
-                        @onclick="() => SelectAction(MauiCliDetailsAction.Recheck)">
-                    <i class="fas fa-rotate" aria-hidden="true"></i>
-                    <span>Check again</span>
-                </button>
-            }
-        </div>
     </div>
 }
 
 <style>
-    .maui-cli-details {
-        display: flex;
-        flex-direction: column;
-        gap: 1rem;
-        padding: 1.1rem 1.25rem;
-        color: var(--text-primary);
+    .tool-banner {
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
     }
 
-    .maui-cli-details-summary,
-    .maui-cli-details-state {
+    .tool-banner-copy {
         display: flex;
         align-items: flex-start;
-        gap: 0.7rem;
+        gap: 10px;
+        flex: 1 1 220px;
+        min-width: 0;
     }
 
-    .maui-cli-details-summary {
-        padding: 0.75rem 0.85rem;
-        border: 1px solid var(--border-color);
-        border-radius: var(--card-radius);
-        background: var(--card-bg);
+    .tool-banner-copy > i {
+        margin-top: 2px;
+        font-size: 15px;
     }
 
-    .maui-cli-details-summary > i {
-        margin-top: 0.08rem;
-        font-size: 1.05rem;
-    }
-
-    .maui-cli-details-summary.ready > i {
-        color: color-mix(in srgb, var(--status-success-text) 72%, var(--text-secondary));
-    }
-
-    .maui-cli-details-summary.update > i {
-        color: var(--status-info-text);
-    }
-
-    .maui-cli-details-summary.missing > i,
-    .maui-cli-details-state {
-        color: var(--status-warning-text);
-    }
-
-    .maui-cli-details-summary > div {
+    .tool-banner-copy > div {
         display: flex;
         flex-direction: column;
-        gap: 0.2rem;
+        gap: 2px;
+        min-width: 0;
     }
 
-    .maui-cli-details-summary strong {
-        font-size: 0.94rem;
+    .tool-banner-copy strong {
+        font-size: var(--font-size-md);
+        font-weight: 650;
     }
 
-    .maui-cli-details-summary span {
-        color: var(--text-secondary);
-        font-size: 0.82rem;
+    .tool-banner-copy span {
+        font-size: var(--font-size-xs);
+        opacity: 0.9;
         line-height: 1.4;
     }
 
-    .maui-cli-details-facts {
+    .tool-banner-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+    }
+
+    .tool-card {
+        overflow: hidden;
+    }
+
+    .tool-facts-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0;
-        margin: 0;
-        border-top: 1px solid var(--border-color);
-        border-bottom: 1px solid var(--border-color);
+        gap: 12px 16px;
+        padding: 12px 14px;
     }
 
-    .maui-cli-details-fact {
+    .tool-fact {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
         min-width: 0;
-        padding: 0.65rem 0.75rem;
-        background: color-mix(in srgb, var(--bg-tertiary) 35%, var(--card-bg));
     }
 
-    .maui-cli-details-fact:nth-child(even) {
-        border-left: 1px solid var(--border-color);
+    .tool-fact-inline {
+        display: inline-flex;
+        align-items: center;
     }
 
-    .maui-cli-details-fact:nth-child(n + 3),
-    .maui-cli-details-fact.full-width {
-        border-top: 1px solid var(--border-color);
+    .tool-paths {
+        border-top: 1px solid var(--border-hairline);
+        background: var(--surface-well);
     }
 
-    .maui-cli-details-fact.full-width {
-        grid-column: 1 / -1;
-        border-left: 0;
+    .tool-path-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 14px;
     }
 
-    .maui-cli-details-fact dt {
-        margin-bottom: 0.22rem;
-        color: var(--text-secondary);
-        font-size: 0.68rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+    .tool-path-row > .sherpa-row-stack {
+        flex: 1 1 0%;
+        min-width: 0;
     }
 
-    .maui-cli-details-fact dd {
-        margin: 0;
-        font-size: 0.82rem;
+    .tool-path-text {
+        display: block;
+        width: 100%;
         overflow-wrap: anywhere;
-    }
-
-    .update-version {
-        color: var(--status-info-text);
-        font-weight: 600;
-    }
-
-    .path-value {
-        overflow-wrap: anywhere;
-        color: var(--text-secondary);
-    }
-
-    .maui-cli-details-note {
-        margin: 0;
-        color: var(--text-secondary);
-        font-size: 0.78rem;
+        font-size: var(--font-size-xs);
         line-height: 1.4;
     }
 
-    .maui-cli-details-actions {
-        display: flex;
-        justify-content: flex-end;
-        flex-wrap: wrap;
-        gap: 0.55rem;
-        padding-top: 0.15rem;
-    }
-
-    .maui-cli-details-state {
-        padding: 1.25rem;
-    }
-
-    @@media (max-width: 600px) {
-        .maui-cli-details-facts {
+    @@media (max-width: 560px) {
+        .tool-facts-grid {
             grid-template-columns: 1fr;
-        }
-
-        .maui-cli-details-fact:nth-child(even) {
-            border-left: 0;
-        }
-
-        .maui-cli-details-fact + .maui-cli-details-fact {
-            border-top: 1px solid var(--border-color);
         }
     }
 </style>
@@ -226,25 +214,25 @@ else
     private string? InstalledVersion =>
         session?.UpdateInfo?.InstalledVersion ?? session?.Status.Version;
 
-    private string StatusClass => session?.Status.State switch
+    private string BannerClass => session?.Status.State switch
     {
-        MauiCliToolState.Missing => "missing",
-        MauiCliToolState.UpdateRequired => "missing",
-        _ => UpdateAvailable ? "update" : "ready"
+        MauiCliToolState.Missing => "sherpa-banner-warning",
+        MauiCliToolState.UpdateRequired => "sherpa-banner-warning",
+        _ => UpdateAvailable ? "sherpa-banner-info" : "sherpa-banner-success"
     };
 
     private string StatusIcon => session?.Status.State switch
     {
-        MauiCliToolState.Missing => "fa-circle-xmark",
-        MauiCliToolState.UpdateRequired => "fa-circle-xmark",
-        _ => UpdateAvailable ? "fa-circle-up" : "fa-circle-check"
+        MauiCliToolState.Missing => "fa-triangle-exclamation",
+        MauiCliToolState.UpdateRequired => "fa-triangle-exclamation",
+        _ => UpdateAvailable ? "fa-circle-arrow-up" : "fa-circle-check"
     };
 
     private string StatusTitle => session?.Status.State switch
     {
         MauiCliToolState.Missing => "Not installed",
         MauiCliToolState.UpdateRequired => "Update required",
-        _ => UpdateAvailable ? "Update available" : "Ready"
+        _ => UpdateAvailable ? "Update available" : "MAUI CLI is ready"
     };
 
     private string StatusDescription
@@ -261,8 +249,8 @@ else
                 MauiCliToolState.UpdateRequired =>
                     session.Status.Message ?? "Update Microsoft.Maui.Cli to a version that supports profiling.",
                 _ when UpdateAvailable =>
-                    $"Version {session.UpdateInfo!.LatestVersion} is available. Updating can pick up profiling fixes.",
-                _ => "The MAUI CLI is ready to capture profiles."
+                    $"Version {session.UpdateInfo!.LatestVersion} is available with the latest profiling fixes.",
+                _ => "Ready to capture and analyze app profiles."
             };
         }
     }
@@ -274,6 +262,16 @@ else
 
     private void SelectAction(MauiCliDetailsAction action) =>
         session?.RequestAction(action);
+
+    private async Task CopyAsync(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            await AlertService.ShowToastAsync("Copied to clipboard");
+        }
+        catch { }
+    }
 
     private static string ValueOrFallback(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "Unknown" : value;

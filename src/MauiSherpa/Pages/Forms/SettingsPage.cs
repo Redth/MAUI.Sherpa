@@ -21,13 +21,14 @@ public class SettingsPage : ContentPage, INativeModalDismissible
 {
     private readonly HybridFormBridge _bridge = new();
     private readonly HybridFormBridgeHolder _bridgeHolder;
-    private View? _webView;
+    private HybridLoadingView? _loadingView;
 
     public HybridFormBridge Bridge => _bridge;
 
     public SettingsPage(HybridFormBridgeHolder bridgeHolder)
     {
         _bridgeHolder = bridgeHolder;
+        this.SetDynamicResource(BackgroundColorProperty, FormTheme.PageBg);
 
 #if MACOSAPP
         MacOSPage.SetModalSheetWidth(this, 800);
@@ -50,7 +51,7 @@ public class SettingsPage : ContentPage, INativeModalDismissible
 
     public void Complete(bool saved)
     {
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
+        _loadingView?.StopLoading();
         _bridgeHolder.Remove(_bridge);
         _tcs?.TrySetResult(saved);
     }
@@ -75,11 +76,9 @@ public class SettingsPage : ContentPage, INativeModalDismissible
             Text = "Settings",
             FontSize = 18,
             FontAttributes = FontAttributes.Bold,
-            Margin = new Thickness(28, 24, 28, 12),
+            Margin = new Thickness(24, 18, 24, 12),
         };
-#if WINDOWS
         titleLabel.SetDynamicResource(Label.TextColorProperty, FormTheme.TextPrimary);
-#endif
 
         // Header separator
         var headerSeparator = new BoxView { HeightRequest = 1 };
@@ -87,27 +86,22 @@ public class SettingsPage : ContentPage, INativeModalDismissible
 
 
         // BlazorWebView
-        ModalWebViewReadySignal.Ready += OnBlazorReady;
-        View webView;
 #if MACOSAPP
-        var blazorWebView = new MacOSBlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = "/modal/settings",
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new BlazorRootComponent
         {
             Selector = "#app",
             ComponentType = typeof(Components.ModalApp)
         });
-        webView = blazorWebView;
 #else
-        var blazorWebView = new BlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = "/modal/settings",
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new RootComponent
         {
@@ -115,9 +109,9 @@ public class SettingsPage : ContentPage, INativeModalDismissible
             ComponentType = typeof(Components.ModalApp)
         });
         HandlerProperties.SetDisconnectPolicy(blazorWebView, HandlerDisconnectPolicy.Manual);
-        webView = blazorWebView;
 #endif
-        _webView = webView;
+        var webView = new HybridLoadingView(blazorWebView);
+        _loadingView = webView;
 
         // Footer separator
         var footerSeparator = new BoxView { HeightRequest = 1 };
@@ -129,26 +123,28 @@ public class SettingsPage : ContentPage, INativeModalDismissible
         {
             Text = "Reset to Defaults",
             FontSize = 13,
-            BackgroundColor = Colors.Transparent,
-            BorderWidth = 0,
-            CornerRadius = 5,
+            BorderWidth = 1,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
         };
-        resetButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextMuted);
+        resetButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.SecondaryButtonBg);
+        resetButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextPrimary);
+        resetButton.SetDynamicResource(Button.BorderColorProperty, FormTheme.ButtonOutlineBorder);
         resetButton.Clicked += async (_, _) => await _bridge.RequestActionAsync("reset");
 
         var cancelButton = new Button
         {
             Text = "Cancel",
             FontSize = 13,
-            BackgroundColor = Colors.Transparent,
-            BorderWidth = 0,
-            CornerRadius = 5,
+            BorderWidth = 1,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
         };
-        cancelButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimary);
+        cancelButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.SecondaryButtonBg);
+        cancelButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextPrimary);
+        cancelButton.SetDynamicResource(Button.BorderColorProperty, FormTheme.ButtonOutlineBorder);
         cancelButton.Clicked += (_, _) => Complete(false);
 
         var saveButton = new Button
@@ -156,12 +152,12 @@ public class SettingsPage : ContentPage, INativeModalDismissible
             Text = "Save",
             FontSize = 13,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Colors.White,
-            CornerRadius = 5,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
         };
         saveButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.AccentPrimary);
+        saveButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimaryText);
         saveButton.Clicked += async (_, _) => await _bridge.RequestActionAsync("save");
 
         var footerLayout = new Grid
@@ -173,7 +169,7 @@ public class SettingsPage : ContentPage, INativeModalDismissible
                 new ColumnDefinition(GridLength.Auto),
                 new ColumnDefinition(GridLength.Auto),
             },
-            Margin = new Thickness(28, 12, 28, 24),
+            Margin = new Thickness(24, 12, 24, 18),
             ColumnSpacing = 12,
         };
         Grid.SetColumn(resetButton, 0);
@@ -197,9 +193,7 @@ public class SettingsPage : ContentPage, INativeModalDismissible
             RowSpacing = 0,
             VerticalOptions = LayoutOptions.Fill,
         };
-#if WINDOWS
         grid.SetDynamicResource(Grid.BackgroundColorProperty, FormTheme.PageBg);
-#endif
 
         Grid.SetRow(titleLabel, 0);
         Grid.SetRow(headerSeparator, 1);
@@ -214,15 +208,5 @@ public class SettingsPage : ContentPage, INativeModalDismissible
         grid.Children.Add(footerLayout);
 
         Content = grid;
-    }
-
-    private void OnBlazorReady(double contentHeight)
-    {
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
-        Dispatcher.Dispatch(async () =>
-        {
-            if (_webView != null)
-                await _webView.FadeToAsync(1, 200, Easing.CubicIn);
-        });
     }
 }

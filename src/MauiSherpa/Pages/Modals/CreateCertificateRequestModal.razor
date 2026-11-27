@@ -1,0 +1,202 @@
+@page "/modal/create-certificate-request"
+@using System.Net.Mail
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@inject HybridFormBridgeHolder BridgeHolder
+@inject IDialogService DialogService
+@implements IDisposable
+
+@if (bridge is not null)
+{
+    <div class="sherpa-form sherpa-scroll">
+        <div class="sherpa-field">
+            <label class="sherpa-field-label" for="csr-common-name">Common Name</label>
+            <input id="csr-common-name"
+                   type="text"
+                   class="sherpa-input"
+                   @bind="commonName"
+                   @bind:event="oninput"
+                   @bind:after="UpdateValidation"
+                   placeholder="Name for this signing key" />
+        </div>
+
+        <div class="sherpa-field">
+            <label class="sherpa-field-label" for="csr-email">
+                Email Address <span class="sherpa-field-opt">(optional)</span>
+            </label>
+            <input id="csr-email"
+                   type="email"
+                   class="sherpa-input @(!IsEmailValid ? "invalid" : null)"
+                   @bind="email"
+                   @bind:event="oninput"
+                   @bind:after="UpdateValidation"
+                   placeholder="apple@example.com" />
+            @if (!IsEmailValid)
+            {
+                <div class="sherpa-field-error">
+                    <i class="fa-solid fa-circle-exclamation fa-fw" aria-hidden="true"></i>
+                    Enter a valid email address or leave this field empty.
+                </div>
+            }
+            else
+            {
+                <div class="sherpa-field-help">Included in the request only when provided.</div>
+            }
+        </div>
+
+        @if (!storeKeyInKeychain)
+        {
+            <div class="sherpa-field">
+                <label class="sherpa-field-label" for="csr-passphrase">Private Key Passphrase</label>
+                <div class="sherpa-input-group">
+                    <input id="csr-passphrase"
+                           type="@(showPassphrase ? "text" : "password")"
+                           @bind="passphrase"
+                           @bind:event="oninput"
+                           @bind:after="UpdateValidation"
+                           placeholder="Required to protect the private key" />
+                    <button type="button"
+                            class="sherpa-input-group-btn"
+                            title="@(showPassphrase ? "Hide passphrase" : "Show passphrase")"
+                            aria-label="@(showPassphrase ? "Hide passphrase" : "Show passphrase")"
+                            @onclick="TogglePassphrase">
+                        <i class="fa-solid @(showPassphrase ? "fa-eye-slash" : "fa-eye")" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <div class="sherpa-field-help">
+                    Keep this passphrase. You will need it to use the issued certificate with its private key.
+                </div>
+            </div>
+        }
+
+        @if (isPaymentProcessing)
+        {
+            <div class="sherpa-field">
+                <label class="sherpa-field-label">Payment Processing Region</label>
+                <SherpaSegmentedControl TValue="bool"
+                                        Value="@useEc"
+                                        ValueChanged="OnKeyTypeChanged"
+                                        Options="KeyTypeOptions"
+                                        AriaLabel="Payment processing key type"
+                                        Class="sherpa-segmented-full" />
+                <div class="sherpa-field-help">
+                    If your payment provider supplies the CSR, use theirs instead of generating one here.
+                </div>
+            </div>
+        }
+
+        <div class="sherpa-field">
+            <label class="sherpa-field-label" for="csr-save-path">Save Request To</label>
+            <div class="sherpa-input-group">
+                <input id="csr-save-path"
+                       class="mono"
+                       value="@savePath"
+                       placeholder="Choose a save location"
+                       readonly />
+                <button type="button"
+                        class="sherpa-input-group-btn"
+                        @onclick="BrowseSavePathAsync">
+                    <i class="fa-solid fa-folder-open fa-fw" aria-hidden="true"></i>
+                    Browse
+                </button>
+            </div>
+            <div class="sherpa-field-help">
+                @(storeKeyInKeychain
+                    ? "The private key is stored in your login Keychain. Upload the request to Apple, then open the downloaded .cer file in Keychain Access."
+                    : "An encrypted .key file is saved beside the request. Upload only the .certSigningRequest file to Apple, never the .key file.")
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private HybridFormBridge? bridge;
+    private string commonName = "";
+    private string email = "";
+    private string passphrase = "";
+    private string suggestedFileName = "certificate.certSigningRequest";
+    private string savePath = "";
+    private bool isPaymentProcessing;
+    private bool storeKeyInKeychain;
+    private bool useEc = true;
+    private bool showPassphrase;
+
+    private bool IsEmailValid =>
+        string.IsNullOrWhiteSpace(email) ||
+        MailAddress.TryCreate(email.Trim(), out _);
+
+    private IReadOnlyList<SherpaSegmentOption<bool>> KeyTypeOptions =>
+    [
+        new(true, "ECC 256", "fa-solid fa-globe", "Use outside China mainland"),
+        new(false, "RSA 2048", "fa-solid fa-landmark", "Use in China mainland")
+    ];
+
+    protected override void OnInitialized()
+    {
+        bridge = BridgeHolder.Current;
+        if (bridge is null)
+            return;
+
+        commonName = bridge.Parameters.GetValueOrDefault("CommonName") as string ?? "";
+        isPaymentProcessing = bridge.Parameters.GetValueOrDefault("IsPaymentProcessing") is true;
+        storeKeyInKeychain = bridge.Parameters.GetValueOrDefault("StoreKeyInKeychain") is true;
+        suggestedFileName = bridge.Parameters.GetValueOrDefault("SuggestedFileName") as string
+            ?? suggestedFileName;
+
+        bridge.SubmitRequested += OnSubmitRequested;
+        UpdateValidation();
+    }
+
+    private void OnKeyTypeChanged(bool value)
+    {
+        useEc = value;
+        UpdateValidation();
+    }
+
+    private void TogglePassphrase() => showPassphrase = !showPassphrase;
+
+    private async Task BrowseSavePathAsync()
+    {
+        var selectedPath = await DialogService.PickSaveFileAsync(
+            "Save Certificate Signing Request",
+            suggestedFileName,
+            "certSigningRequest",
+            startOnDesktop: true);
+        if (string.IsNullOrWhiteSpace(selectedPath))
+            return;
+
+        savePath = selectedPath;
+        if (bridge is not null)
+            bridge.Parameters["SavePath"] = savePath;
+        UpdateValidation();
+    }
+
+    private void UpdateValidation()
+    {
+        bridge?.SetValid(
+            !string.IsNullOrWhiteSpace(commonName) &&
+            (storeKeyInKeychain || !string.IsNullOrWhiteSpace(passphrase)) &&
+            IsEmailValid &&
+            !string.IsNullOrWhiteSpace(savePath));
+    }
+
+    private Task OnSubmitRequested()
+    {
+        if (bridge is null)
+            return Task.CompletedTask;
+
+        bridge.Parameters["SavePath"] = savePath;
+        bridge.Result = new CreateCertificateRequestFormResult(
+            commonName.Trim(),
+            string.IsNullOrWhiteSpace(email) ? null : email.Trim(),
+            passphrase,
+            isPaymentProcessing && useEc);
+        return Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        if (bridge is not null)
+            bridge.SubmitRequested -= OnSubmitRequested;
+    }
+}

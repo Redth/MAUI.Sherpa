@@ -30,20 +30,20 @@
                 Live polling
             </label>
             <button class="btn-icon" @onclick="RefreshCapabilitiesAsync" disabled="@isBusy" title="Refresh capabilities">
-                <i class="fas fa-arrows-rotate"></i>
+                <i class="fa-solid fa-arrows-rotate"></i>
             </button>
             <button class="btn btn-primary btn-sm"
                     @onclick="StartAsync"
                     disabled="@(!CanStart)">
-                <i class="fas fa-play"></i> Start
+                <i class="fa-solid fa-play"></i> Start
             </button>
             <button class="btn btn-secondary btn-sm"
                     @onclick="StopAsync"
                     disabled="@(!CanStop)">
-                <i class="fas fa-stop"></i> Stop
+                <i class="fa-solid fa-stop"></i> Stop
             </button>
             <button class="btn-icon" @onclick="ResetView" disabled="@isBusy" title="Clear local chart history">
-                <i class="fas fa-eraser"></i>
+                <i class="fa-solid fa-eraser"></i>
             </button>
         </div>
     </div>
@@ -51,7 +51,7 @@
     @if (!string.IsNullOrWhiteSpace(errorMessage))
     {
         <div class="error-banner">
-            <i class="fas fa-triangle-exclamation"></i>
+            <i class="fa-solid fa-triangle-exclamation"></i>
             <span>@errorMessage</span>
         </div>
     }
@@ -59,7 +59,7 @@
     @if (!MeetsMinVersion)
     {
         <div class="empty-state">
-            <i class="fas fa-circle-exclamation"></i>
+            <i class="fa-solid fa-circle-exclamation"></i>
             <div>MAUI DevFlow agent version <strong>@(AgentVersion ?? "unknown")</strong> does not support profiling.</div>
             <div style="margin-top: 8px;">Minimum required version: <strong>@MinRequiredVersion</strong></div>
             <div style="margin-top: 8px;">Update the <code>Microsoft.Maui.DevFlow.Agent</code> NuGet package in your app and rebuild.</div>
@@ -70,12 +70,12 @@
         <div class="empty-state">
             @if (!capabilitiesLoaded)
             {
-                <i class="fas fa-spinner fa-spin"></i>
+                <i class="fa-solid fa-spinner fa-spin"></i>
                 <span>Loading profiler capabilities...</span>
             }
             else
             {
-                <i class="fas fa-circle-exclamation"></i>
+                <i class="fa-solid fa-circle-exclamation"></i>
                 <div>@(errorMessage ?? "Could not read profiler capabilities from the agent.")</div>
                 <div style="margin-top: 8px;">This agent may not expose profiling APIs yet, but the rest of the inspector can still be used.</div>
             }
@@ -84,7 +84,7 @@
     else if (!capabilities.Available)
     {
         <div class="empty-state">
-            <i class="fas fa-ban"></i>
+            <i class="fa-solid fa-ban"></i>
             <div>Profiler is not available for this app session.</div>
             <ul class="unavailable-reasons">
                 @if (!capabilities.SupportedInBuild)
@@ -152,7 +152,7 @@
                 <svg viewBox="0 0 320 96" class="chart-svg">
                     @if (!string.IsNullOrEmpty(fpsPoints))
                     {
-                        <polyline points="@fpsPoints" stroke="#22c55e" stroke-width="2" fill="none" />
+                        <polyline points="@fpsPoints" stroke="var(--status-success-fg)" stroke-width="2" fill="none" />
                     }
                 </svg>
             </div>
@@ -165,7 +165,7 @@
                 <svg viewBox="0 0 320 96" class="chart-svg">
                     @if (!string.IsNullOrEmpty(frameP95Points))
                     {
-                        <polyline points="@frameP95Points" stroke="#f59e0b" stroke-width="2" fill="none" />
+                        <polyline points="@frameP95Points" stroke="var(--status-warning-fg)" stroke-width="2" fill="none" />
                     }
                 </svg>
             </div>
@@ -178,7 +178,7 @@
                 <svg viewBox="0 0 320 96" class="chart-svg">
                     @if (!string.IsNullOrEmpty(memoryPoints))
                     {
-                        <polyline points="@memoryPoints" stroke="#8b5cf6" stroke-width="2" fill="none" />
+                        <polyline points="@memoryPoints" stroke="var(--data-purple)" stroke-width="2" fill="none" />
                     }
                 </svg>
             </div>
@@ -191,7 +191,7 @@
                 <svg viewBox="0 0 320 96" class="chart-svg">
                     @if (!string.IsNullOrEmpty(nativeMemoryPoints))
                     {
-                        <polyline points="@nativeMemoryPoints" stroke="#e11d48" stroke-width="2" fill="none" />
+                        <polyline points="@nativeMemoryPoints" stroke="var(--data-rose)" stroke-width="2" fill="none" />
                     }
                 </svg>
             </div>
@@ -204,7 +204,7 @@
                 <svg viewBox="0 0 320 96" class="chart-svg">
                     @if (!string.IsNullOrEmpty(cpuPoints))
                     {
-                        <polyline points="@cpuPoints" stroke="#3b82f6" stroke-width="2" fill="none" />
+                        <polyline points="@cpuPoints" stroke="var(--status-info-fg)" stroke-width="2" fill="none" />
                     }
                 </svg>
             </div>
@@ -918,8 +918,8 @@
         align-items: center;
         justify-content: space-between;
         padding: 0.5rem 0.75rem;
-        background: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
+        background: var(--surface-well);
+        border-bottom: 1px solid var(--border-hairline);
         font-size: 0.85rem;
         font-weight: 600;
         gap: 0.5rem;
@@ -951,9 +951,9 @@
         width: 90px;
         font-size: 0.75rem;
         padding: 0.15rem 0.35rem;
-        border-radius: 4px;
-        border: 1px solid var(--border-color);
-        background: var(--bg-primary);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-control);
+        background: var(--surface-control);
         color: var(--text-primary);
     }
 
@@ -966,47 +966,47 @@
     }
 
     .btn-icon {
-        background: none;
-        border: none;
+        background: transparent;
+        border: 1px solid transparent;
         color: var(--text-secondary);
         cursor: pointer;
         padding: 0.25rem 0.4rem;
-        border-radius: 4px;
+        border-radius: var(--radius-sm);
         font-size: 0.8rem;
     }
 
     .btn-icon:hover {
         color: var(--text-primary);
-        background: var(--bg-tertiary);
+        background: var(--surface-card-hover);
     }
 
     .status-pill, .session-pill, .platform-pill {
         font-size: 0.7rem;
         padding: 0.1rem 0.4rem;
-        border-radius: 999px;
-        border: 1px solid var(--border-color);
+        border-radius: var(--radius-pill);
+        border: 1px solid var(--border-hairline);
         color: var(--text-secondary);
     }
 
     .status-pill.running {
-        color: #22c55e;
-        border-color: rgba(34, 197, 94, 0.45);
-        background: rgba(34, 197, 94, 0.12);
+        color: var(--status-success-fg);
+        border-color: var(--status-success-border);
+        background: var(--status-success-bg);
     }
 
     .status-pill.stopped {
-        color: #ef4444;
-        border-color: rgba(239, 68, 68, 0.4);
-        background: rgba(239, 68, 68, 0.1);
+        color: var(--status-error-fg);
+        border-color: var(--status-error-border);
+        background: var(--status-error-bg);
     }
 
     .error-banner {
         margin: 0.75rem;
         padding: 0.55rem 0.75rem;
-        border-radius: 6px;
-        border: 1px solid rgba(239, 68, 68, 0.45);
-        background: rgba(239, 68, 68, 0.08);
-        color: #ef4444;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--status-error-border);
+        background: var(--status-error-bg);
+        color: var(--status-error-fg);
         display: flex;
         align-items: center;
         gap: 0.45rem;
@@ -1040,9 +1040,9 @@
     }
 
     .metric-card {
-        background: var(--bg-secondary);
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         padding: 0.55rem 0.65rem;
     }
 
@@ -1068,9 +1068,9 @@
     }
 
     .chart-card {
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        background: var(--bg-secondary);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        background: var(--surface-card);
         padding: 0.5rem 0.6rem 0.4rem;
     }
 
@@ -1085,8 +1085,8 @@
     .chart-svg {
         width: 100%;
         height: 96px;
-        background: linear-gradient(to bottom, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.04));
-        border-radius: 6px;
+        background: var(--surface-well);
+        border-radius: var(--radius-md);
     }
 
     .bottom-grid {
@@ -1098,9 +1098,9 @@
     }
 
     .markers-panel, .capabilities-panel {
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        background: var(--bg-secondary);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        background: var(--surface-card);
         display: flex;
         flex-direction: column;
         min-height: 220px;
@@ -1115,9 +1115,9 @@
     }
 
     .spans-panel, .hotspots-panel {
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        background: var(--bg-secondary);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        background: var(--surface-card);
         display: flex;
         flex-direction: column;
         min-height: 220px;
@@ -1128,7 +1128,7 @@
         align-items: center;
         justify-content: space-between;
         padding: 0.5rem 0.65rem;
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-hairline);
         font-size: 0.8rem;
         font-weight: 600;
     }
@@ -1148,18 +1148,18 @@
     .marker-filter {
         font-size: 0.72rem;
         padding: 0.15rem 0.35rem;
-        border-radius: 4px;
-        border: 1px solid var(--border-color);
-        background: var(--bg-primary);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-control);
+        background: var(--surface-control);
         color: var(--text-primary);
     }
 
     .timeline-search {
         font-size: 0.72rem;
         padding: 0.17rem 0.4rem;
-        border-radius: 4px;
-        border: 1px solid var(--border-color);
-        background: var(--bg-primary);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-control);
+        background: var(--surface-control);
         color: var(--text-primary);
         min-width: 180px;
     }
@@ -1169,33 +1169,33 @@
         gap: 0.4rem;
         flex-wrap: wrap;
         padding: 0.4rem 0.65rem;
-        border-bottom: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+        border-bottom: 1px solid var(--border-hairline);
     }
 
     .summary-pill {
         display: inline-flex;
         align-items: center;
-        border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
-        border-radius: 999px;
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-pill);
         padding: 0.1rem 0.45rem;
         font-size: 0.68rem;
         color: var(--text-secondary);
-        background: color-mix(in srgb, var(--bg-primary) 92%, transparent);
+        background: var(--surface-well);
     }
 
     .summary-pill.problems {
-        border-color: #f59e0b55;
-        color: #f59e0b;
+        border-color: var(--status-warning-border);
+        color: var(--status-warning-fg);
     }
 
     .summary-pill.errors {
-        border-color: #ef444466;
-        color: #ef4444;
+        border-color: var(--status-error-border);
+        color: var(--status-error-fg);
     }
 
     .summary-pill.slow {
-        border-color: #f9731655;
-        color: #f97316;
+        border-color: var(--status-warning-border);
+        color: var(--data-orange);
     }
 
     .timeline-columns {
@@ -1203,7 +1203,7 @@
         grid-template-columns: 88px 130px minmax(160px, 1fr) 88px 58px;
         gap: 0.45rem;
         padding: 0.25rem 0.65rem 0.3rem;
-        border-bottom: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+        border-bottom: 1px solid var(--border-hairline);
         font-size: 0.66rem;
         letter-spacing: 0.03em;
         text-transform: uppercase;
@@ -1234,7 +1234,7 @@
         align-items: center;
         font-size: 0.74rem;
         padding: 0.22rem 0.65rem;
-        border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
+        border-bottom: 1px solid var(--border-hairline);
     }
 
     .span-row {
@@ -1244,28 +1244,28 @@
         align-items: center;
         font-size: 0.74rem;
         padding: 0.22rem 0.65rem;
-        border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
+        border-bottom: 1px solid var(--border-hairline);
     }
 
     .marker-time {
         color: var(--text-tertiary);
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-family: var(--font-mono);
     }
 
     .marker-type {
-        color: #8b5cf6;
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        color: var(--data-purple);
+        font-family: var(--font-mono);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
-    .kind-navigation { color: #60a5fa; }
-    .kind-render { color: #22c55e; }
-    .kind-scroll { color: #f59e0b; }
-    .kind-input { color: #a78bfa; }
-    .kind-network { color: #f97316; }
-    .kind-generic { color: #8b5cf6; }
+    .kind-navigation { color: var(--status-info-fg); }
+    .kind-render { color: var(--status-success-fg); }
+    .kind-scroll { color: var(--status-warning-fg); }
+    .kind-input { color: var(--data-purple); }
+    .kind-network { color: var(--data-orange); }
+    .kind-generic { color: var(--data-purple); }
 
     .marker-name {
         color: var(--text-primary);
@@ -1275,37 +1275,37 @@
     }
 
     .span-duration {
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-family: var(--font-mono);
         color: var(--text-secondary);
         text-align: right;
     }
 
     .span-status {
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-family: var(--font-mono);
         font-size: 0.68rem;
         text-transform: uppercase;
         text-align: right;
         color: var(--text-tertiary);
     }
 
-    .status-ok { color: #22c55e; }
-    .status-error { color: #ef4444; }
+    .status-ok { color: var(--status-success-fg); }
+    .status-error { color: var(--status-error-fg); }
 
     .timeline-row-error {
-        background: color-mix(in srgb, #ef4444 8%, transparent);
-        border-left: 2px solid #ef4444;
+        background: var(--status-error-bg);
+        border-left: 1px solid var(--status-error-dot);
     }
 
     .timeline-row-slow {
-        background: color-mix(in srgb, #f59e0b 8%, transparent);
-        border-left: 2px solid #f59e0b;
+        background: var(--status-warning-bg);
+        border-left: 1px solid var(--status-warning-dot);
     }
 
     .hotspot-row {
         display: grid;
         gap: 0.18rem;
         padding: 0.4rem 0.65rem;
-        border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
+        border-bottom: 1px solid var(--border-hairline);
     }
 
     .hotspot-name {
@@ -1317,7 +1317,7 @@
     .hotspot-meta {
         color: var(--text-tertiary);
         font-size: 0.72rem;
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-family: var(--font-mono);
     }
 
     .hotspot-metrics {
@@ -1326,13 +1326,13 @@
         gap: 0.5rem;
         color: var(--text-secondary);
         font-size: 0.73rem;
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-family: var(--font-mono);
     }
 
     .marker-payload {
         grid-column: 1 / -1;
         color: var(--text-tertiary);
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-family: var(--font-mono);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -1360,11 +1360,11 @@
     .timeline-detail pre {
         margin: 0.25rem 0 0;
         padding: 0.3rem 0.35rem;
-        background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
-        border-radius: 4px;
-        border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
-        color: var(--text-secondary);
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        background: var(--surface-console);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-console);
+        color: var(--console-text);
+        font-family: var(--font-mono);
         white-space: pre-wrap;
         word-break: break-word;
         max-height: 180px;
@@ -1385,17 +1385,17 @@
     }
 
     .support-yes {
-        color: #22c55e;
+        color: var(--status-success-fg);
         font-weight: 600;
     }
 
     .support-no {
-        color: #ef4444;
+        color: var(--status-error-fg);
         font-weight: 600;
     }
 
     .session-meta {
-        border-top: 1px solid var(--border-color);
+        border-top: 1px solid var(--border-hairline);
         padding: 0.65rem;
         font-size: 0.76rem;
         color: var(--text-secondary);

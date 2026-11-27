@@ -2,90 +2,71 @@
 
 ## Project Overview
 
-MauiSherpa is a .NET MAUI desktop application for managing developer tools (Android SDK, Apple Development Tools, GitHub Copilot). It targets Mac Catalyst and Windows using .NET 10.
+MauiSherpa is a .NET 11 MAUI Blazor Hybrid desktop application for managing
+Android SDKs and devices, Android keystores, Apple developer assets, .NET MAUI
+workloads and SDKs, and GitHub Copilot.
+
+**Platforms:** macOS (AppKit), Windows, and Linux (GTK).
+
+Read `AGENTS.md` for the complete architecture, build, testing, platform, and
+debugging guidance. For every Blazor Hybrid UI change, `DESIGN.md` is the
+authoritative design specification.
 
 ## Build Commands
 
 ```bash
-# Build for Mac Catalyst
-dotnet build -f net10.0-maccatalyst
+# Build the macOS AppKit head
+dotnet build src/MauiSherpa.MacOS -f net11.0-macos
 
 # Build for Windows (on Windows only)
-dotnet build -f net10.0-windows10.0.19041
+dotnet build src/MauiSherpa -f net11.0-windows10.0.19041.0
 
-# Run on Mac Catalyst
-dotnet run --project src/MauiSherpa -f net10.0-maccatalyst
+# Build the solution
+dotnet build MauiSherpa.slnx
 
-# Verbose build for debugging
-dotnet build -f net10.0-maccatalyst --verbosity diagnostic
+# Run tests
+dotnet test MauiSherpa.slnx
+
+# Launch macOS
+dotnet build src/MauiSherpa.MacOS -f net11.0-macos -t:Run
 ```
 
 ## Architecture
 
-### Project Structure
+- `src/MauiSherpa.Core`: platform-independent business logic, interfaces,
+  services, handlers, requests, and ViewModels.
+- `src/MauiSherpa`: shared active Blazor Hybrid UI and Windows head.
+- `src/MauiSherpa.MacOS`: macOS AppKit head.
+- `src/MauiSherpa.LinuxGtk`: Linux GTK head.
+- `src/MauiSherpa.Workloads`: .NET workload querying library.
+- Follow clean architecture: Core has no platform dependencies; platform heads
+  implement Core interfaces. Use constructor DI, MVVM, and Shiny.Mediator request
+  handlers as documented in `AGENTS.md`.
 
-- **MauiSherpa.Core**: Business logic library (ViewModels, interfaces, services contracts)
-- **MauiSherpa**: MAUI application with platform-specific implementations
+## Blazor Hybrid Design System
 
-### Key Patterns
+Follow `DESIGN.md` and use `src/MauiSherpa/wwwroot/css/app.css` as the single
+source of truth for CSS tokens and shared styles:
 
-**Clean Architecture**: Core contains no platform dependencies. Platform implements interfaces defined in Core.
-
-**MVVM with DI**: ViewModels inherit from `ViewModelBase` → `ObservableObject`. Services are injected via constructor:
-
-```csharp
-public class MyViewModel : ViewModelBase
-{
-    public MyViewModel(IAlertService alertService, ILoggingService logger)
-        : base(alertService, logger) { }
-}
-```
-
-**Service Registration** in `Program.cs`:
-```csharp
-builder.Services.AddSingleton<IAlertService, AlertService>();
-builder.Services.AddSingleton<MyViewModel>();
-```
-
-### Core Interfaces (MauiSherpa.Core/Interfaces.cs)
-
-| Interface | Purpose |
-|-----------|---------|
-| `IAlertService` | Native dialogs and toasts |
-| `ILoggingService` | Structured logging |
-| `INavigationService` | Page navigation |
-| `IDialogService` | Loading indicators, input dialogs, file pickers |
-| `IFileSystemService` | File/directory operations |
-| `IPlatformService` | Platform detection (IsWindows, IsMacCatalyst) |
-
-### UI Layers
-
-The project has two UI approaches (Blazor is currently disabled):
-
-1. **Native MAUI** (active): `MainPage.cs` using C# UI construction
-2. **Blazor Hybrid** (disabled): `.razor` pages in `Pages/` directory intended for BlazorWebView
-
-## Platform Entry Points
-
-MAUI uses platform-specific entry points:
-
-- **Mac Catalyst**: `Platforms/MacCatalyst/Program.cs` → `AppDelegate.cs` → `MauiProgram.CreateMauiApp()`
-- **Windows**: `Platforms/Windows/App.xaml.cs` → `MauiProgram.CreateMauiApp()`
-
-The shared `MauiProgram.cs` contains service registration and app configuration.
+- Use the pure-neutral surface ladder (`--surface-canvas`, `--surface-card`,
+  `--surface-well`, `--surface-popover`) with crisp 1px semantic hairlines.
+- Never hardcode colors or radii, nest rounded cards, add thick colored side
+  stripes, or write page-specific platform CSS.
+- Use `<SherpaSelect>` instead of native `<select>`, `<SherpaTabs>` and
+  `<SherpaSegmentedControl>` for navigation modes, and shared button/header/list
+  components and classes.
+- Use only the six `--radius-*` tokens and Font Awesome 6 classes with `fa-fw`;
+  use `fa-xmark` rather than raw `×`.
+- Platform adaptation is centralized in `.platform-macos`,
+  `.platform-windows`, and `.platform-linux` token overrides.
+- Validate UI changes in light and dark themes on macOS, Windows, and Linux GTK.
 
 ## Code Conventions
 
-- **No XAML**: All UI is defined in C# code or Razor components
+- **No XAML**: UI is implemented with active Blazor Hybrid Razor components or
+  platform C# code
 - **Nullable enabled**: All projects use `<Nullable>enable</Nullable>`
 - **Property change notification**: Use `SetProperty(ref field, value)` in ViewModels
 - **Async naming**: Suffix async methods with `Async`
-
-## Dependencies
-
-| Package | Project | Purpose |
-|---------|---------|---------|
-| Microsoft.Maui.Controls | Platform | MAUI framework |
-| Microsoft.Extensions.DependencyInjection | Core | DI container |
-| FluentValidation | Core | Input validation |
-| GitHub.Copilot.SDK | Core | Copilot integration |
+- **External APIs**: Prefer official NuGet packages over raw `HttpClient`
+- **Tests**: Use xUnit, Moq, and FluentAssertions; test projects target `net11.0`

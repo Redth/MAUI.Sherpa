@@ -34,7 +34,7 @@ connection. Addresses and ports stay out of the way unless the network forces a 
 
         @if (banner is { } b)
         {
-            <div class="ad-banner @(b.Result.Success ? "is-ok" : b.Result.State == AndroidWirelessOperationState.Failed ? "is-error" : "")"
+            <div class="ad-banner sherpa-banner @(b.Result.Success ? "sherpa-banner-success is-ok" : b.Result.State == AndroidWirelessOperationState.Failed ? "sherpa-banner-danger is-error" : "sherpa-banner-info")"
                  role="@(b.Result.State == AndroidWirelessOperationState.Failed ? "alert" : "status")">
                 <i class="fa-solid @BannerIcon(b.Result)" aria-hidden="true"></i>
                 <div><strong>@b.Title</strong><span>@b.Result.Message</span></div>
@@ -50,61 +50,75 @@ connection. Addresses and ports stay out of the way unless the network forces a 
             </div>
             @if (discoveryError != null)
             {
-                <div class="ad-banner is-error is-inline" role="alert">
+                <div class="ad-banner sherpa-banner sherpa-banner-danger is-error is-inline" role="alert">
                     <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                     <div><strong>Can't search this network</strong><span>@discoveryError</span></div>
                 </div>
             }
-            <ul class="ad-list">
-                @if (AvailableServices.Count == 0)
-                {
-                    <li class="ad-row ad-row-empty">
-                        <span class="ad-glyph is-hint" aria-hidden="true"><i class="fa-solid fa-wifi"></i></span>
-                        <div class="ad-text">
-                            <span class="ad-name">Turn on Wireless debugging on your device</span>
-                            <span class="ad-meta">Open Pair device with pairing code and it will appear here. Sherpa checks every few seconds.</span>
-                            @if (Platform.IsMacOS)
-                            {
-                                <span class="ad-meta">Not listed? Allow MAUI Sherpa in System Settings › Privacy &amp; Security › Local Network.</span>
-                            }
-                        </div>
-                    </li>
-                }
-                @foreach (var service in AvailableServices)
-                {
-                    @ServiceRow(service)
-                }
-            </ul>
+            @if (initialLoad && loading)
+            {
+                <SherpaListSkeleton Rows="2" Label="Looking for available Android devices..." />
+            }
+            else
+            {
+                <ul class="ad-list sherpa-list">
+                    @if (AvailableServices.Count == 0)
+                    {
+                        <li class="ad-row ad-row-empty">
+                            <span class="ad-glyph is-hint" aria-hidden="true"><i class="fa-solid fa-wifi"></i></span>
+                            <div class="ad-text">
+                                <span class="ad-name">Turn on Wireless debugging on your device</span>
+                                <span class="ad-meta">Open Pair device with pairing code and it will appear here. Sherpa checks every few seconds.</span>
+                                @if (Platform.IsMacOS)
+                                {
+                                    <span class="ad-meta">Not listed? Allow MAUI Sherpa in System Settings › Privacy &amp; Security › Local Network.</span>
+                                }
+                            </div>
+                        </li>
+                    }
+                    @foreach (var service in AvailableServices)
+                    {
+                        @ServiceRow(service)
+                    }
+                </ul>
+            }
         </div>
 
         <div class="ad-group">
             <div class="ad-group-head"><h3>My Devices</h3></div>
-            <ul class="ad-list">
-                @if (PhysicalDevices.Count == 0)
-                {
-                    <li class="ad-row ad-row-empty">
-                        <span>@(initialLoad ? "Looking for connected devices…" : "No Android devices are connected yet.")</span>
-                    </li>
-                }
-                @foreach (var device in PhysicalDevices)
-                {
-                    @DeviceRow(device)
-                }
-            </ul>
+            @if (initialLoad && loading)
+            {
+                <SherpaListSkeleton Rows="2" Label="Looking for connected Android devices..." />
+            }
+            else
+            {
+                <ul class="ad-list sherpa-list">
+                    @if (PhysicalDevices.Count == 0)
+                    {
+                        <li class="ad-row ad-row-empty">
+                            <span>No Android devices are connected yet.</span>
+                        </li>
+                    }
+                    @foreach (var device in PhysicalDevices)
+                    {
+                        @DeviceRow(device)
+                    }
+                </ul>
+            }
         </div>
 
         <details class="ad-manual">
             <summary><i class="fa-solid fa-chevron-right" aria-hidden="true"></i> Enter an address manually</summary>
             <p class="ad-manual-intro">Use this when your network blocks discovery. The pairing and debugging addresses use different ports.</p>
-            <form class="ad-list ad-form" @onsubmit="ManualPairAsync" @onsubmit:preventDefault="true">
+            <form class="ad-list sherpa-list ad-form" @onsubmit="ManualPairAsync" @onsubmit:preventDefault="true">
                 <div class="ad-field">
                     <label for="ad-pair-address">Pairing address</label>
-                    <input id="ad-pair-address" type="text" @bind="manualPairAddress" @bind:event="oninput" disabled="@busy"
+                    <input id="ad-pair-address" class="sherpa-input" type="text" @bind="manualPairAddress" @bind:event="oninput" disabled="@busy"
                            placeholder="192.168.1.20:37123" autocomplete="off" spellcheck="false" aria-describedby="ad-pair-help" />
                 </div>
                 <div class="ad-field is-code">
                     <label for="ad-pair-code">Code</label>
-                    <input id="ad-pair-code" type="password" inputmode="numeric" maxlength="6" @bind="manualCode" @bind:event="oninput"
+                    <input id="ad-pair-code" class="sherpa-input" type="password" inputmode="numeric" maxlength="6" @bind="manualCode" @bind:event="oninput"
                            disabled="@busy" autocomplete="off" aria-describedby="ad-pair-help" />
                 </div>
                 <button type="submit" class="ad-btn is-primary" disabled="@(busy || !CanManualPair)">
@@ -112,10 +126,10 @@ connection. Addresses and ports stay out of the way unless the network forces a 
                 </button>
                 <span class="ad-field-help" id="ad-pair-help">From Pair device with pairing code. The code is never saved or logged.</span>
             </form>
-            <form class="ad-list ad-form" @onsubmit="ManualConnectAsync" @onsubmit:preventDefault="true">
+            <form class="ad-list sherpa-list ad-form" @onsubmit="ManualConnectAsync" @onsubmit:preventDefault="true">
                 <div class="ad-field">
                     <label for="ad-connect-address">Debugging address</label>
-                    <input id="ad-connect-address" type="text" @bind="manualConnectAddress" @bind:event="oninput" disabled="@busy"
+                    <input id="ad-connect-address" class="sherpa-input" type="text" @bind="manualConnectAddress" @bind:event="oninput" disabled="@busy"
                            placeholder="192.168.1.20:40555" autocomplete="off" spellcheck="false" aria-describedby="ad-connect-help" />
                 </div>
                 <button type="submit" class="ad-btn" disabled="@(busy || !CanManualConnect)">
@@ -158,7 +172,7 @@ connection. Addresses and ports stay out of the way unless the network forces a 
             }
         </div>
 
-        <ol class="ad-list ad-steps">
+        <ol class="ad-list sherpa-list ad-steps">
             <li class="ad-row">
                 <span class="ad-step" aria-hidden="true">1</span>
                 <div class="ad-text"><span class="ad-name">Open Wireless debugging</span><span class="ad-meta">Settings › Developer options › Wireless debugging, then turn it on.</span></div>
@@ -179,14 +193,14 @@ connection. Addresses and ports stay out of the way unless the network forces a 
         {
             @if (qrStopped)
             {
-                <div class="ad-banner" role="status">
+                <div class="ad-banner sherpa-banner sherpa-banner-info" role="status">
                     <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                     <div><strong>QR pairing stopped</strong><span>Show a new code when your device is ready.</span></div>
                 </div>
             }
             else
             {
-                <div class="ad-banner is-error" role="alert">
+                <div class="ad-banner sherpa-banner sherpa-banner-danger is-error" role="alert">
                     <i class="fa-solid @BannerIcon(qrResult)" aria-hidden="true"></i>
                     <div><strong>Couldn't pair with QR code</strong><span>@qrResult.Message</span></div>
                 </div>
@@ -202,44 +216,43 @@ connection. Addresses and ports stay out of the way unless the network forces a 
 
 <style>
     .ad {
-        --ad-accent: var(--accent-purple);
-        --ad-accent-ink: #6b46c1;
-        --ad-card: #F7F7F7;
-        --ad-sep: #E0E0E0;
-        --ad-live: #2f855a;
-        --ad-danger: var(--accent-danger);
+        --ad-accent: var(--accent);
+        --ad-accent-ink: var(--accent);
+        --ad-card: var(--surface-card);
+        --ad-sep: var(--border-hairline);
+        --ad-live: var(--status-success-fg);
+        --ad-danger: var(--status-error-fg);
         padding: 14px 24px 22px;
         color: var(--text-primary);
         font-size: 13px;
     }
-    .theme-dark .ad { --ad-accent-ink: #d6bcfa; --ad-card: #2C2C2C; --ad-sep: #454545; --ad-live: #68d391; }
     .ad p { margin: 0; }
     .ad button { font-family: inherit; line-height: 1.2; }
     .ad :is(button, input, summary):focus-visible { outline: 2px solid var(--ad-accent); outline-offset: 2px; }
 
     .ad-intro { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; color: var(--text-secondary); }
     .ad-intro p { font-size: 13px; line-height: 1.4; }
-    .ad-icon-btn { display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
-    .ad-icon-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+    .ad-icon-btn { display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); cursor: pointer; }
+    .ad-icon-btn:hover:not(:disabled) { background: var(--surface-card-hover); color: var(--text-primary); }
     .ad-icon-btn:disabled { opacity: 0.5; cursor: default; }
 
     .ad-group + .ad-group { margin-top: 20px; }
     .ad-group-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 24px; margin: 0 0 7px 2px; }
     .ad-group h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; font-weight: 600; color: var(--text-primary); }
-    .ad-link { display: inline-flex; align-items: center; gap: 6px; height: 24px; margin-right: -6px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ad-accent-ink); font-size: 12px; font-weight: 500; cursor: pointer; }
+    .ad-link { display: inline-flex; align-items: center; gap: 6px; height: 24px; margin-right: -6px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ad-accent-ink); font-size: 12px; font-weight: 500; cursor: pointer; }
     .ad-link i { font-size: 11px; }
     .ad-link:hover:not(:disabled) { background: color-mix(in srgb, var(--ad-accent) 12%, transparent); }
     .ad-link:disabled { opacity: 0.45; cursor: default; }
     .ad-scan { font-size: 11px; color: var(--text-muted); }
 
-    .ad-list { list-style: none; margin: 0; padding: 0; background: var(--ad-card); border-radius: 10px; overflow: hidden; }
+    .ad-list { list-style: none; margin: 0; padding: 0; background: var(--ad-card); overflow: hidden; }
     .ad-row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 9px 12px; box-sizing: border-box; transition: background-color 180ms cubic-bezier(0.16, 1, 0.3, 1); }
-    .ad-row + .ad-row::before { content: ""; position: absolute; top: 0; left: 56px; right: 0; height: 1px; background: var(--ad-sep); }
+    .ad-row + .ad-row::before { content: ""; position: absolute; inset-block-start: 0; inset-inline: 56px var(--row-padding-x); height: 1px; background: var(--ad-sep); }
     .ad-row.is-highlighted { background: color-mix(in srgb, var(--ad-accent) 9%, transparent); }
     .ad-row-empty { color: var(--text-secondary); font-size: 12px; }
     .ad-row-empty > span:only-child { padding: 6px 2px; }
 
-    .ad-glyph { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 15px; }
+    .ad-glyph { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius-md); background: var(--surface-well); color: var(--text-secondary); font-size: 15px; }
     .ad-glyph.is-live { color: var(--ad-accent-ink); background: color-mix(in srgb, var(--ad-accent) 16%, transparent); }
     .ad-glyph.is-hint { background: transparent; border: 1px dashed var(--ad-sep); }
     .ad-text { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
@@ -252,32 +265,32 @@ connection. Addresses and ports stay out of the way unless the network forces a 
     .ad-trailing { display: flex; flex: none; align-items: center; gap: 10px; }
     .ad-status { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11.5px; white-space: nowrap; }
     .ad-status i { font-size: 11px; }
-    .ad-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); opacity: 0.6; }
+    .ad-dot { width: 7px; height: 7px; border-radius: var(--radius-pill); background: var(--text-muted); opacity: 0.6; }
     .ad-dot.is-live { background: var(--ad-live); opacity: 1; }
     .ad-working { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11.5px; white-space: nowrap; }
     .ad-hint { color: var(--text-muted); font-size: 11.5px; white-space: nowrap; }
 
-    .ad-btn { height: 24px; padding: 0 11px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease; }
+    .ad-btn { min-height: var(--control-height-sm); padding: 0 11px; border: 1px solid var(--border-control); border-radius: var(--radius-sm); background: var(--surface-control); color: var(--text-primary); font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease; }
     .ad-btn:hover:not(:disabled) { border-color: var(--text-muted); }
     .ad-btn.is-primary { border-color: transparent; background: color-mix(in srgb, var(--ad-accent) 18%, transparent); color: var(--ad-accent-ink); font-weight: 600; }
     .ad-btn.is-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--ad-accent) 28%, transparent); }
     .ad-btn:disabled { opacity: 0.45; cursor: default; }
-    .ad input { box-sizing: border-box; height: 24px; padding: 0 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font: inherit; font-size: 12px; }
+    .ad input:not([type="checkbox"]) { box-sizing: border-box; font-size: 12px; }
     .ad input::placeholder { color: var(--text-muted); opacity: 1; }
     .ad input:disabled { opacity: 0.6; }
     .ad input.ad-code { width: 84px; font-family: ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.12em; text-align: center; }
 
-    .ad-banner { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 16px; padding: 11px 13px; border-radius: 10px; background: var(--ad-card); font-size: 12px; line-height: 1.45; }
-    .ad-banner > i { margin-top: 2px; color: var(--text-secondary); }
+    .ad-banner { margin-bottom: 16px; font-size: 12px; }
+    .ad-banner > i { margin-top: 2px; color: inherit; }
     .ad-banner div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-    .ad-banner span { color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .ad-banner span { color: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
     .ad-banner.is-ok > i { color: var(--ad-live); }
     .ad-banner.is-error > i, .ad-banner.is-error strong { color: var(--ad-danger); }
     .ad-banner.is-inline { margin-bottom: 8px; }
     .ad-banner .ad-btn { align-self: flex-start; margin-top: 6px; }
 
     .ad-manual { margin-top: 20px; }
-    .ad-manual summary { display: inline-flex; align-items: center; gap: 7px; margin-left: -4px; padding: 3px 4px; border-radius: 6px; color: var(--text-secondary); font-size: 12px; font-weight: 500; list-style: none; cursor: pointer; }
+    .ad-manual summary { display: inline-flex; align-items: center; gap: 7px; margin-left: -4px; padding: 3px 4px; border-radius: var(--radius-sm); color: var(--text-secondary); font-size: 12px; font-weight: 500; list-style: none; cursor: pointer; }
     .ad-manual summary::-webkit-details-marker { display: none; }
     .ad-manual summary:hover { color: var(--text-primary); }
     .ad-manual summary i { font-size: 9px; transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1); }
@@ -292,26 +305,36 @@ connection. Addresses and ports stay out of the way unless the network forces a 
     .ad-field-help { flex-basis: 100%; color: var(--text-muted); font-size: 11px; }
     .ad-manual > .ad-note { margin: 10px 2px 0; }
 
-    .ad-back { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 6px -6px; padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--ad-accent-ink); font-weight: 500; cursor: pointer; }
+    .ad-back { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 6px -6px; padding: 4px 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ad-accent-ink); font-weight: 500; cursor: pointer; }
     .ad-back i { font-size: 11px; }
-    .ad-back:hover:not(:disabled) { background: var(--bg-hover); }
+    .ad-back:hover:not(:disabled) { background: var(--surface-card-hover); }
     .ad-back:disabled { opacity: 0.45; cursor: default; }
     .ad-hero { padding: 4px 0 16px; text-align: center; }
     .ad-hero h2 { margin: 0 0 5px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
     .ad-hero p { max-width: 46ch; margin: 0 auto; color: var(--text-secondary); line-height: 1.45; }
     .ad-hero p i { margin-right: 4px; font-size: 11px; }
-    .ad-qr { display: block; width: 176px; max-width: 100%; height: auto; margin: 0 auto 10px; border-radius: 10px; background: #fff; image-rendering: pixelated; }
+    .ad-qr { display: block; width: 176px; max-width: 100%; height: auto; margin: 0 auto 10px; border-radius: var(--radius-lg); background: var(--surface-control); image-rendering: pixelated; }
     .ad-beacon { display: flex; align-items: center; justify-content: center; gap: 22px; margin-bottom: 14px; color: var(--text-primary); font-size: 28px; }
     .ad-beacon-wave { display: grid; place-items: center; width: 40px; height: 40px; color: var(--ad-accent-ink); font-size: 17px; }
 
-    .ad-step { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin: 0 5px; border-radius: 50%; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 11px; font-weight: 600; }
-    .ad-steps .ad-row + .ad-row::before { left: 50px; }
+    .ad-step { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin: 0 5px; border-radius: var(--radius-pill); background: var(--surface-well); color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+    .ad-steps .ad-row + .ad-row::before { inset-inline: 50px var(--row-padding-x); }
     .ad-steps .ad-row { min-height: 46px; padding-block: 7px; }
     .ad-steps .ad-meta { white-space: normal; }
     .ad-caution { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
     .ad-caution > i { margin-top: 3px; }
     .ad-caution strong { color: var(--text-primary); font-weight: 600; }
     .is-qr .ad-banner { margin: 14px 0 0; }
+
+    .platform-macos .ad-list,
+    .platform-macos .ad-banner,
+    .platform-macos .ad-btn,
+    .platform-macos .ad input:not([type="checkbox"]),
+    .platform-macos .ad-qr {
+        border-color: transparent;
+        box-shadow: none;
+        corner-shape: squircle;
+    }
 </style>
 
 @code {
@@ -355,7 +378,7 @@ connection. Addresses and ports stay out of the way unless the network forces a 
         @<text>
             @if (adbBlocked)
             {
-                <div class="ad-banner is-error" role="alert">
+                <div class="ad-banner sherpa-banner sherpa-banner-danger is-error" role="alert">
                     <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                     <div>
                         <strong>macOS is blocking ADB from your network</strong>
@@ -368,7 +391,7 @@ connection. Addresses and ports stay out of the way unless the network forces a 
             }
             else if (adbNotice != null)
             {
-                <div class="ad-banner" role="status">
+                <div class="ad-banner sherpa-banner sherpa-banner-info" role="status">
                     <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                     <div><strong>ADB restarted</strong><span>@adbNotice</span></div>
                 </div>
@@ -403,7 +426,7 @@ connection. Addresses and ports stay out of the way unless the network forces a 
                 @if (codeKey == key)
                 {
                     <form class="ad-trailing" @onsubmit="() => PairCodeAsync(s)" @onsubmit:preventDefault="true">
-                        <input class="ad-code" type="password" inputmode="numeric" maxlength="6" autocomplete="off"
+                        <input class="ad-code sherpa-input" type="password" inputmode="numeric" maxlength="6" autocomplete="off"
                                @ref="codeInput" @bind="code" @bind:event="oninput" aria-label="Six-digit pairing code" />
                         <button type="button" class="ad-btn" @onclick="CancelCode">Cancel</button>
                         <button type="submit" class="ad-btn is-primary" disabled="@(!IsSixDigits(code))">Pair</button>

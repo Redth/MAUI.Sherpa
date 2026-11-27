@@ -345,8 +345,7 @@ public class PublishProfileServiceTests
             Convert.ToBase64String(new byte[] { 0x20, 0x21 }));
 
         var combinedP12 = Convert.FromBase64String(secrets["APPLE_IOS_APPSTORE_CERTIFICATE_P12"]);
-        var combinedCertificates = new X509Certificate2Collection();
-        combinedCertificates.Import(
+        var combinedCertificates = X509CertificateLoader.LoadPkcs12Collection(
             combinedP12,
             secrets["APPLE_IOS_APPSTORE_CERTIFICATE_PASSWORD"],
             X509KeyStorageFlags.DefaultKeySet);

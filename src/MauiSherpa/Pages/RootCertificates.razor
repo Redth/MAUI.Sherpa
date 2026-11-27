@@ -12,12 +12,12 @@
 @inject IToolbarService ToolbarService
 @implements IDisposable
 
-<h1><i class="fas fa-shield-alt"></i> Apple Root & Intermediate Certificates</h1>
+<h1><i class="fa-solid fa-fw fa-shield-halved"></i> Apple Root & Intermediate Certificates</h1>
 
 @if (!CertService.IsSupported)
 {
     <div class="not-supported">
-        <div class="warning-icon"><i class="fas fa-exclamation-triangle"></i></div>
+        <div class="warning-icon"><i class="fa-solid fa-fw fa-triangle-exclamation"></i></div>
         <h2>macOS Only</h2>
         <p>Certificate management is only available on macOS.</p>
     </div>
@@ -41,10 +41,10 @@ else
     {
     <div class="header-actions">
         <button class="btn btn-secondary btn-sm" @onclick="() => RefreshInstalledCerts(forceRefresh: true)" disabled="@isLoading">
-            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+            <i class="fa-solid fa-fw @(isLoading ? "fa-spinner fa-spin" : "fa-arrows-rotate")"></i> Refresh
         </button>
         <button class="btn btn-primary btn-sm" @onclick="InstallAllMissing" disabled="@(isLoading || !HasMissingCerts())">
-            <i class="fas fa-download"></i> Install All Missing
+            <i class="fa-solid fa-fw fa-download"></i> Install All Missing
         </button>
     </div>
     }
@@ -52,45 +52,50 @@ else
     var rootCerts = availableCerts.Where(c => c.Type == "Root").ToList();
     var intermediateCerts = availableCerts.Where(c => c.Type == "Intermediate").ToList();
 
-    <h2 class="section-heading">Root Certificates</h2>
-    <div class="cert-list">
-        @if (isLoading && availableCerts.Count == 0)
+    <div class="sherpa-section-header">
+        <h2 class="sherpa-section-title"><i class="fa-solid fa-shield-halved fa-fw"></i> Root Certificates</h2>
+    </div>
+    <div class="root-cert-list sherpa-list">
+        @if (!hasLoaded || (isLoading && availableCerts.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner">
-                    <i class="fas fa-shield-alt"></i>
-                </div>
-                <div class="loading-title">Loading Certificates</div>
-                <div class="loading-description">Checking Apple root certificates...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading Apple root certificates..." />
         }
         else
         {
             @foreach (var cert in rootCerts)
             {
                 var isInstalled = IsCertInstalled(cert);
-                <div class="cert-item @(isInstalled ? "installed" : "not-installed")">
-                    <div class="cert-icon"><i class="fas @(isInstalled ? "fa-check-circle" : "fa-square")"></i></div>
-                    <div class="cert-info">
-                        <div class="cert-name">@cert.Name</div>
+                <div class="root-cert-row sherpa-list-row @(isInstalled ? "installed" : "not-installed")">
+                    <div class="root-cert-icon sherpa-icon-well sherpa-icon-well-apple">
+                        <i class="fa-solid fa-shield-halved"></i>
+                        <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
+                    </div>
+                    <div class="cert-info sherpa-row-stack">
+                        <div class="cert-name sherpa-row-title">
+                            <span>@cert.Name</span>
+                            <span class="sherpa-badge @(isInstalled ? "sherpa-badge-success" : "sherpa-badge-warning")">
+                                <span class="sherpa-dot @(isInstalled ? "sherpa-dot-success" : "sherpa-dot-warning")"></span>
+                                @(isInstalled ? "Installed" : "Missing")
+                            </span>
+                        </div>
                         @if (!string.IsNullOrEmpty(cert.Description))
                         {
-                            <div class="cert-details">@cert.Description</div>
+                            <div class="cert-details sherpa-row-sub">@cert.Description</div>
                         }
                     </div>
-                    <div class="cert-actions">
+                    <div class="cert-actions sherpa-row-actions">
                         @if (installingCerts.Contains(cert.Name))
                         {
                             <span class="installing"><span class="spinner-small"></span> Installing...</span>
                         }
                         else if (isInstalled)
                         {
-                            <span class="status-installed"><i class="fas fa-check"></i> Installed</span>
+                            <span class="status-installed"><i class="fa-solid fa-fw fa-check"></i> Ready</span>
                         }
                         else
                         {
                             <button class="btn btn-sm btn-primary" @onclick="@(() => InstallCert(cert))" disabled="@isLoading">
-                                <i class="fas fa-download"></i> Install
+                                <i class="fa-solid fa-fw fa-download"></i> Install
                             </button>
                         }
                     </div>
@@ -99,45 +104,50 @@ else
         }
     </div>
 
-    <h2 class="section-heading">Intermediate Certificates</h2>
-    <div class="cert-list">
-        @if (isLoading && availableCerts.Count == 0)
+    <div class="sherpa-section-header">
+        <h2 class="sherpa-section-title"><i class="fa-solid fa-link fa-fw"></i> Intermediate Certificates</h2>
+    </div>
+    <div class="root-cert-list sherpa-list">
+        @if (!hasLoaded || (isLoading && availableCerts.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner">
-                    <i class="fas fa-shield-alt"></i>
-                </div>
-                <div class="loading-title">Loading Certificates</div>
-                <div class="loading-description">Checking intermediate certificates...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading Apple root certificates..." />
         }
         else
         {
             @foreach (var cert in intermediateCerts)
             {
                 var isInstalled = IsCertInstalled(cert);
-                <div class="cert-item @(isInstalled ? "installed" : "not-installed")">
-                    <div class="cert-icon"><i class="fas @(isInstalled ? "fa-check-circle" : "fa-square")"></i></div>
-                    <div class="cert-info">
-                        <div class="cert-name">@cert.Name</div>
+                <div class="root-cert-row sherpa-list-row @(isInstalled ? "installed" : "not-installed")">
+                    <div class="root-cert-icon sherpa-icon-well sherpa-icon-well-apple">
+                        <i class="fa-solid fa-certificate"></i>
+                        <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
+                    </div>
+                    <div class="cert-info sherpa-row-stack">
+                        <div class="cert-name sherpa-row-title">
+                            <span>@cert.Name</span>
+                            <span class="sherpa-badge @(isInstalled ? "sherpa-badge-success" : "sherpa-badge-warning")">
+                                <span class="sherpa-dot @(isInstalled ? "sherpa-dot-success" : "sherpa-dot-warning")"></span>
+                                @(isInstalled ? "Installed" : "Missing")
+                            </span>
+                        </div>
                         @if (!string.IsNullOrEmpty(cert.Description))
                         {
-                            <div class="cert-details">@cert.Description</div>
+                            <div class="cert-details sherpa-row-sub">@cert.Description</div>
                         }
                     </div>
-                    <div class="cert-actions">
+                    <div class="cert-actions sherpa-row-actions">
                         @if (installingCerts.Contains(cert.Name))
                         {
                             <span class="installing"><span class="spinner-small"></span> Installing...</span>
                         }
                         else if (isInstalled)
                         {
-                            <span class="status-installed"><i class="fas fa-check"></i> Installed</span>
+                            <span class="status-installed"><i class="fa-solid fa-fw fa-check"></i> Ready</span>
                         }
                         else
                         {
                             <button class="btn btn-sm btn-primary" @onclick="@(() => InstallCert(cert))" disabled="@isLoading">
-                                <i class="fas fa-download"></i> Install
+                                <i class="fa-solid fa-fw fa-download"></i> Install
                             </button>
                         }
                     </div>
@@ -148,12 +158,6 @@ else
 }
 
 <style>
-    h1 {
-        margin-bottom: 0.5rem;
-        font-size: 1.75rem;
-        color: var(--text-primary);
-    }
-
     .page-description {
         color: var(--text-muted);
         margin-bottom: 1.5rem;
@@ -163,20 +167,20 @@ else
         text-align: center;
         padding: 3.75rem 1.25rem;
         background: var(--status-error-bg);
-        border-radius: 0.75rem;
-        border: 1px solid var(--accent-danger);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--status-error-border);
     }
 
     .not-supported .warning-icon {
         font-size: 48px;
         margin-bottom: 1rem;
-        color: var(--accent-warning);
+        color: var(--status-warning-fg);
     }
 
     .not-supported .warning-icon i { font-size: 48px; }
 
     .not-supported h2 {
-        color: var(--accent-danger);
+        color: var(--status-error-fg);
         margin-bottom: 0.5rem;
     }
 
@@ -190,8 +194,9 @@ else
         gap: 0.75rem;
         padding: 1.25rem;
         background: var(--status-info-bg);
-        color: var(--status-info-text);
-        border-radius: var(--card-radius);
+        color: var(--status-info-fg);
+        border: 1px solid var(--status-info-border);
+        border-radius: var(--radius-lg);
         margin-bottom: 1.25rem;
     }
 
@@ -201,72 +206,35 @@ else
         margin-bottom: 1.25rem;
     }
 
-    .section-heading {
-        font-size: 1rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin: 1.25rem 0 0.5rem 0;
+    .sherpa-section-header {
+        margin-block: var(--space-6) var(--space-2);
     }
 
-    .cert-list {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
+    .root-cert-list {
+        margin-bottom: var(--space-4);
     }
 
-    .cert-item {
-        display: flex;
+    .root-cert-row {
         align-items: center;
-        gap: 0.75rem;
-        padding: 0.75rem 1rem;
-        border-radius: var(--card-radius);
-        transition: all 0.15s;
     }
-
-    .cert-item.installed {
-        background: var(--status-success-bg);
-    }
-
-    .cert-item.not-installed {
-        background: var(--status-warning-bg);
-    }
-
-    .cert-icon {
-        font-size: 1.25rem;
-        flex-shrink: 0;
-        width: 1.5rem;
-        text-align: center;
-    }
-
-    .cert-icon .fa-check-circle { color: var(--accent-success); }
-    .cert-icon .fa-square { color: var(--bg-hover); }
 
     .cert-info {
-        flex: 1;
         min-width: 0;
     }
 
     .cert-name {
-        font-weight: 500;
-        color: var(--text-primary);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        display: flex;
+        align-items: center;
+        gap: 6px;
     }
 
     .cert-details {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-        margin-top: 2px;
-    }
-
-    .cert-actions {
-        flex-shrink: 0;
+        white-space: normal;
     }
 
     .status-installed {
-        color: var(--accent-success-hover);
-        font-size: 0.8125rem;
+        color: var(--status-success-fg);
+        font-size: var(--font-size-xs);
         font-weight: 500;
     }
 
@@ -274,7 +242,7 @@ else
         display: flex;
         align-items: center;
         gap: 0.375rem;
-        color: var(--accent-primary);
+        color: var(--accent);
         font-size: 0.8125rem;
     }
 
@@ -287,8 +255,8 @@ else
     .spinner {
         width: 1.25rem;
         height: 1.25rem;
-        border: 2px solid var(--border-color);
-        border-top-color: var(--accent-primary);
+        border: 2px solid var(--border-subtle);
+        border-top-color: var(--accent);
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
     }
@@ -297,8 +265,8 @@ else
         display: inline-block;
         width: 0.875rem;
         height: 0.875rem;
-        border: 2px solid var(--border-color);
-        border-top-color: var(--accent-primary);
+        border: 2px solid var(--border-subtle);
+        border-top-color: var(--accent);
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
     }
@@ -315,14 +283,15 @@ else
     private HashSet<string> installingCerts = new();
     private IReadOnlyDictionary<string, MauiSherpa.Core.Services.CachedCertInfo>? cachedCerts;
     private bool isLoading = false;
+    private bool hasLoaded;
     private string statusMessage = "";
 
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.ClearItems();
         ToolbarService.SetItems(
-            new ToolbarAction("install-missing", "Install Missing", "fa-download"),
-            new ToolbarAction("refresh", "Refresh", "fa-sync-alt")
+            new ToolbarAction("install-missing", "Install Missing", "arrow.down.circle"),
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
         );
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
 
@@ -387,6 +356,7 @@ else
         }
         finally
         {
+            hasLoaded = true;
             isLoading = false;
             statusMessage = "";
             if (toast != null) ToastService.Dismiss(toast);

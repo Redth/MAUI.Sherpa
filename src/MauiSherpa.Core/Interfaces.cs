@@ -589,6 +589,12 @@ public interface IOpenJdkSettingsService
 public record OpenJdkRelease(int MajorVersion, string Version, Uri DownloadUrl);
 public record OpenJdkInstallation(string Path, string Version, bool IsMicrosoft, bool IsManaged, bool IsActive);
 public record OpenJdkUpdate(OpenJdkInstallation Installed, OpenJdkRelease Available);
+public record OpenJdkInstallProgress(
+    string Message,
+    int? Percent = null,
+    long? BytesDownloaded = null,
+    long? TotalBytes = null,
+    bool LogToOutput = true);
 
 public interface IOpenJdkService
 {
@@ -598,6 +604,11 @@ public interface IOpenJdkService
     Task<IReadOnlyList<OpenJdkRelease>> GetReleasesAsync(bool forceRefresh = false, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<OpenJdkInstallation>> GetInstallationsAsync(CancellationToken cancellationToken = default);
     Task<string> InstallAsync(int majorVersion, IProgress<string>? progress = null, CancellationToken cancellationToken = default);
+    Task<string> InstallAsync(int majorVersion, IProgress<OpenJdkInstallProgress>? progress, CancellationToken cancellationToken = default) =>
+        InstallAsync(
+            majorVersion,
+            progress is null ? null : new Progress<string>(message => progress.Report(new OpenJdkInstallProgress(message))),
+            cancellationToken);
     Task UninstallAsync(string path, CancellationToken cancellationToken = default);
     Task CheckForUpdatesAsync(CancellationToken cancellationToken = default);
     void StartUpdateChecks();
@@ -4786,6 +4797,9 @@ public record ApnsPushProjectConfig
     public string? P8KeyId { get; init; }
     /// <summary>Managed secret key holding the .p8 content when AuthMode is "secret".</summary>
     public string? P8SecretKey { get; init; }
+    public string? P8VaultKey { get; init; }
+    public string? KeyIdSecretKey { get; init; }
+    public string? TeamIdSecretKey { get; init; }
     public string? TeamId { get; init; }
     public string PushType { get; init; } = "alert";
     public int Priority { get; init; } = 5;
@@ -4800,7 +4814,11 @@ public record ApnsPushProjectConfig
 
 public record FcmPushProjectConfig
 {
+    public string? AuthMode { get; init; } = "identity";
     public string? SelectedGoogleIdentityId { get; init; }
+    public string? ServiceAccountFilePath { get; init; }
+    public string? ServiceAccountSecretKey { get; init; }
+    public string? ServiceAccountVaultKey { get; init; }
     public bool UseToken { get; init; } = true;
     public string? DeviceToken { get; init; }
     public string? Topic { get; init; }
@@ -4924,6 +4942,59 @@ public record AppPreferences
     public string XcodeSelectionAction { get; init; } = XcodeSelectionActionOptions.Rename;
     public bool XcodeCreateSymlinkOnSelect { get; init; } = false;
     public string ProvisioningProfilesDirectory { get; init; } = ProvisioningProfilesDirectoryOptions.Auto;
+    public string? DotnetToolNuGetFeedUrl { get; init; }
+}
+
+public static class DotnetToolNuGetFeedOptions
+{
+    public const string DefaultFeedUrl = "https://api.nuget.org/v3/index.json";
+
+    public static string? Normalize(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var trimmed = value.Trim();
+
+        // NuGet.Protocol and `dotnet tool --source` treat HTTP(S) URLs that don't end with .json as v2 OData feeds.
+        // Auto-expand bare host URLs (e.g. https://nuget.example.com) and /v3 paths to their v3 service index.
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) &&
+            (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) &&
+            string.IsNullOrEmpty(uri.Query) &&
+            string.IsNullOrEmpty(uri.Fragment))
+        {
+            var path = uri.AbsolutePath.TrimEnd('/');
+            if (path.Length == 0)
+            {
+                trimmed = new UriBuilder(uri) { Path = "/v3/index.json" }.Uri.AbsoluteUri;
+            }
+            else if (path.EndsWith("/v3", StringComparison.OrdinalIgnoreCase))
+            {
+                trimmed = new UriBuilder(uri) { Path = path + "/index.json" }.Uri.AbsoluteUri;
+            }
+        }
+
+        return string.Equals(trimmed, DefaultFeedUrl, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : trimmed;
+    }
+
+    public static bool IsValid(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return true;
+
+        var trimmed = value.Trim();
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) &&
+            (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+        {
+            return !string.IsNullOrWhiteSpace(uri.Host);
+        }
+
+        return Path.IsPathRooted(trimmed);
+    }
 }
 
 public static class XcodeArchiveExtractorOptions
@@ -5327,7 +5398,7 @@ public record ApnsPushResult(
 /// Represents a toolbar action that can be displayed in the native macOS toolbar.
 /// </summary>
 public record ToolbarAction(string Id, string Label, string SfSymbol, bool IsPrimary = true, string? ToolTip = null,
-    IReadOnlyList<ToolbarAction>? MenuActions = null);
+    IReadOnlyList<ToolbarAction>? MenuActions = null, bool IsSeparator = false);
 
 /// <summary>Describes a filter dropdown for the native toolbar.</summary>
 public record ToolbarFilter(string Id, string Label, string[] Options, int SelectedIndex = 0);

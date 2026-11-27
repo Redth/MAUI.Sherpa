@@ -618,8 +618,7 @@ public class PublishProfileService : IPublishProfileService
         {
             foreach (var bundle in bundles)
             {
-                var imported = new X509Certificate2Collection();
-                imported.Import(
+                var imported = X509CertificateLoader.LoadPkcs12Collection(
                     bundle.P12,
                     bundle.Password,
                     X509KeyStorageFlags.Exportable);

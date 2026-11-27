@@ -1,0 +1,455 @@
+@page "/modal/create-emulator"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@using System.Runtime.InteropServices
+@inject HybridFormBridgeHolder BridgeHolder
+@implements IDisposable
+
+@if (bridge != null)
+{
+    <div class="sherpa-form">
+        <div class="sherpa-field">
+            <div class="sherpa-field-header">
+                <label class="sherpa-field-label" for="emulator-name">Emulator Name</label>
+            </div>
+            <input id="emulator-name"
+                   type="text"
+                   class="sherpa-input"
+                   value="@emulatorName"
+                   @oninput="OnNameChanged"
+                   placeholder="My Emulator" />
+            <span class="sherpa-field-help">Spaces are replaced with underscores for the AVD folder name.</span>
+        </div>
+
+        <div class="sherpa-form-grid-2">
+            <div class="sherpa-field">
+                <label class="sherpa-field-label">
+                    <i class="fa-brands fa-android fa-fw" aria-hidden="true"></i>
+                    API Level
+                </label>
+                <SherpaSelect TValue="string"
+                              Value="@selectedApiLevel"
+                              ValueChanged="OnApiLevelChanged"
+                              Options="ApiLevelOptions"
+                              Placeholder="Select API level..."
+                              AriaLabel="Android API level"
+                              Class="sherpa-select-full" />
+            </div>
+
+            <div class="sherpa-field">
+                <label class="sherpa-field-label">Image Variant</label>
+                <SherpaSelect TValue="string"
+                              Value="@selectedSystemImage"
+                              ValueChanged="OnVariantChanged"
+                              Options="VariantOptions"
+                              Placeholder="@VariantPlaceholder"
+                              AriaLabel="Android system image variant"
+                              Disabled="@(selectedApiLevel == null || filteredVariants.Count == 0)"
+                              Class="sherpa-select-full" />
+            </div>
+        </div>
+
+        @if (SelectedImage is { IsInstalled: false } image)
+        {
+            <div class="sherpa-banner sherpa-banner-info" role="status">
+                <i class="fa-solid fa-cloud-arrow-down fa-fw" aria-hidden="true"></i>
+                <span><strong>@GetVariantDisplayName(image.Variant)</strong> will be downloaded before the emulator is created.</span>
+            </div>
+        }
+
+        <div class="sherpa-field">
+            <label class="sherpa-field-label">Device Profile</label>
+            <SherpaSelect TValue="string"
+                          Value="@selectedDeviceId"
+                          ValueChanged="OnDeviceChanged"
+                          Options="DeviceOptions"
+                          Placeholder="(Default)"
+                          AriaLabel="Emulator device profile"
+                          Searchable="true"
+                          Class="sherpa-select-full" />
+        </div>
+
+        <div class="sherpa-disclosure @(hardwareExpanded ? "open" : null)">
+            <button type="button"
+                    class="sherpa-disclosure-head"
+                    aria-expanded="@hardwareExpanded.ToString().ToLowerInvariant()"
+                    @onclick="ToggleHardware">
+                <span class="sherpa-disclosure-lead">
+                    <i class="fa-solid fa-chevron-right fa-fw sherpa-disclosure-chev" aria-hidden="true"></i>
+                    <i class="fa-solid fa-microchip fa-fw" aria-hidden="true"></i>
+                    <span>Hardware &amp; Storage</span>
+                </span>
+                <span class="sherpa-badge @(HasCustomHardware ? "sherpa-badge-accent" : "sherpa-badge-neutral")">
+                    @(HasCustomHardware ? "Customized" : "Defaults")
+                </span>
+            </button>
+            @if (hardwareExpanded)
+            {
+                <div class="sherpa-disclosure-body">
+                    <div class="sherpa-form-grid-2">
+                        <div class="sherpa-field">
+                            <label class="sherpa-field-label">RAM</label>
+                            <SherpaSelect TValue="string"
+                                          Value="@ramSelection"
+                                          ValueChanged="OnRamChanged"
+                                          Options="RamOptions"
+                                          AriaLabel="Emulator RAM"
+                                          Class="sherpa-select-full" />
+                        </div>
+                        <div class="sherpa-field">
+                            <label class="sherpa-field-label">Internal Storage</label>
+                            <SherpaSelect TValue="string"
+                                          Value="@storageSelection"
+                                          ValueChanged="OnStorageChanged"
+                                          Options="StorageOptions"
+                                          AriaLabel="Emulator internal storage"
+                                          Class="sherpa-select-full" />
+                        </div>
+                        <div class="sherpa-field">
+                            <label class="sherpa-field-label">SD Card</label>
+                            <SherpaSelect TValue="string"
+                                          Value="@sdCardSelection"
+                                          ValueChanged="OnSdCardChanged"
+                                          Options="SdCardOptions"
+                                          AriaLabel="Emulator SD card"
+                                          Class="sherpa-select-full" />
+                        </div>
+                        @if (skins.Count > 0)
+                        {
+                            <div class="sherpa-field">
+                                <label class="sherpa-field-label">Skin</label>
+                                <SherpaSelect TValue="string"
+                                              Value="@selectedSkin"
+                                              ValueChanged="OnSkinChanged"
+                                              Options="SkinOptions"
+                                              AriaLabel="Emulator skin"
+                                              Searchable="true"
+                                              Class="sherpa-select-full" />
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private HybridFormBridge? bridge;
+    private string emulatorName = "";
+    private List<AvdDeviceDefinition> deviceDefinitions = [];
+    private List<string> skins = [];
+    private List<ImageEntry> allImages = [];
+    private List<string> apiLevels = [];
+    private List<ImageEntry> filteredVariants = [];
+    private string? selectedApiLevel;
+    private string? selectedSystemImage;
+    private string selectedDeviceId = "";
+    private string ramSelection = "default";
+    private string storageSelection = "default";
+    private string sdCardSelection = "none";
+    private string selectedSkin = "";
+    private bool hardwareExpanded;
+
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> RamOptions =
+    [
+        new("default", "(Default)"),
+        new("1024", "1 GB"),
+        new("2048", "2 GB"),
+        new("3072", "3 GB"),
+        new("4096", "4 GB")
+    ];
+
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> StorageOptions =
+    [
+        new("default", "(Default)"),
+        new("2048", "2 GB"),
+        new("4096", "4 GB"),
+        new("6144", "6 GB"),
+        new("8192", "8 GB")
+    ];
+
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> SdCardOptions =
+    [
+        new("none", "None"),
+        new("128M", "128 MB"),
+        new("256M", "256 MB"),
+        new("512M", "512 MB"),
+        new("1G", "1 GB"),
+        new("2G", "2 GB")
+    ];
+
+    private static readonly Dictionary<string, string> VariantDisplayNames = new()
+    {
+        ["default"] = "Default (AOSP)",
+        ["google_apis"] = "Google APIs",
+        ["google_apis_tablet"] = "Google APIs (Tablet)",
+        ["google_apis_playstore"] = "Google Play",
+        ["google_apis_playstore_tablet"] = "Google Play (Tablet)",
+        ["google_apis_playstore_ps16k"] = "Google Play (16K pages)",
+        ["google_apis_ps16k"] = "Google APIs (16K pages)",
+        ["google_atd"] = "Google ATD (Automated Test)",
+        ["aosp_atd"] = "AOSP ATD (Automated Test)",
+        ["android-tv"] = "Android TV",
+        ["google-tv"] = "Google TV",
+        ["google-xr"] = "Google XR",
+        ["android-desktop"] = "Android Desktop",
+        ["android-wear"] = "Wear OS",
+        ["android-wear-cn"] = "Wear OS (China)",
+        ["android-wear-signed"] = "Wear OS (Signed)",
+        ["android-automotive"] = "Android Automotive",
+        ["android-automotive-playstore"] = "Android Automotive (Play Store)",
+        ["android-automotive-distant-display-playstore"] = "Android Automotive (Distant Display)"
+    };
+
+    private IReadOnlyList<SherpaSelectOption<string>> ApiLevelOptions =>
+        apiLevels.Select(apiLevel =>
+        {
+            var installedCount = allImages.Count(image => image.ApiLevel == apiLevel && image.IsInstalled);
+            var installedDescription = installedCount > 0
+                ? $"{installedCount} installed image{(installedCount == 1 ? "" : "s")}"
+                : "Available for download";
+            return new SherpaSelectOption<string>(
+                apiLevel,
+                FormatApiLevel(apiLevel),
+                installedDescription,
+                DotCssClass: installedCount > 0 ? "sherpa-dot-success" : "sherpa-dot-muted");
+        }).ToArray();
+
+    private IReadOnlyList<SherpaSelectOption<string>> VariantOptions =>
+        filteredVariants.Select(image => new SherpaSelectOption<string>(
+            image.FullPath,
+            $"{GetVariantDisplayName(image.Variant)} ({image.Arch})",
+            image.IsInstalled ? "Installed locally" : "Will download before creating",
+            DotCssClass: image.IsInstalled ? "sherpa-dot-success" : "sherpa-dot-warning")).ToArray();
+
+    private IReadOnlyList<SherpaSelectOption<string>> DeviceOptions =>
+    [
+        new("", "(Default)", "Use the system image default", Icon: "fa-solid fa-mobile-screen-button"),
+        .. deviceDefinitions.Select(device => new SherpaSelectOption<string>(
+            device.Id,
+            device.Name,
+            string.IsNullOrWhiteSpace(device.Oem) ? null : device.Oem,
+            Icon: IsTablet(device.Name) ? "fa-solid fa-tablet-screen-button" : "fa-solid fa-mobile-screen-button"))
+    ];
+
+    private IReadOnlyList<SherpaSelectOption<string>> SkinOptions =>
+    [
+        new("", "(None)"),
+        .. skins.Select(skin => new SherpaSelectOption<string>(skin, skin))
+    ];
+
+    private ImageEntry? SelectedImage =>
+        selectedSystemImage == null
+            ? null
+            : filteredVariants.FirstOrDefault(image => image.FullPath == selectedSystemImage);
+
+    private string VariantPlaceholder =>
+        selectedApiLevel == null
+            ? "Select API level first..."
+            : filteredVariants.Count == 0
+                ? "No images for this API level"
+                : "Select variant...";
+
+    private bool HasCustomHardware =>
+        ramSelection != "default" ||
+        storageSelection != "default" ||
+        sdCardSelection != "none" ||
+        !string.IsNullOrEmpty(selectedSkin);
+
+    private bool CanSubmit =>
+        !string.IsNullOrWhiteSpace(emulatorName) &&
+        selectedApiLevel != null &&
+        SelectedImage != null;
+
+    protected override void OnInitialized()
+    {
+        bridge = BridgeHolder.Current;
+        if (bridge == null)
+            return;
+
+        var installedImages = GetParameterList<string>(bridge, "InstalledImages");
+        var availableImages = GetParameterList<string>(bridge, "AvailableImages");
+        deviceDefinitions = GetParameterList<AvdDeviceDefinition>(bridge, "DeviceDefinitions");
+        skins = GetParameterList<string>(bridge, "Skins");
+
+        allImages =
+        [
+            .. installedImages.Select(path => ImageEntry.Parse(path, true)).OfType<ImageEntry>(),
+            .. availableImages.Select(path => ImageEntry.Parse(path, false)).OfType<ImageEntry>()
+        ];
+        apiLevels = allImages
+            .Select(image => image.ApiLevel)
+            .Distinct(StringComparer.Ordinal)
+            .OrderByDescending(ParseApiNumber)
+            .ToList();
+
+        bridge.SubmitRequested += OnSubmitRequested;
+        UpdateValidity();
+    }
+
+    private static List<T> GetParameterList<T>(HybridFormBridge source, string key) =>
+        source.Parameters.GetValueOrDefault(key) is IEnumerable<T> values
+            ? values.ToList()
+            : [];
+
+    private void OnNameChanged(ChangeEventArgs args)
+    {
+        emulatorName = args.Value?.ToString() ?? "";
+        UpdateValidity();
+    }
+
+    private void OnApiLevelChanged(string? value)
+    {
+        selectedApiLevel = value;
+        selectedSystemImage = null;
+
+        if (value == null)
+        {
+            filteredVariants = [];
+            UpdateValidity();
+            return;
+        }
+
+        var hostArch = RuntimeInformation.OSArchitecture == Architecture.Arm64
+            ? "arm64-v8a"
+            : "x86_64";
+        filteredVariants = allImages
+            .Where(image => image.ApiLevel == value && image.Arch == hostArch)
+            .OrderBy(image => image.IsInstalled ? 0 : 1)
+            .ThenBy(image => image.Variant, StringComparer.Ordinal)
+            .ToList();
+        UpdateValidity();
+    }
+
+    private void OnVariantChanged(string? value)
+    {
+        selectedSystemImage = value;
+        UpdateValidity();
+    }
+
+    private void OnDeviceChanged(string? value)
+    {
+        selectedDeviceId = value ?? "";
+        UpdateValidity();
+    }
+
+    private void OnRamChanged(string? value)
+    {
+        ramSelection = value ?? "default";
+        UpdateValidity();
+    }
+
+    private void OnStorageChanged(string? value)
+    {
+        storageSelection = value ?? "default";
+        UpdateValidity();
+    }
+
+    private void OnSdCardChanged(string? value)
+    {
+        sdCardSelection = value ?? "none";
+        UpdateValidity();
+    }
+
+    private void OnSkinChanged(string? value)
+    {
+        selectedSkin = value ?? "";
+        UpdateValidity();
+    }
+
+    private void ToggleHardware() => hardwareExpanded = !hardwareExpanded;
+
+    private void UpdateValidity() => bridge?.SetValid(CanSubmit);
+
+    private Task OnSubmitRequested()
+    {
+        if (bridge == null)
+            return Task.CompletedTask;
+
+        var selected = SelectedImage
+            ?? throw new InvalidOperationException("Select a system image.");
+        bridge.Result = new EmulatorCreateResult(
+            Name: emulatorName.Trim().Replace(" ", "_"),
+            SystemImage: selected.FullPath,
+            NeedsInstall: !selected.IsInstalled,
+            Device: string.IsNullOrEmpty(selectedDeviceId) ? null : selectedDeviceId,
+            RamSizeMb: ParseOptionalInt(ramSelection),
+            InternalStorageMb: ParseOptionalInt(storageSelection),
+            SdCardSize: sdCardSelection == "none" ? null : sdCardSelection,
+            Skin: string.IsNullOrEmpty(selectedSkin) ? null : selectedSkin);
+        return Task.CompletedTask;
+    }
+
+    private static int? ParseOptionalInt(string value) =>
+        int.TryParse(value, out var parsed) ? parsed : null;
+
+    private static string FormatApiLevel(string apiLevel)
+    {
+        var number = ParseApiNumber(apiLevel);
+        var androidVersion = number switch
+        {
+            36 => "Android 16",
+            35 => "Android 15",
+            34 => "Android 14",
+            33 => "Android 13",
+            32 => "Android 12L",
+            31 => "Android 12",
+            30 => "Android 11",
+            29 => "Android 10",
+            28 => "Android 9",
+            27 => "Android 8.1",
+            26 => "Android 8.0",
+            25 => "Android 7.1",
+            24 => "Android 7.0",
+            _ => null
+        };
+        return androidVersion == null ? $"API {number}" : $"{androidVersion} (API {number})";
+    }
+
+    private static string GetVariantDisplayName(string variant)
+    {
+        if (VariantDisplayNames.TryGetValue(variant, out var name))
+            return name;
+
+        var words = variant
+            .Replace('_', ' ')
+            .Replace('-', ' ')
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        for (var index = 0; index < words.Length; index++)
+            words[index] = char.ToUpperInvariant(words[index][0]) + words[index][1..];
+        return string.Join(" ", words);
+    }
+
+    private static int ParseApiNumber(string apiLevel) =>
+        int.TryParse(apiLevel.Replace("android-", ""), out var number) ? number : 0;
+
+    private static bool IsTablet(string name) =>
+        name.Contains("tablet", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("pixel c", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("nexus 7", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("nexus 9", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("nexus 10", StringComparison.OrdinalIgnoreCase);
+
+    private sealed record ImageEntry(
+        string FullPath,
+        string ApiLevel,
+        string Variant,
+        string Arch,
+        bool IsInstalled)
+    {
+        public static ImageEntry? Parse(string path, bool isInstalled)
+        {
+            var parts = path.Split(';');
+            return parts.Length < 4
+                ? null
+                : new ImageEntry(path, parts[1], parts[2], parts[3], isInstalled);
+        }
+    }
+
+    public void Dispose()
+    {
+        if (bridge != null)
+            bridge.SubmitRequested -= OnSubmitRequested;
+    }
+}

@@ -201,6 +201,36 @@ public class OpenJdkServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Install_ReportsDownloadProgressAndCancelsImmediatelyMidStream()
+    {
+        handler.Catalog = Catalog("21.0.10.1");
+        using var cts = new CancellationTokenSource();
+        var progressReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        handler.CustomArchiveContent = () => new StallingStreamContent(
+            chunkSize: 64 * 1024,
+            totalLength: 256 * 1024,
+            onFirstChunkRead: () => { });
+
+        var updates = new List<OpenJdkInstallProgress>();
+        var progress = new ImmediateProgress<OpenJdkInstallProgress>(u =>
+        {
+            lock (updates) updates.Add(u);
+            if (u.BytesDownloaded > 0)
+                progressReceived.TrySetResult();
+        });
+
+        var installTask = service.InstallAsync(21, progress, cts.Token);
+        await progressReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cts.Cancel();
+
+        await FluentActions.Awaiting(() => installTask.WaitAsync(TimeSpan.FromSeconds(5)))
+            .Should().ThrowAsync<OperationCanceledException>();
+
+        updates.Should().Contain(u => u.BytesDownloaded > 0 && u.TotalBytes == 256 * 1024 && u.Percent > 0);
+        Directory.EnumerateDirectories(Path.Combine(root, "installed"), ".install-*").Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Uninstall_RemovesOnlyInactiveManagedJdks()
     {
         handler.Catalog = Catalog("21.0.10");
@@ -243,6 +273,7 @@ public class OpenJdkServiceTests : IDisposable
     {
         public string Catalog { get; set; } = "";
         public byte[] Archive { get; set; } = [];
+        public Func<HttpContent>? CustomArchiveContent { get; set; }
         public string Checksum { get; set; } = "";
         public bool FailCatalog { get; set; }
         public bool CancelArchive { get; set; }
@@ -262,7 +293,67 @@ public class OpenJdkServiceTests : IDisposable
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Checksum) });
             ArchiveRequests++;
             if (CancelArchive) throw new OperationCanceledException();
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Archive) });
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = CustomArchiveContent?.Invoke() ?? new ByteArrayContent(Archive) });
+        }
+    }
+
+    private sealed class ImmediateProgress<T>(Action<T> onReport) : IProgress<T>
+    {
+        public void Report(T value) => onReport(value);
+    }
+
+    private sealed class StallingStreamContent(int chunkSize, long totalLength, Action onFirstChunkRead) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            throw new NotSupportedException();
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = totalLength;
+            return true;
+        }
+
+        protected override Task<Stream> CreateContentReadStreamAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<Stream>(new StallingReadStream(chunkSize, totalLength, onFirstChunkRead));
+
+        private sealed class StallingReadStream(int chunkSize, long totalLength, Action onFirstChunkRead) : Stream
+        {
+            private bool sentFirstChunk;
+            private readonly TaskCompletionSource disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => totalLength;
+            public override long Position { get; set; }
+
+            public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                if (!sentFirstChunk)
+                {
+                    sentFirstChunk = true;
+                    var count = Math.Min(buffer.Length, chunkSize);
+                    buffer.Span[..count].Fill(0x42);
+                    Position += count;
+                    onFirstChunkRead();
+                    return count;
+                }
+
+                await disposed.Task.WaitAsync(cancellationToken);
+                return 0;
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                disposed.TrySetResult();
+                base.Dispose(disposing);
+            }
+
+            public override void Flush() { }
+            public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         }
     }
 }

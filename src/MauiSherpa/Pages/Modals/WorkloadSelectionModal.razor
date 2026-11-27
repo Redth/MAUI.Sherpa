@@ -22,15 +22,15 @@
         </p>
 
         <div class="search-box">
-            <i class="fas fa-magnifying-glass"></i>
+            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
             <input type="search" placeholder="Filter workloads" @bind="search" @bind:event="oninput" />
         </div>
 
         <div class="workload-groups">
-            <section class="workload-group remove-group">
+            <section class="workload-group sherpa-card sherpa-list remove-group">
                 <div class="group-heading">
                     <div>
-                        <i class="fas fa-box-archive"></i>
+                        <i class="fa-solid fa-box-archive"></i>
                         <div>
                             <strong>Installed</strong>
                             <span>Uncheck to uninstall</span>
@@ -46,13 +46,14 @@
                                    aria-label="@InstalledAriaLabel(workload)"
                                    checked="@(!selectedUninstall.Contains(workload.Id))"
                                    disabled="@(!workload.CanUninstall)"
+                                   @onclick:stopPropagation="true"
                                    @onchange="@(_ => ToggleUninstall(workload))" />
                             <div class="workload-main">
                                 <div class="workload-title">
                                     <span class="mono">@workload.Id</span>
                                     @if (workload.IsExplicit)
                                     {
-                                        <span class="badge badge-success"><i class="fas fa-check"></i> installed</span>
+                                        <span class="badge badge-success"><i class="fa-solid fa-check"></i> installed</span>
                                     }
                                     @if (workload.IncludedBy.Count > 0)
                                     {
@@ -83,10 +84,10 @@
                 </div>
             </section>
 
-            <section class="workload-group install-group">
+            <section class="workload-group sherpa-card sherpa-list install-group">
                 <div class="group-heading">
                     <div>
-                        <i class="fas fa-circle-plus"></i>
+                        <i class="fa-solid fa-circle-plus"></i>
                         <div>
                             <strong>Available</strong>
                             <span>Select to install</span>
@@ -110,6 +111,7 @@
                                    aria-label="Select @workload.Id for installation"
                                    checked="@(selectedInstall.Contains(workload.Id) || includedBy != null)"
                                    disabled="@disabled"
+                                   @onclick:stopPropagation="true"
                                    @onchange="@(_ => ToggleInstall(workload))" />
                             <div class="workload-main">
                                 <div class="workload-title">
@@ -159,9 +161,15 @@
         </div>
 
         <div class="selection-summary">
-            <i class="fas fa-code-compare"></i>
+            <i class="fa-solid fa-code-compare"></i>
             <span>@selectedInstall.Count to install · @selectedUninstall.Count to uninstall</span>
         </div>
+    </div>
+}
+else
+{
+    <div class="workload-dialog workload-loading">
+        <SherpaListSkeleton Rows="5" Label="Loading workloads..." />
     </div>
 }
 
@@ -172,7 +180,7 @@
         gap: 0.8rem;
         height: 100%;
         min-height: 0;
-        padding: 1rem 1.25rem;
+        padding: 16px 24px;
     }
 
     .target-summary {
@@ -181,8 +189,8 @@
         justify-content: space-between;
         gap: 1rem;
         padding: 0.65rem 0.8rem;
-        border-radius: 0.625rem;
-        background: var(--bg-tertiary);
+        border-radius: var(--radius-lg);
+        background: var(--surface-well);
         color: var(--text-primary);
         font-size: 0.85rem;
     }
@@ -205,25 +213,8 @@
         line-height: 1.45;
     }
 
-    .search-box {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.5rem 0.7rem;
-        border: 1px solid var(--input-border, var(--border-color));
-        border-radius: 0.5rem;
-        background: var(--input-bg);
-        color: var(--text-secondary);
-    }
-
-    .search-box input {
-        flex: 1;
-        min-width: 0;
-        border: 0;
-        outline: 0;
-        background: transparent;
-        color: var(--text-primary);
-        font-size: 0.875rem;
+    .workload-loading {
+        justify-content: center;
     }
 
     .workload-groups {
@@ -239,22 +230,27 @@
         flex-direction: column;
         min-width: 0;
         min-height: 0;
-        border: 1px solid var(--border-color);
-        border-radius: 0.75rem;
-        overflow: hidden;
-        background: var(--bg-tertiary);
     }
 
     .group-heading {
+        position: relative;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 0.75rem;
         padding: 0.7rem 0.8rem;
-        border-bottom: 1px solid var(--border-color);
-        background: var(--card-bg);
+        background: var(--surface-card);
         color: var(--text-primary);
         font-size: 0.82rem;
+    }
+
+    .group-heading::after {
+        position: absolute;
+        inset-inline: var(--row-padding-x);
+        inset-block-end: 0;
+        height: 1px;
+        background: var(--border-hairline);
+        content: "";
     }
 
     .group-heading > div:first-child {
@@ -299,8 +295,8 @@
     .count-badge {
         min-width: 1.65rem;
         padding: 0.1rem 0.4rem;
-        border-radius: 999px;
-        background: var(--bg-tertiary);
+        border-radius: var(--radius-pill);
+        background: var(--surface-well);
         color: var(--text-secondary);
         font-size: 0.7rem;
         text-align: center;
@@ -309,37 +305,43 @@
     .workload-list {
         display: flex;
         flex-direction: column;
-        gap: 0.5rem;
         flex: 1;
         min-height: 0;
-        padding: 0.55rem;
-        overflow-y: auto;
+        overflow: hidden auto;
+        overscroll-behavior: contain;
+        background: var(--surface-card);
     }
 
     .workload-item {
+        position: relative;
         display: flex;
         align-items: flex-start;
         gap: 0.75rem;
         padding: 0.7rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.625rem;
-        background: var(--card-bg);
+        border: 0;
+        background: var(--surface-card);
         cursor: pointer;
-        transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+        transition: background var(--motion-fast) var(--ease-standard);
+    }
+
+    .workload-item + .workload-item::before {
+        position: absolute;
+        inset-block-start: 0;
+        inset-inline: var(--row-padding-x);
+        height: 1px;
+        background: var(--border-hairline);
+        content: "";
     }
 
     .workload-item:hover {
-        border-color: var(--accent-primary);
-        box-shadow: var(--card-shadow);
+        background: var(--surface-card-hover);
     }
 
     .workload-item.install.selected {
-        border-color: var(--status-success-text);
         background: var(--status-success-bg);
     }
 
     .workload-item.remove.selected {
-        border-color: var(--status-error-text);
         background: var(--status-error-bg);
     }
 
@@ -349,17 +351,12 @@
     }
 
     .workload-item.included:hover {
-        border-color: var(--border-color);
+        border-color: var(--border-subtle);
         box-shadow: none;
     }
 
     .workload-item input {
         margin-top: 0.2rem;
-        accent-color: var(--accent-primary);
-    }
-
-    .workload-item.remove input {
-        accent-color: var(--status-success-text);
     }
 
     .workload-main {
@@ -403,8 +400,8 @@
 
     .include-chip {
         padding: 0.15rem 0.4rem;
-        border-radius: 999px;
-        background: var(--bg-secondary);
+        border-radius: var(--radius-pill);
+        background: var(--surface-popover);
         color: var(--text-secondary);
         font-size: 0.7rem;
     }
@@ -413,6 +410,9 @@
         display: flex;
         align-items: center;
         gap: 0.45rem;
+        padding: 0.55rem 0.7rem;
+        border-radius: var(--radius-md);
+        background: color-mix(in srgb, var(--status-info-bg) 65%, var(--surface-well));
         color: var(--text-secondary);
         font-size: 0.8rem;
     }
@@ -428,15 +428,20 @@
         display: inline-flex;
         align-items: center;
         padding: 2px 0.5rem;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         font-size: 0.68rem;
         font-weight: 500;
         white-space: nowrap;
     }
 
     .badge-error {
-        color: var(--status-error-text);
+        color: var(--status-error-fg);
         background: var(--status-error-bg);
+    }
+
+    .platform-macos .target-summary,
+    .platform-macos .selection-summary {
+        corner-shape: squircle;
     }
 
     @@media (max-width: 720px) {

@@ -22,231 +22,243 @@
     <div class="capture-shell">
         @if (isInitializing)
         {
-            <div class="loading-state" role="status" aria-live="polite">
-                <div class="spinner" aria-hidden="true"></div>
-                <div>
-                    <strong>Checking MAUI profiling tools</strong>
-                    <p>Finding the MAUI CLI and running targets...</p>
-                </div>
+            <div class="sherpa-form capture-loading" role="status" aria-live="polite">
+                <SherpaListSkeleton Rows="4" Label="Checking MAUI profiling tools..." />
             </div>
         }
         else if (viewState == CaptureViewState.Configure)
         {
-            <div class="configure-view">
+            <div class="sherpa-form capture-configure">
                 @RenderToolStatus()
 
                 @if (toolStatus?.IsAvailable == true)
                 {
-                    <section class="form-section" aria-labelledby="project-heading">
-                        <div class="section-heading">
-                            <span class="section-number">1</span>
-                            <div>
-                                <h2 id="project-heading">Project</h2>
-                                <p>Select the .NET MAUI project to build and launch.</p>
-                            </div>
+                    <section class="sherpa-form-section" aria-labelledby="project-heading">
+                        <div class="sherpa-form-section-title">
+                            <span id="project-heading"><i class="fa-solid fa-file-code fa-fw" aria-hidden="true"></i> Project</span>
                         </div>
-
-                        <div class="project-picker">
-                            <div class="path-field">
-                                <i class="fas fa-file-code" aria-hidden="true"></i>
-                                <span class="mono @(string.IsNullOrWhiteSpace(projectPath) ? "placeholder" : "")">
-                                    @(string.IsNullOrWhiteSpace(projectPath) ? "Choose a .csproj" : projectPath)
-                                </span>
+                        <div class="sherpa-field">
+                            <label class="sherpa-field-label" for="project-path">Project file</label>
+                            <div class="sherpa-input-group">
+                                <input id="project-path"
+                                       class="mono"
+                                       type="text"
+                                       value="@projectPath"
+                                       placeholder="Choose a .csproj"
+                                       title="@projectPath"
+                                       readonly />
+                                <button type="button" class="sherpa-input-group-btn" @onclick="BrowseProjectAsync">
+                                    <i class="fa-solid fa-folder-open fa-fw" aria-hidden="true"></i>
+                                    Browse...
+                                </button>
                             </div>
-                            <button type="button" class="btn btn-secondary control-button" @onclick="BrowseProjectAsync">
-                                <i class="fas fa-folder-open" aria-hidden="true"></i>
-                                Browse
-                            </button>
+                            <span class="sherpa-field-help">Select the .NET MAUI project to build and launch.</span>
                         </div>
 
                         @if (recentProjectPaths.Count > 0)
                         {
-                            <label class="field-label" for="recent-project">Recent project</label>
-                            <select id="recent-project" class="form-control mono" value="@projectPath" @onchange="SelectRecentProject">
-                                <option value="">Choose from recent sessions...</option>
-                                @foreach (var recentPath in recentProjectPaths)
-                                {
-                                    <option value="@recentPath">@recentPath</option>
-                                }
-                            </select>
+                            <div class="sherpa-field">
+                                <label class="sherpa-field-label" for="recent-project">Recent projects</label>
+                                <SherpaSelect TValue="string"
+                                              Id="recent-project"
+                                              Value="@projectPath"
+                                              ValueChanged="SelectRecentProject"
+                                              Options="RecentProjectOptions"
+                                              Placeholder="Choose from recent sessions..."
+                                              AriaLabel="Recent project"
+                                              Searchable="true"
+                                              Class="sherpa-select-full mono" />
+                            </div>
                         }
                     </section>
 
-                    <section class="form-section" aria-labelledby="capture-heading">
-                        <div class="section-heading">
-                            <span class="section-number">2</span>
-                            <div>
-                                <h2 id="capture-heading">Capture</h2>
-                                <p>Choose when recording should happen.</p>
-                            </div>
+                    <section class="sherpa-form-section" aria-labelledby="capture-heading">
+                        <div class="sherpa-form-section-title">
+                            <span id="capture-heading"><i class="fa-solid fa-record-vinyl fa-fw" aria-hidden="true"></i> Capture mode</span>
                         </div>
-
-                        <div class="choice-grid two-column" role="radiogroup" aria-label="Capture mode">
+                        <div class="capture-choice-grid capture-choice-grid-2" role="radiogroup" aria-label="Capture mode">
                             <button type="button"
-                                    class="choice-card @(selectedMode == MauiProfileMode.Startup ? "selected" : "")"
+                                    class="sherpa-choice-card @(selectedMode == MauiProfileMode.Startup ? "selected" : "")"
                                     role="radio"
                                     aria-checked="@(selectedMode == MauiProfileMode.Startup ? "true" : "false")"
                                     @onclick="@(() => SelectMode(MauiProfileMode.Startup))">
-                                <span class="choice-icon"><i class="fas fa-rocket" aria-hidden="true"></i></span>
-                                <span class="choice-copy">
+                                <span class="sherpa-icon-well sherpa-icon-well-accent">
+                                    <i class="fa-solid fa-rocket fa-fw" aria-hidden="true"></i>
+                                </span>
+                                <span class="capture-choice-copy">
                                     <strong>Startup</strong>
                                     <small>Record from launch until the first MAUI UI is ready.</small>
                                 </span>
-                                <i class="fas fa-circle-check selection-check" aria-hidden="true"></i>
+                                <i class="fa-solid fa-circle-check capture-selection-check" aria-hidden="true"></i>
                             </button>
                             <button type="button"
-                                    class="choice-card @(selectedMode == MauiProfileMode.Interaction ? "selected" : "")"
+                                    class="sherpa-choice-card @(selectedMode == MauiProfileMode.Interaction ? "selected" : "")"
                                     role="radio"
                                     aria-checked="@(selectedMode == MauiProfileMode.Interaction ? "true" : "false")"
                                     @onclick="@(() => SelectMode(MauiProfileMode.Interaction))">
-                                <span class="choice-icon"><i class="fas fa-hand-pointer" aria-hidden="true"></i></span>
-                                <span class="choice-copy">
+                                <span class="sherpa-icon-well sherpa-icon-well-accent">
+                                    <i class="fa-solid fa-hand-pointer fa-fw" aria-hidden="true"></i>
+                                </span>
+                                <span class="capture-choice-copy">
                                     <strong>Interaction</strong>
                                     <small>Launch first, then begin and stop recording when ready.</small>
                                 </span>
-                                <i class="fas fa-circle-check selection-check" aria-hidden="true"></i>
+                                <i class="fa-solid fa-circle-check capture-selection-check" aria-hidden="true"></i>
                             </button>
                         </div>
                     </section>
 
-                    <section class="form-section" aria-labelledby="target-heading">
-                        <div class="section-heading with-action">
-                            <div class="heading-copy">
-                                <span class="section-number">3</span>
-                                <div>
-                                    <h2 id="target-heading">Running target</h2>
-                                    <p>Android devices and emulators, or booted iOS simulators.</p>
-                                </div>
-                            </div>
+                    <section class="sherpa-form-section" aria-labelledby="target-heading">
+                        <div class="sherpa-form-section-title">
+                            <span id="target-heading"><i class="fa-solid fa-mobile-screen-button fa-fw" aria-hidden="true"></i> Running target</span>
                             <button type="button"
-                                    class="btn btn-secondary icon-text-button"
+                                    class="btn btn-secondary btn-sm"
                                     disabled="@isRefreshingDevices"
                                     @onclick="RefreshDevicesAsync">
-                                <i class="fas @(isRefreshingDevices ? "fa-spinner fa-spin" : "fa-arrows-rotate")" aria-hidden="true"></i>
+                                <i class="fa-solid @(isRefreshingDevices ? "fa-spinner fa-spin" : "fa-arrows-rotate") fa-fw" aria-hidden="true"></i>
                                 Refresh
                             </button>
                         </div>
 
                         @if (!string.IsNullOrWhiteSpace(deviceError))
                         {
-                            <div class="inline-message error" role="alert">
-                                <i class="fas fa-circle-exclamation" aria-hidden="true"></i>
+                            <div class="sherpa-banner sherpa-banner-danger" role="alert">
+                                <i class="fa-solid fa-circle-exclamation fa-fw" aria-hidden="true"></i>
                                 <span>@deviceError</span>
                             </div>
                         }
+                        else if (isRefreshingDevices && devices.Count == 0)
+                        {
+                            <SherpaListSkeleton Rows="2" Label="Refreshing running targets..." />
+                        }
                         else if (devices.Count == 0)
                         {
-                            <div class="target-empty">
-                                <i class="fas fa-mobile-screen" aria-hidden="true"></i>
-                                <div>
-                                    <strong>No running targets found</strong>
-                                    <p>Start an Android target or boot an iOS simulator, then refresh.</p>
+                            <div class="sherpa-empty-inline">
+                                <div class="sherpa-empty-inline-lead">
+                                    <span class="sherpa-icon-well sherpa-icon-well-neutral">
+                                        <i class="fa-solid fa-mobile-screen-button fa-fw" aria-hidden="true"></i>
+                                    </span>
+                                    <div>
+                                        <div class="sherpa-empty-inline-title">No running targets</div>
+                                        <div class="sherpa-field-help">Start an Android emulator or boot an iOS simulator.</div>
+                                    </div>
                                 </div>
-                                <div class="recovery-actions">
-                                    <button type="button" class="btn btn-secondary" @onclick="@(() => OpenTargetManagerAsync("/devices"))">
-                                        <i class="fab fa-android" aria-hidden="true"></i>
-                                        Android emulators
+                                <div class="capture-empty-actions">
+                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="@(() => OpenTargetManagerAsync("/devices"))">
+                                        <i class="fa-brands fa-android fa-fw" aria-hidden="true"></i>
+                                        Android
                                     </button>
-                                    <button type="button" class="btn btn-secondary" @onclick="@(() => OpenTargetManagerAsync("/apple-simulators"))">
-                                        <i class="fab fa-apple" aria-hidden="true"></i>
-                                        Apple simulators
+                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="@(() => OpenTargetManagerAsync("/apple-simulators"))">
+                                        <i class="fa-brands fa-apple fa-fw" aria-hidden="true"></i>
+                                        Apple
                                     </button>
                                 </div>
                             </div>
                         }
                         else
                         {
-                            <div class="target-list" role="radiogroup" aria-label="Running target">
+                            <div class="capture-choice-grid capture-target-grid" role="radiogroup" aria-label="Running target">
                                 @foreach (var device in devices)
                                 {
                                     var selected = selectedDeviceId == device.Identifier;
+                                    var isAndroid = IsAndroid(device);
                                     <button type="button"
-                                            class="target-card @(selected ? "selected" : "")"
+                                            class="sherpa-choice-card capture-target-card @(selected ? "selected" : "")"
                                             role="radio"
                                             aria-checked="@(selected ? "true" : "false")"
                                             @onclick="@(() => SelectDevice(device))">
-                                        <span class="target-platform">
-                                            <i class="fab @(IsAndroid(device) ? "fa-android" : "fa-apple")" aria-hidden="true"></i>
+                                        <span class="sherpa-icon-well @(isAndroid ? "sherpa-icon-well-android" : "sherpa-icon-well-apple")">
+                                            <i class="fa-solid @(device.IsEmulator ? "fa-mobile-screen" : "fa-mobile-screen-button") fa-fw" aria-hidden="true"></i>
+                                            <span class="sherpa-brand-badge">
+                                                <i class="fa-brands @(isAndroid ? "fa-android" : "fa-apple")" aria-hidden="true"></i>
+                                            </span>
                                         </span>
-                                        <span class="target-copy">
+                                        <span class="capture-choice-copy">
                                             <strong>@device.Name</strong>
                                             <small>@GetDeviceDescription(device)</small>
                                         </span>
-                                        <i class="fas fa-circle-check selection-check" aria-hidden="true"></i>
+                                        <i class="fa-solid fa-circle-check capture-selection-check" aria-hidden="true"></i>
                                     </button>
                                 }
                             </div>
                         }
                     </section>
 
-                    <section class="form-section" aria-labelledby="output-heading">
-                        <div class="section-heading">
-                            <span class="section-number">4</span>
-                            <div>
-                                <h2 id="output-heading">Output</h2>
-                                <p>Speedscope opens directly in Sherpa and keeps the raw trace.</p>
-                            </div>
+                    <section class="sherpa-form-section" aria-labelledby="output-heading">
+                        <div class="sherpa-form-section-title">
+                            <span id="output-heading"><i class="fa-solid fa-file-waveform fa-fw" aria-hidden="true"></i> Output format</span>
                         </div>
-
-                        <div class="format-grid" role="radiogroup" aria-label="Profile output format">
+                        <div class="capture-choice-grid capture-format-grid" role="radiogroup" aria-label="Profile output format">
                             @foreach (var format in OutputFormats)
                             {
                                 var selected = selectedFormat == format;
                                 <button type="button"
-                                        class="format-card @(selected ? "selected" : "")"
+                                        class="sherpa-choice-card capture-format-card @(selected ? "selected" : "")"
                                         role="radio"
                                         aria-checked="@(selected ? "true" : "false")"
                                         @onclick="@(() => SelectFormat(format))">
-                                    <i class="fas @GetFormatIcon(format)" aria-hidden="true"></i>
-                                    <span>
+                                    <span class="sherpa-icon-well sherpa-icon-well-accent">
+                                        <i class="fa-solid @GetFormatIcon(format) fa-fw" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="capture-choice-copy">
                                         <strong>@GetFormatName(format)</strong>
                                         <small>@GetFormatDescription(format)</small>
                                     </span>
-                                    <i class="fas fa-circle-check selection-check" aria-hidden="true"></i>
+                                    <i class="fa-solid fa-circle-check capture-selection-check" aria-hidden="true"></i>
                                 </button>
                             }
                         </div>
 
                         @if (selectedFormat == MauiProfileOutputFormat.Mibc)
                         {
-                            <div class="inline-message warning">
-                                <i class="fas fa-clock" aria-hidden="true"></i>
+                            <div class="sherpa-banner sherpa-banner-warning">
+                                <i class="fa-solid fa-clock fa-fw" aria-hidden="true"></i>
                                 <span>The first MIBC capture may take several minutes while the CLI prepares <span class="mono">dotnet-pgo</span>.</span>
                             </div>
                         }
                     </section>
 
-                    <details class="advanced-section">
-                        <summary>
-                            <span><i class="fas fa-sliders" aria-hidden="true"></i> Advanced options</span>
-                            <i class="fas fa-chevron-down chevron" aria-hidden="true"></i>
+                    <details class="sherpa-disclosure capture-disclosure">
+                        <summary class="sherpa-disclosure-head">
+                            <span class="sherpa-disclosure-lead">
+                                <i class="fa-solid fa-chevron-right fa-fw sherpa-disclosure-chev" aria-hidden="true"></i>
+                                <i class="fa-solid fa-sliders fa-fw" aria-hidden="true"></i>
+                                <span>Advanced options</span>
+                            </span>
+                            <span class="sherpa-badge sherpa-badge-neutral">Optional</span>
                         </summary>
-                        <div class="advanced-content">
-                            <div class="advanced-grid">
-                                <div class="field-group">
-                                    <label class="field-label" for="configuration">Configuration</label>
-                                    <select id="configuration" class="form-control" @bind="configuration" @bind:after="OnOptionsChanged">
-                                        <option value="Release">Release</option>
-                                        <option value="Debug">Debug</option>
-                                    </select>
+                        <div class="sherpa-disclosure-body">
+                            <div class="sherpa-form-grid-2">
+                                <div class="sherpa-field">
+                                    <label class="sherpa-field-label" for="configuration">Configuration</label>
+                                    <SherpaSelect TValue="string"
+                                                  Id="configuration"
+                                                  Value="@configuration"
+                                                  ValueChanged="OnConfigurationChanged"
+                                                  Options="ConfigurationOptions"
+                                                  AriaLabel="Build configuration"
+                                                  Class="sherpa-select-full" />
                                 </div>
 
                                 @if (selectedMode == MauiProfileMode.Startup)
                                 {
-                                    <div class="field-group">
-                                        <label class="field-label" for="stop-condition">Stop startup capture</label>
-                                        <select id="stop-condition" class="form-control" @bind="useFixedDuration" @bind:after="OnOptionsChanged">
-                                            <option value="false">When first UI is ready</option>
-                                            <option value="true">After a fixed duration</option>
-                                        </select>
+                                    <div class="sherpa-field">
+                                        <label class="sherpa-field-label" for="stop-condition">Stop startup capture</label>
+                                        <SherpaSelect TValue="bool"
+                                                      Id="stop-condition"
+                                                      Value="@useFixedDuration"
+                                                      ValueChanged="OnStopConditionChanged"
+                                                      Options="StopConditionOptions"
+                                                      AriaLabel="Stop startup capture"
+                                                      Class="sherpa-select-full" />
                                     </div>
 
                                     @if (useFixedDuration)
                                     {
-                                        <div class="field-group">
-                                            <label class="field-label" for="duration-seconds">Duration in seconds</label>
+                                        <div class="sherpa-field">
+                                            <label class="sherpa-field-label" for="duration-seconds">Duration in seconds</label>
                                             <input id="duration-seconds"
-                                                   class="form-control"
+                                                   class="sherpa-input"
                                                    type="number"
                                                    min="1"
                                                    max="3600"
@@ -256,36 +268,36 @@
                                     }
                                 }
 
-                                <div class="field-group span-two">
-                                    <label class="field-label" for="trace-profiles">Trace profiles</label>
+                                <div class="sherpa-field capture-span-2">
+                                    <label class="sherpa-field-label" for="trace-profiles">Trace profiles</label>
                                     <input id="trace-profiles"
-                                           class="form-control mono"
+                                           class="sherpa-input mono"
                                            type="text"
                                            @bind="traceProfile"
                                            @bind:event="oninput"
                                            @bind:after="OnOptionsChanged"
                                            placeholder="Optional, e.g. dotnet-sampled-thread-time" />
-                                    <small class="field-help">Named profiles may be comma separated and are passed once to <span class="mono">--trace-profile</span>.</small>
+                                    <span class="sherpa-field-help">Named profiles may be comma separated and are passed once to <span class="mono">--trace-profile</span>.</span>
                                 </div>
 
-                                <label class="checkbox-field span-two">
+                                <label class="capture-toggle capture-span-2">
                                     <input type="checkbox" @bind="noBuild" @bind:after="OnOptionsChanged" />
                                     <span>
                                         <strong>Skip build</strong>
-                                        <small>Use the existing app output. Choose this only when the project is already built for the selected target.</small>
+                                        <small>Use the existing app output only when the project is already built for the selected target.</small>
                                     </span>
                                 </label>
                             </div>
 
-                            <div class="command-preview">
-                                <div class="command-heading">
-                                    <span>Command preview</span>
-                                    <button type="button" class="copy-button" disabled="@(!CanPreviewCommand)" @onclick="CopyCommandAsync" title="Copy command">
-                                        <i class="fas fa-copy" aria-hidden="true"></i>
+                            <div class="sherpa-console capture-command-console">
+                                <div class="sherpa-console-header">
+                                    <span><i class="fa-solid fa-terminal fa-fw" aria-hidden="true"></i> Command preview</span>
+                                    <button type="button" class="btn-ghost" disabled="@(!CanPreviewCommand)" @onclick="CopyCommandAsync" title="Copy command">
+                                        <i class="fa-regular fa-copy fa-fw" aria-hidden="true"></i>
                                         Copy
                                     </button>
                                 </div>
-                                <code>@CommandPreview</code>
+                                <code class="sherpa-console-body">@CommandPreview</code>
                             </div>
                         </div>
                     </details>
@@ -294,163 +306,199 @@
         }
         else if (viewState == CaptureViewState.Running)
         {
-            <div class="running-view" aria-live="polite">
-                <div class="run-hero">
-                    <div class="run-indicator @(profileState == MauiProfileRunState.Recording ? "recording" : "")">
-                        @if (profileState == MauiProfileRunState.Recording)
-                        {
-                            <span class="record-dot"></span>
-                        }
-                        else
-                        {
-                            <div class="spinner" aria-hidden="true"></div>
-                        }
+            <div class="sherpa-form capture-state-view" aria-live="polite">
+                <div class="sherpa-card capture-flow-card">
+                    <div class="capture-state-header">
+                        <span class="sherpa-icon-well capture-run-icon @(profileState == MauiProfileRunState.Recording ? "is-recording" : "")">
+                            @if (profileState == MauiProfileRunState.Recording)
+                            {
+                                <span class="capture-record-dot" aria-hidden="true"></span>
+                            }
+                            else
+                            {
+                                <span class="capture-spinner" aria-hidden="true"></span>
+                            }
+                        </span>
+                        <div class="capture-state-copy">
+                            <span class="sherpa-badge @(profileState == MauiProfileRunState.Recording ? "sherpa-badge-danger" : "sherpa-badge-info")">@GetRunEyebrow()</span>
+                            <h2>@GetRunTitle()</h2>
+                            <p>@GetRunDescription()</p>
+                        </div>
                     </div>
-                    <div>
-                        <span class="eyebrow">@GetRunEyebrow()</span>
-                        <h2>@GetRunTitle()</h2>
-                        <p>@GetRunDescription()</p>
-                    </div>
-                </div>
 
-                @if (activeRequest is not null)
-                {
-                    <div class="run-summary">
-                        <div>
-                            <span>Project</span>
-                            <strong>@Path.GetFileNameWithoutExtension(activeRequest.ProjectPath)</strong>
+                    @if (activeRequest is not null)
+                    {
+                        <div class="capture-meta-grid capture-meta-grid-3">
+                            <div><span>Project</span><strong>@Path.GetFileNameWithoutExtension(activeRequest.ProjectPath)</strong></div>
+                            <div><span>Target</span><strong>@activeRequest.DeviceName</strong></div>
+                            <div><span>Output</span><strong>@GetFormatName(activeRequest.Format)</strong></div>
                         </div>
-                        <div>
-                            <span>Target</span>
-                            <strong>@activeRequest.DeviceName</strong>
-                        </div>
-                        <div>
-                            <span>Output</span>
-                            <strong>@GetFormatName(activeRequest.Format)</strong>
-                        </div>
-                    </div>
-                }
+                    }
 
-                @if (profileState == MauiProfileRunState.AwaitingRecording)
-                {
-                    <div class="instruction-card">
-                        <span class="instruction-number">1</span>
-                        <div>
-                            <strong>Prepare the app</strong>
-                            <p>Navigate to the starting point for the interaction you want to measure, then choose <strong>Begin recording</strong>.</p>
+                    @if (profileState == MauiProfileRunState.AwaitingRecording)
+                    {
+                        <div class="sherpa-banner sherpa-banner-info">
+                            <i class="fa-solid fa-location-crosshairs fa-fw" aria-hidden="true"></i>
+                            <div><strong>Prepare the app</strong><div>Navigate to the interaction starting point, then choose <strong>Begin recording</strong>.</div></div>
                         </div>
-                    </div>
-                }
-                else if (profileState == MauiProfileRunState.Recording)
-                {
-                    <div class="instruction-card recording-card">
-                        <span class="instruction-number"><i class="fas fa-circle" aria-hidden="true"></i></span>
-                        <div>
-                            <strong>Recording interaction</strong>
-                            <p>Perform the interaction now. Choose <strong>Stop recording</strong> when you are done.</p>
+                    }
+                    else if (profileState == MauiProfileRunState.Recording)
+                    {
+                        <div class="sherpa-banner sherpa-banner-danger">
+                            <i class="fa-solid fa-circle fa-fw" aria-hidden="true"></i>
+                            <div><strong>Recording interaction</strong><div>Perform the interaction now, then choose <strong>Stop recording</strong>.</div></div>
                         </div>
-                    </div>
-                }
+                    }
 
-                <details class="details-panel">
-                    <summary>CLI details</summary>
-                    <div class="details-content">
-                        <code class="command-block">@activeCommand</code>
-                        @if (statusMessages.Count > 0)
-                        {
-                            <div class="status-list">
-                                @foreach (var status in statusMessages.TakeLast(6))
-                                {
-                                    <div><span>@status.Status</span>@status.Message</div>
-                                }
+                    <details class="sherpa-disclosure capture-disclosure capture-cli-details">
+                        <summary class="sherpa-disclosure-head">
+                            <span class="sherpa-disclosure-lead">
+                                <i class="fa-solid fa-chevron-right fa-fw sherpa-disclosure-chev" aria-hidden="true"></i>
+                                <i class="fa-solid fa-terminal fa-fw" aria-hidden="true"></i>
+                                <span>CLI details</span>
+                            </span>
+                            <span class="sherpa-badge sherpa-badge-neutral">@(statusMessages.Count == 1 ? "1 message" : $"{statusMessages.Count} messages")</span>
+                        </summary>
+                        <div class="sherpa-disclosure-body">
+                            <div class="sherpa-console capture-live-console">
+                                <div class="sherpa-console-header">
+                                    <span><i class="fa-solid fa-terminal fa-fw" aria-hidden="true"></i> Command and live status</span>
+                                </div>
+                                <div class="sherpa-console-body">
+                                    <div class="capture-console-command">@activeCommand</div>
+                                    @foreach (var status in statusMessages.TakeLast(6))
+                                    {
+                                        <div class="capture-console-line"><strong>@status.Status</strong><span>@status.Message</span></div>
+                                    }
+                                </div>
                             </div>
-                        }
-                    </div>
-                </details>
+                        </div>
+                    </details>
+                </div>
             </div>
         }
         else if (viewState == CaptureViewState.Completed && savedSession is not null)
         {
-            <div class="result-view">
-                <div class="result-icon success"><i class="fas fa-check" aria-hidden="true"></i></div>
-                <span class="eyebrow">Profile saved</span>
-                <h2>@savedSession.Name</h2>
-                <p>The capture is in your Sherpa profiling library.</p>
+            <div class="sherpa-form capture-state-view capture-result-view">
+                <div class="capture-result-header">
+                    <span class="sherpa-icon-well capture-result-icon capture-result-success">
+                        <i class="fa-solid fa-check fa-fw" aria-hidden="true"></i>
+                    </span>
+                    <span class="sherpa-badge sherpa-badge-success"><span class="sherpa-dot sherpa-dot-success"></span> Profile saved</span>
+                    <h2>@savedSession.Name</h2>
+                    <p>The capture is in your Sherpa profiling library.</p>
+                </div>
 
                 @if (executionResult?.Profile?.RecoveredFromDisk == true)
                 {
-                    <div class="inline-message warning result-note">
-                        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
-                        <span>The MAUI CLI wrote this capture but crashed while reporting the result, so Sherpa recovered it from the output folder. The profile itself is complete.</span>
+                    <div class="sherpa-banner sherpa-banner-warning">
+                        <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i>
+                        <span>The MAUI CLI wrote this capture but crashed while reporting the result, so Sherpa recovered the complete profile from the output folder.</span>
                     </div>
                 }
 
-                <div class="result-summary">
+                <div class="sherpa-card capture-meta-grid capture-meta-grid-4">
                     <div><span>Mode</span><strong>@GetModeName(savedSession.MauiProfile?.Mode)</strong></div>
                     <div><span>Target</span><strong>@savedSession.Target.DisplayName</strong></div>
                     <div><span>Framework</span><strong class="mono">@FormatFramework(savedSession)</strong></div>
                     <div><span>Duration</span><strong>@FormatDuration(savedSession.Pipeline?.Duration)</strong></div>
                 </div>
 
-                <div class="result-artifacts">
-                    @foreach (var artifact in savedSession.Artifacts)
+                <section class="sherpa-form-section" aria-labelledby="artifacts-heading">
+                    <div class="sherpa-form-section-title">
+                        <span id="artifacts-heading"><i class="fa-solid fa-box-archive fa-fw" aria-hidden="true"></i> Artifacts</span>
+                        <span class="sherpa-badge sherpa-badge-neutral">@savedSession.Artifacts.Count</span>
+                    </div>
+                    <div class="sherpa-list">
+                        @foreach (var artifact in savedSession.Artifacts)
+                        {
+                            <div class="sherpa-list-row">
+                                <span class="sherpa-icon-well sherpa-icon-well-sm sherpa-icon-well-accent">
+                                    <i class="fa-solid @GetArtifactIcon(artifact.FileName) fa-fw" aria-hidden="true"></i>
+                                </span>
+                                <div class="sherpa-row-stack">
+                                    <span class="sherpa-meta-value">@(artifact.DisplayName ?? artifact.FileName)</span>
+                                    <span class="sherpa-meta-label mono">@artifact.FileName @FormatArtifactSize(artifact.SizeBytes)</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    @if (savedSession.MauiProfile?.Format != MauiProfileOutputFormat.Mibc)
                     {
-                        <div class="result-artifact">
-                            <i class="fas @GetArtifactIcon(artifact.FileName)" aria-hidden="true"></i>
-                            <span>
-                                <strong>@(artifact.DisplayName ?? artifact.FileName)</strong>
-                                <small>@artifact.FileName @FormatArtifactSize(artifact.SizeBytes)</small>
-                            </span>
+                        <div class="capture-result-actions">
+                            <button type="button" class="btn btn-secondary btn-sm" @onclick="RevealPrimaryArtifact">
+                                <i class="fa-solid fa-folder-open fa-fw" aria-hidden="true"></i>
+                                Reveal file
+                            </button>
                         </div>
                     }
-                </div>
-
-                @if (savedSession.MauiProfile?.Format != MauiProfileOutputFormat.Mibc)
-                {
-                    <button type="button" class="btn btn-secondary result-secondary" @onclick="RevealPrimaryArtifact">
-                        <i class="fas fa-folder-open" aria-hidden="true"></i>
-                        Reveal file
-                    </button>
-                }
+                </section>
             </div>
         }
         else if (viewState == CaptureViewState.Failed)
         {
-            <div class="result-view failure-view">
-                <div class="result-icon error"><i class="fas fa-exclamation" aria-hidden="true"></i></div>
-                <span class="eyebrow">Profile not captured</span>
-                <h2>@(cliError?.Message ?? failureMessage ?? "The MAUI CLI could not complete the profile.")</h2>
+            <div class="sherpa-form capture-state-view capture-result-view">
+                <div class="capture-result-header capture-failure-header">
+                    <span class="sherpa-icon-well capture-result-icon capture-result-danger">
+                        <i class="fa-solid fa-exclamation fa-fw" aria-hidden="true"></i>
+                    </span>
+                    <span class="sherpa-badge sherpa-badge-danger"><span class="sherpa-dot sherpa-dot-danger"></span> Profile not captured</span>
+                    <h2>@(cliError?.Message ?? failureMessage ?? "The MAUI CLI could not complete the profile.")</h2>
+                </div>
 
                 @if (cliError?.Remediation is { } remediation)
                 {
-                    <div class="remediation">
-                        <strong>How to recover</strong>
-                        @foreach (var step in remediation.ManualSteps)
-                        {
-                            <p><i class="fas fa-arrow-right" aria-hidden="true"></i> @step</p>
-                        }
-                        @if (!string.IsNullOrWhiteSpace(remediation.Command))
-                        {
-                            <code>@remediation.Command</code>
-                        }
+                    <div class="sherpa-banner sherpa-banner-warning capture-remediation">
+                        <i class="fa-solid fa-screwdriver-wrench fa-fw" aria-hidden="true"></i>
+                        <div>
+                            <strong>How to recover</strong>
+                            <div class="capture-recovery-steps">
+                                @foreach (var step in remediation.ManualSteps)
+                                {
+                                    <div><i class="fa-solid fa-arrow-right fa-fw" aria-hidden="true"></i><span>@step</span></div>
+                                }
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(remediation.Command))
+                            {
+                                <div class="sherpa-console capture-remediation-console">
+                                    <div class="sherpa-console-header"><span><i class="fa-solid fa-terminal fa-fw" aria-hidden="true"></i> Recovery command</span></div>
+                                    <code class="sherpa-console-body">@remediation.Command</code>
+                                </div>
+                            }
+                        </div>
                     </div>
                 }
 
-                <details class="details-panel failure-details">
-                    <summary>Technical details</summary>
-                    <div class="details-content">
+                <details class="sherpa-disclosure capture-disclosure capture-technical-details">
+                    <summary class="sherpa-disclosure-head">
+                        <span class="sherpa-disclosure-lead">
+                            <i class="fa-solid fa-chevron-right fa-fw sherpa-disclosure-chev" aria-hidden="true"></i>
+                            <i class="fa-solid fa-code fa-fw" aria-hidden="true"></i>
+                            <span>Technical details</span>
+                        </span>
                         @if (cliError is not null)
                         {
-                            <div class="error-code"><span>@cliError.Code</span> @cliError.Category / @cliError.Severity</div>
-                            @if (!string.IsNullOrWhiteSpace(cliError.NativeError))
-                            {
-                                <pre>@cliError.NativeError</pre>
-                            }
+                            <span class="sherpa-badge sherpa-badge-danger mono">@cliError.Code</span>
                         }
-                        @if (!string.IsNullOrWhiteSpace(activeCommand))
+                    </summary>
+                    <div class="sherpa-disclosure-body">
+                        @if (cliError is not null)
                         {
-                            <code class="command-block">@activeCommand</code>
+                            <div class="capture-error-meta">@cliError.Category / @cliError.Severity</div>
                         }
+                        <div class="sherpa-console">
+                            <div class="sherpa-console-header"><span><i class="fa-solid fa-terminal fa-fw" aria-hidden="true"></i> Native error and CLI command</span></div>
+                            <div class="sherpa-console-body">
+                                @if (!string.IsNullOrWhiteSpace(cliError?.NativeError))
+                                {
+                                    <pre>@cliError.NativeError</pre>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(activeCommand))
+                                {
+                                    <div class="capture-console-command">@activeCommand</div>
+                                }
+                            </div>
+                        </div>
                     </div>
                 </details>
             </div>
@@ -482,6 +530,23 @@
     private int durationSeconds = 15;
     private bool noBuild;
     private bool isInitializing = true;
+    private IReadOnlyList<SherpaSelectOption<string>> RecentProjectOptions =>
+        recentProjectPaths
+            .Select(path => new SherpaSelectOption<string>(
+                path,
+                path,
+                Icon: "fa-solid fa-file-code"))
+            .ToArray();
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> ConfigurationOptions =
+    [
+        new("Release", "Release"),
+        new("Debug", "Debug")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<bool>> StopConditionOptions =
+    [
+        new(false, "When first UI is ready"),
+        new(true, "After a fixed duration")
+    ];
     private bool isRefreshingDevices;
     private bool isChangingTool;
     private bool cancelRequested;
@@ -576,43 +641,45 @@
     {
         if (toolStatus?.State == MauiCliToolState.Missing)
         {
-            <div class="tool-card">
-                <span class="tool-icon"><i class="fas fa-terminal" aria-hidden="true"></i></span>
-                <div>
+            <div class="sherpa-banner sherpa-banner-info capture-tool-banner">
+                <i class="fa-solid fa-terminal fa-fw" aria-hidden="true"></i>
+                <div class="capture-tool-copy">
                     <strong>Install the MAUI CLI</strong>
-                    <p>Sherpa uses the global <span class="mono">Microsoft.Maui.Cli</span> tool for zero-touch app profiling.</p>
+                    <span>Sherpa uses the global <span class="mono">Microsoft.Maui.Cli</span> tool for zero-touch app profiling.</span>
                 </div>
-                <button type="button" class="btn btn-primary control-button" disabled="@isChangingTool" @onclick="InstallOrUpdateToolAsync">
-                    <i class="fas @(isChangingTool ? "fa-spinner fa-spin" : "fa-download")" aria-hidden="true"></i>
+                <button type="button" class="btn btn-primary btn-sm" disabled="@isChangingTool" @onclick="InstallOrUpdateToolAsync">
+                    <i class="fa-solid @(isChangingTool ? "fa-spinner fa-spin" : "fa-download") fa-fw" aria-hidden="true"></i>
                     Install
                 </button>
             </div>
         }
         else if (toolStatus?.State == MauiCliToolState.UpdateRequired)
         {
-            <div class="tool-card warning">
-                <span class="tool-icon"><i class="fas fa-arrow-up" aria-hidden="true"></i></span>
-                <div>
+            <div class="sherpa-banner sherpa-banner-warning capture-tool-banner">
+                <i class="fa-solid fa-arrow-up fa-fw" aria-hidden="true"></i>
+                <div class="capture-tool-copy">
                     <strong>Update the MAUI CLI</strong>
-                    <p>@toolStatus.Message</p>
+                    <span>@toolStatus.Message</span>
                 </div>
-                <button type="button" class="btn btn-primary control-button" disabled="@isChangingTool" @onclick="InstallOrUpdateToolAsync">
-                    <i class="fas @(isChangingTool ? "fa-spinner fa-spin" : "fa-arrows-rotate")" aria-hidden="true"></i>
+                <button type="button" class="btn btn-primary btn-sm" disabled="@isChangingTool" @onclick="InstallOrUpdateToolAsync">
+                    <i class="fa-solid @(isChangingTool ? "fa-spinner fa-spin" : "fa-arrows-rotate") fa-fw" aria-hidden="true"></i>
                     Update
                 </button>
             </div>
         }
         else if (toolStatus?.IsAvailable == true)
         {
-            <div class="tool-ready">
-                <i class="fas fa-circle-check" aria-hidden="true"></i>
-                <span>MAUI CLI @(string.IsNullOrWhiteSpace(toolStatus.Version) ? "ready" : toolStatus.Version)</span>
+            <div class="capture-tool-ready">
+                <span class="sherpa-badge sherpa-badge-success">
+                    <span class="sherpa-dot sherpa-dot-success"></span>
+                    MAUI CLI @(string.IsNullOrWhiteSpace(toolStatus.Version) ? "ready" : toolStatus.Version)
+                </span>
             </div>
         }
         else if (!string.IsNullOrWhiteSpace(failureMessage))
         {
-            <div class="inline-message error" role="alert">
-                <i class="fas fa-circle-exclamation" aria-hidden="true"></i>
+            <div class="sherpa-banner sherpa-banner-danger" role="alert">
+                <i class="fa-solid fa-circle-exclamation fa-fw" aria-hidden="true"></i>
                 <span>@failureMessage</span>
             </div>
         }
@@ -662,12 +729,23 @@
         UpdateActionState();
     }
 
-    private void SelectRecentProject(ChangeEventArgs args)
+    private void SelectRecentProject(string? value)
     {
-        var value = args.Value?.ToString();
         if (!string.IsNullOrWhiteSpace(value))
             projectPath = value;
         UpdateActionState();
+    }
+
+    private void OnConfigurationChanged(string? value)
+    {
+        configuration = value ?? "Release";
+        OnOptionsChanged();
+    }
+
+    private void OnStopConditionChanged(bool value)
+    {
+        useFixedDuration = value;
+        OnOptionsChanged();
     }
 
     private void SelectMode(MauiProfileMode mode)
@@ -1247,799 +1325,448 @@
     .capture-shell {
         height: 100%;
         overflow-y: auto;
+        overscroll-behavior: contain;
         color: var(--text-primary);
-        background: var(--bg-primary);
+        background: var(--surface-canvas);
     }
 
-    .configure-view {
-        padding: 1rem 1.4rem 1.4rem;
+    .capture-loading {
+        min-height: 100%;
     }
 
-    .running-view,
-    .result-view {
-        padding: 1.25rem 1.5rem 1.6rem;
-    }
-
-    .loading-state {
-        min-height: 28rem;
+    .capture-tool-ready {
         display: flex;
+        justify-content: flex-end;
+    }
+
+    .capture-tool-banner {
         align-items: center;
-        justify-content: center;
-        gap: 1rem;
-        color: var(--text-secondary);
     }
 
-    .loading-state strong {
-        display: block;
-        color: var(--text-primary);
-        margin-bottom: 0.25rem;
-    }
-
-    .loading-state p,
-    .section-heading p,
-    .tool-card p,
-    .target-empty p,
-    .run-hero p,
-    .instruction-card p,
-    .result-view > p {
-        margin: 0;
-        color: var(--text-secondary);
-        line-height: 1.5;
-    }
-
-    .spinner {
-        width: 1.5rem;
-        height: 1.5rem;
-        border: 3px solid color-mix(in srgb, var(--accent-primary) 22%, transparent);
-        border-top-color: var(--accent-primary);
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-        flex-shrink: 0;
-    }
-
-    .tool-ready {
+    .capture-tool-copy {
         display: flex;
-        align-items: center;
-        gap: 0.35rem;
-        margin-bottom: 0.65rem;
-        color: var(--accent-success);
-        font-size: 0.74rem;
-        font-weight: 700;
+        flex: 1 1 auto;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
     }
 
-    .tool-card {
-        display: grid;
-        grid-template-columns: auto 1fr auto;
-        align-items: center;
-        gap: 0.7rem;
-        padding: 0.7rem;
-        margin-bottom: 0.7rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.7rem;
-        background: var(--card-bg);
-    }
-
-    .tool-card.warning {
-        border-color: color-mix(in srgb, var(--accent-warning) 45%, var(--border-color));
-    }
-
-    .tool-icon {
-        width: 2.1rem;
-        height: 2.1rem;
-        display: grid;
-        place-items: center;
-        border-radius: 0.55rem;
-        color: var(--accent-primary);
-        background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
-        font-size: 0.9rem;
-    }
-
-    .form-section {
-        padding: 0.8rem 0;
-        border-top: 1px solid var(--border-color);
-    }
-
-    .form-section:first-of-type {
-        border-top: 0;
-        padding-top: 0.25rem;
-    }
-
-    .section-heading,
-    .heading-copy {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.55rem;
-    }
-
-    .section-heading {
-        margin-bottom: 0.6rem;
-    }
-
-    .section-heading.with-action {
-        align-items: center;
-        justify-content: space-between;
-    }
-
-    .section-number {
-        width: 1.45rem;
-        height: 1.45rem;
-        display: grid;
-        place-items: center;
-        flex-shrink: 0;
-        border-radius: 50%;
-        background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
-        color: var(--accent-primary);
-        font-size: 0.68rem;
-        font-weight: 800;
-    }
-
-    .section-heading h2 {
-        margin: 0 0 0.1rem;
-        font-size: 0.88rem;
-    }
-
-    .section-heading p {
-        font-size: 0.73rem;
+    .capture-tool-copy span {
         line-height: 1.4;
     }
 
-    .project-picker {
+    .capture-choice-grid {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 0.45rem;
-        margin-left: 2rem;
+        gap: 8px;
     }
 
-    .path-field {
-        min-height: 2.75rem;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0 0.65rem;
-        overflow: hidden;
-        border: 1px solid var(--border-color);
-        border-radius: 0.55rem;
-        background: var(--bg-secondary);
-    }
-
-    .path-field i {
-        color: var(--text-muted);
-    }
-
-    .path-field span {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 0.74rem;
-    }
-
-    .path-field .placeholder {
-        color: var(--text-muted);
-        font-family: inherit;
-    }
-
-    .field-label {
-        display: block;
-        margin: 0.55rem 0 0.3rem 2rem;
-        color: var(--text-secondary);
-        font-size: 0.72rem;
-        font-weight: 700;
-    }
-
-    .form-control {
-        width: calc(100% - 2rem);
-        min-height: 2.75rem;
-        margin-left: 2rem;
-        padding: 0.45rem 0.6rem;
-        color: var(--text-primary);
-        border: 1px solid var(--border-color);
-        border-radius: 0.55rem;
-        background: var(--bg-secondary);
-    }
-
-    .choice-grid,
-    .format-grid,
-    .target-list {
-        display: grid;
-        gap: 0.5rem;
-        margin-left: 2rem;
-    }
-
-    .two-column {
+    .capture-choice-grid-2,
+    .capture-target-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .choice-card,
-    .format-card,
-    .target-card {
+    .capture-format-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .sherpa-choice-card {
         position: relative;
-        min-height: 3.5rem;
         display: flex;
         align-items: center;
-        gap: 0.55rem;
-        padding: 0.55rem 0.65rem;
+        gap: 10px;
+        min-width: 0;
+        padding: 10px 12px;
         color: var(--text-primary);
         text-align: left;
-        border: 1px solid var(--border-color);
-        border-radius: 0.65rem;
-        background: var(--card-bg);
+        background: var(--surface-card);
+        border: 1.5px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         cursor: pointer;
-        transition: border-color 160ms ease, background-color 160ms ease;
+        transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
     }
 
-    .choice-card:hover,
-    .format-card:hover,
-    .target-card:hover {
-        border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--border-color));
-        background: var(--bg-hover);
+    .sherpa-choice-card:hover {
+        background: var(--surface-card-hover);
+        border-color: var(--border-control);
     }
 
-    .choice-card.selected,
-    .format-card.selected,
-    .target-card.selected {
-        border-color: var(--accent-primary);
-        background: color-mix(in srgb, var(--accent-primary) 10%, var(--card-bg));
+    .sherpa-choice-card.selected {
+        background: var(--accent-soft);
+        border-color: var(--accent);
     }
 
-    .choice-card:focus-visible,
-    .format-card:focus-visible,
-    .target-card:focus-visible,
-    button:focus-visible,
-    summary:focus-visible,
-    .form-control:focus-visible {
-        outline: 3px solid color-mix(in srgb, var(--accent-primary) 55%, transparent);
+    .sherpa-choice-card:focus-visible,
+    summary:focus-visible {
+        outline: 2px solid var(--accent);
         outline-offset: 2px;
     }
 
-    .choice-icon,
-    .target-platform {
-        width: 2rem;
-        height: 2rem;
-        display: grid;
-        place-items: center;
-        flex-shrink: 0;
-        border-radius: 0.5rem;
-        color: var(--accent-primary);
-        background: color-mix(in srgb, var(--accent-primary) 13%, transparent);
-        font-size: 0.82rem;
-    }
-
-    .choice-copy,
-    .target-copy,
-    .format-card > span,
-    .result-artifact > span {
-        display: grid;
-        gap: 0.1rem;
+    .capture-choice-copy {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        gap: 2px;
         min-width: 0;
-        flex: 1;
     }
 
-    .choice-copy strong,
-    .target-copy strong,
-    .format-card strong {
-        font-size: 0.79rem;
+    .capture-choice-copy strong {
+        overflow: hidden;
+        font-size: var(--font-size-sm);
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
-    .choice-copy small,
-    .target-copy small,
-    .format-card small {
+    .capture-choice-copy small {
         color: var(--text-secondary);
-        font-size: 0.7rem;
-        line-height: 1.3;
-    }
-
-    .result-artifact small {
-        color: var(--text-secondary);
+        font-size: var(--font-size-xs);
         line-height: 1.35;
     }
 
-    .selection-check {
+    .capture-selection-check {
         display: none;
-        color: var(--accent-primary);
+        flex: 0 0 auto;
         margin-left: auto;
+        color: var(--accent);
     }
 
-    .selected .selection-check {
-        display: block;
+    .sherpa-choice-card.selected .capture-selection-check {
+        display: inline-block;
     }
 
-    .target-list {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+    .capture-target-card .sherpa-icon-well,
+    .capture-format-card .sherpa-icon-well {
+        flex-shrink: 0;
     }
 
-    .target-card {
-        min-height: 3.25rem;
-    }
-
-    .target-empty {
-        margin-left: 2rem;
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 0.6rem;
-        padding: 0.7rem;
-        border: 1px dashed var(--border-color);
-        border-radius: 0.65rem;
-        background: var(--bg-secondary);
-    }
-
-    .target-empty > i {
-        margin-top: 0.15rem;
-        color: var(--text-muted);
-        font-size: 1rem;
-    }
-
-    .target-empty p {
-        font-size: 0.73rem;
-    }
-
-    .recovery-actions {
-        grid-column: 2;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.4rem;
-        margin-top: 0.25rem;
-    }
-
-    .format-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .format-card {
-        min-height: 3.5rem;
-    }
-
-    .format-card > i:first-child {
-        width: 1.25rem;
-        color: var(--accent-primary);
-        text-align: center;
-        font-size: 0.85rem;
-    }
-
-    .inline-message {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.45rem;
-        margin: 0.55rem 0 0 2rem;
-        padding: 0.55rem 0.65rem;
-        border-radius: 0.55rem;
-        font-size: 0.73rem;
-        line-height: 1.4;
-    }
-
-    .inline-message.warning {
-        color: var(--text-primary);
-        background: color-mix(in srgb, var(--accent-warning) 13%, var(--bg-secondary));
-    }
-
-    .inline-message.warning > i {
-        color: var(--accent-warning);
-    }
-
-    .inline-message.error {
-        color: var(--text-primary);
-        background: color-mix(in srgb, var(--accent-danger) 12%, var(--bg-secondary));
-    }
-
-    .inline-message.error > i {
-        color: var(--accent-danger);
-    }
-
-    .result-note {
-        margin: 0.15rem 0 0.35rem;
-        text-align: left;
-    }
-
-    .advanced-section,
-    .details-panel {
-        margin-top: 0.5rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.65rem;
-        background: var(--bg-secondary);
-        overflow: hidden;
-    }
-
-    .advanced-section summary,
-    .details-panel summary {
-        min-height: 2.75rem;
+    .capture-empty-actions,
+    .capture-result-actions {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        padding: 0 0.75rem;
-        font-size: 0.77rem;
-        font-weight: 700;
-        cursor: pointer;
-        list-style: none;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 6px;
     }
 
-    .advanced-section summary::-webkit-details-marker,
-    .details-panel summary::-webkit-details-marker {
-        display: none;
+    .capture-disclosure[open] .sherpa-disclosure-chev {
+        color: var(--text-primary);
+        transform: rotate(90deg);
     }
 
-    .advanced-section[open] .chevron {
-        transform: rotate(180deg);
+    .capture-disclosure .sherpa-disclosure-body {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        border-top: 0;
     }
 
-    .chevron {
-        transition: transform 160ms ease;
+    .capture-disclosure .sherpa-disclosure-body::before {
+        position: absolute;
+        inset-block-start: 0;
+        inset-inline: var(--row-padding-x);
+        height: 1px;
+        background: var(--border-hairline);
+        content: "";
     }
 
-    .advanced-content,
-    .details-content {
-        padding: 0.75rem;
-        border-top: 1px solid var(--border-color);
-    }
-
-    .advanced-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.65rem;
-    }
-
-    .advanced-grid .field-label,
-    .advanced-grid .form-control {
-        width: 100%;
-        margin-left: 0;
-    }
-
-    .advanced-grid .field-label {
-        margin-top: 0;
-    }
-
-    .span-two {
+    .capture-span-2 {
         grid-column: 1 / -1;
     }
 
-    .field-help {
-        display: block;
-        margin-top: 0.25rem;
-        color: var(--text-muted);
-        font-size: 0.68rem;
-    }
-
-    .checkbox-field {
-        min-height: 2.75rem;
+    .capture-toggle {
         display: flex;
         align-items: flex-start;
-        gap: 0.5rem;
-        padding: 0.55rem 0.6rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.6rem;
-        cursor: pointer;
-    }
-
-    .checkbox-field input {
-        width: 1.05rem;
-        height: 1.05rem;
-        margin-top: 0.15rem;
-        accent-color: var(--accent-primary);
-    }
-
-    .checkbox-field span {
-        display: grid;
-        gap: 0.1rem;
-        font-size: 0.75rem;
-    }
-
-    .checkbox-field small {
-        color: var(--text-secondary);
-        font-size: 0.68rem;
-        line-height: 1.35;
-    }
-
-    .command-preview {
-        margin-top: 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.6rem;
-        overflow: hidden;
-    }
-
-    .command-heading {
-        min-height: 2.3rem;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0 0.7rem;
-        color: var(--text-secondary);
-        border-bottom: 1px solid var(--border-color);
-        font-size: 0.72rem;
-        font-weight: 700;
-    }
-
-    .copy-button {
-        min-height: 2rem;
-        padding: 0 0.45rem;
-        color: var(--accent-primary);
-        border: 0;
-        background: transparent;
-        cursor: pointer;
-    }
-
-    .command-preview code,
-    .command-block {
-        display: block;
-        padding: 0.6rem;
+        gap: 9px;
+        padding: 10px 12px;
         color: var(--text-primary);
-        background: var(--bg-primary);
+        background: var(--surface-card);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+    }
+
+    .capture-toggle input {
+        flex: 0 0 auto;
+        margin-top: 2px;
+    }
+
+    .capture-toggle > span {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .capture-toggle strong {
+        font-size: var(--font-size-sm);
+        font-weight: 600;
+    }
+
+    .capture-toggle small {
+        color: var(--text-secondary);
+        font-size: var(--font-size-xs);
+        line-height: 1.4;
+    }
+
+    .capture-command-console,
+    .capture-remediation-console {
+        margin-top: 2px;
+    }
+
+    .capture-command-console .sherpa-console-body,
+    .capture-remediation-console .sherpa-console-body {
+        display: block;
         white-space: pre-wrap;
         overflow-wrap: anywhere;
-        font-size: 0.68rem;
-        line-height: 1.45;
-        user-select: text;
     }
 
-    .control-button,
-    .icon-text-button,
-    .recovery-actions .btn,
-    .result-secondary {
-        min-height: 2.75rem;
+    .capture-state-view {
+        min-height: 100%;
     }
 
-    .running-view,
-    .result-view {
-        min-height: 34rem;
+    .capture-flow-card {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 18px;
     }
 
-    .run-hero {
+    .capture-state-header {
         display: flex;
         align-items: center;
-        gap: 1.1rem;
-        padding: 1.25rem 0 1.5rem;
+        gap: 14px;
     }
 
-    .run-indicator {
-        width: 4rem;
-        height: 4rem;
+    .capture-run-icon,
+    .capture-result-icon {
+        flex: 0 0 44px;
+        width: 44px;
+        height: 44px;
+        font-size: 16px;
+        color: var(--accent);
+        background: var(--accent-soft);
+        border-color: var(--accent-border);
+    }
+
+    .capture-run-icon.is-recording,
+    .capture-result-danger {
+        color: var(--status-danger-fg);
+        background: var(--status-danger-bg);
+        border-color: var(--status-danger-border);
+    }
+
+    .capture-result-success {
+        color: var(--status-success-fg);
+        background: var(--status-success-bg);
+        border-color: var(--status-success-border);
+    }
+
+    .capture-spinner {
+        width: 18px;
+        height: 18px;
+        border: 2px solid var(--border-control);
+        border-top-color: var(--accent);
+        border-radius: var(--radius-pill);
+        animation: capture-spin 800ms linear infinite;
+    }
+
+    .capture-record-dot {
+        width: 12px;
+        height: 12px;
+        background: var(--status-danger-dot);
+        border-radius: var(--radius-pill);
+        animation: capture-record-pulse 1400ms ease-out infinite;
+    }
+
+    .capture-state-copy {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+        min-width: 0;
+    }
+
+    .capture-state-copy h2,
+    .capture-result-header h2 {
+        margin: 0;
+        color: var(--text-primary);
+        font-size: 1.08rem;
+        line-height: 1.3;
+    }
+
+    .capture-state-copy p,
+    .capture-result-header p {
+        margin: 0;
+        color: var(--text-secondary);
+        line-height: 1.45;
+    }
+
+    .capture-meta-grid {
         display: grid;
-        place-items: center;
-        flex-shrink: 0;
-        border-radius: 1rem;
-        background: color-mix(in srgb, var(--accent-primary) 12%, var(--card-bg));
+        overflow: hidden;
+        background: var(--surface-well);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-lg);
     }
 
-    .run-indicator.recording {
-        background: color-mix(in srgb, var(--accent-danger) 12%, var(--card-bg));
-    }
-
-    .record-dot {
-        width: 1.1rem;
-        height: 1.1rem;
-        border-radius: 50%;
-        background: var(--accent-danger);
-        box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-danger) 35%, transparent);
-        animation: record-pulse 1.5s ease-out infinite;
-    }
-
-    .eyebrow {
-        display: block;
-        margin-bottom: 0.25rem;
-        color: var(--accent-primary);
-        font-size: 0.72rem;
-        font-weight: 800;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-    }
-
-    .run-hero h2,
-    .result-view h2 {
-        margin: 0 0 0.35rem;
-        font-size: 1.35rem;
-        line-height: 1.25;
-    }
-
-    .run-summary,
-    .result-summary {
-        display: grid;
+    .capture-meta-grid-3 {
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 1px;
-        margin: 0.5rem 0 1.1rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.75rem;
-        background: var(--border-color);
-        overflow: hidden;
     }
 
-    .run-summary > div,
-    .result-summary > div {
-        display: grid;
-        gap: 0.25rem;
-        padding: 0.8rem;
-        background: var(--bg-secondary);
+    .capture-meta-grid-4 {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 
-    .run-summary span,
-    .result-summary span {
+    .capture-meta-grid > div {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+        padding: 10px 12px;
+    }
+
+    .capture-meta-grid > div + div {
+        border-left: 0;
+    }
+
+    .capture-meta-grid > div + div::before {
+        position: absolute;
+        inset-block: 10px;
+        inset-inline-start: 0;
+        width: 1px;
+        background: var(--border-hairline);
+        content: "";
+    }
+
+    .capture-meta-grid span {
         color: var(--text-muted);
-        font-size: 0.7rem;
-        font-weight: 700;
-        text-transform: uppercase;
+        font-size: var(--font-size-xs);
+        font-weight: 600;
     }
 
-    .run-summary strong,
-    .result-summary strong {
+    .capture-meta-grid strong {
         overflow: hidden;
+        color: var(--text-primary);
+        font-size: var(--font-size-sm);
+        font-weight: 600;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: 0.82rem;
     }
 
-    .instruction-card {
+    .capture-cli-details {
+        margin-top: 2px;
+    }
+
+    .capture-live-console .sherpa-console-body {
         display: flex;
-        align-items: flex-start;
-        gap: 0.85rem;
-        padding: 1rem;
-        margin: 1rem 0;
-        border: 1px solid color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
-        border-radius: 0.75rem;
-        background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-secondary));
+        flex-direction: column;
+        gap: 7px;
+        max-height: 180px;
     }
 
-    .recording-card {
-        border-color: color-mix(in srgb, var(--accent-danger) 42%, var(--border-color));
-        background: color-mix(in srgb, var(--accent-danger) 8%, var(--bg-secondary));
+    .capture-console-command {
+        color: var(--console-text);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
     }
 
-    .instruction-number {
-        width: 1.65rem;
-        height: 1.65rem;
+    .capture-console-line {
         display: grid;
-        place-items: center;
-        flex-shrink: 0;
-        border-radius: 50%;
-        color: var(--text-inverse);
-        background: var(--accent-primary);
-        font-size: 0.75rem;
-        font-weight: 800;
+        grid-template-columns: minmax(80px, auto) minmax(0, 1fr);
+        gap: 10px;
+        padding-top: 7px;
+        color: var(--console-muted);
+        border-top: 1px solid var(--border-console);
     }
 
-    .recording-card .instruction-number {
-        color: var(--accent-danger);
-        background: transparent;
+    .capture-console-line strong {
+        color: var(--console-text);
+        font-weight: 600;
     }
 
-    .details-panel {
-        margin-top: 1.25rem;
+    .capture-result-view {
+        gap: 18px;
     }
 
-    .status-list {
-        display: grid;
-        gap: 0.45rem;
-        margin-top: 0.75rem;
-        font-size: 0.75rem;
+    .capture-result-view > .capture-meta-grid {
+        background: var(--surface-card);
+        border-color: var(--border-subtle);
     }
 
-    .status-list div {
-        display: grid;
-        grid-template-columns: 7rem 1fr;
-        gap: 0.6rem;
-        color: var(--text-secondary);
+    .platform-macos .sherpa-choice-card,
+    .platform-macos .sherpa-choice-card:hover,
+    .platform-macos .capture-toggle,
+    .platform-macos .capture-meta-grid,
+    .platform-macos .capture-result-view > .capture-meta-grid,
+    .platform-macos .capture-flow-card {
+        border-color: transparent;
+        box-shadow: none;
+        corner-shape: squircle;
     }
 
-    .status-list span {
-        color: var(--text-primary);
-        font-weight: 700;
+    .platform-macos .sherpa-choice-card.selected {
+        border-color: var(--accent);
+        background: var(--accent-soft);
     }
 
-    .result-view {
+    .capture-result-header {
         display: flex;
         flex-direction: column;
         align-items: center;
-        text-align: center;
-        padding-top: 3rem;
-    }
-
-    .result-icon {
-        width: 4rem;
-        height: 4rem;
-        display: grid;
-        place-items: center;
-        margin-bottom: 1rem;
-        border-radius: 50%;
-        font-size: 1.35rem;
-    }
-
-    .result-icon.success {
-        color: var(--accent-success);
-        background: color-mix(in srgb, var(--accent-success) 14%, var(--bg-secondary));
-    }
-
-    .result-icon.error {
-        color: var(--accent-danger);
-        background: color-mix(in srgb, var(--accent-danger) 14%, var(--bg-secondary));
-    }
-
-    .result-summary {
-        width: 100%;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        margin-top: 1.5rem;
-        text-align: left;
-    }
-
-    .result-artifacts {
-        width: 100%;
-        display: grid;
-        gap: 0.5rem;
-        margin-top: 0.2rem;
-    }
-
-    .result-artifact {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        padding: 0.75rem;
-        text-align: left;
-        border: 1px solid var(--border-color);
-        border-radius: 0.65rem;
-        background: var(--bg-secondary);
-    }
-
-    .result-artifact > i {
-        width: 1.8rem;
-        color: var(--accent-primary);
+        gap: 7px;
         text-align: center;
     }
 
-    .result-secondary {
-        margin-top: 1rem;
+    .capture-result-header h2 {
+        max-width: 48ch;
     }
 
-    .failure-view h2 {
-        max-width: 36rem;
-        font-size: 1.1rem;
+    .capture-failure-header h2 {
+        font-size: 1rem;
     }
 
-    .remediation {
-        width: 100%;
-        margin-top: 1.2rem;
-        padding: 1rem;
-        text-align: left;
-        border-radius: 0.7rem;
-        background: color-mix(in srgb, var(--accent-warning) 10%, var(--bg-secondary));
+    .capture-result-actions {
+        margin-top: 2px;
     }
 
-    .remediation p {
+    .capture-remediation > div {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .capture-recovery-steps {
         display: flex;
-        gap: 0.5rem;
-        margin: 0.55rem 0 0;
-        color: var(--text-secondary);
-        line-height: 1.45;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 8px;
     }
 
-    .remediation i {
-        margin-top: 0.25rem;
-        color: var(--accent-warning);
+    .capture-recovery-steps > div {
+        display: flex;
+        gap: 7px;
     }
 
-    .remediation code {
-        display: block;
-        margin-top: 0.75rem;
-        padding: 0.65rem;
-        color: var(--text-primary);
-        background: var(--bg-primary);
-        overflow-wrap: anywhere;
-        user-select: text;
+    .capture-remediation-console {
+        margin-top: 10px;
     }
 
-    .failure-details {
+    .capture-technical-details {
         width: 100%;
-        text-align: left;
     }
 
-    .error-code {
-        margin-bottom: 0.6rem;
+    .capture-error-meta {
         color: var(--text-secondary);
-        font-size: 0.75rem;
+        font-size: var(--font-size-xs);
     }
 
-    .error-code span {
-        margin-right: 0.4rem;
-        color: var(--accent-danger);
-        font-weight: 800;
-    }
-
-    .failure-details pre {
+    .capture-technical-details pre {
+        margin: 0 0 10px;
+        color: var(--console-text);
+        font: inherit;
         white-space: pre-wrap;
-        user-select: text;
+        overflow-wrap: anywhere;
     }
 
     button:disabled {
@@ -2047,50 +1774,56 @@
         opacity: 0.5;
     }
 
-    @@keyframes spin {
+    @@keyframes capture-spin {
         to { transform: rotate(360deg); }
     }
 
-    @@keyframes record-pulse {
-        70% { box-shadow: 0 0 0 0.7rem transparent; }
-        100% { box-shadow: 0 0 0 0 transparent; }
+    @@keyframes capture-record-pulse {
+        0% { box-shadow: 0 0 0 0 var(--status-danger-border); }
+        70%, 100% { box-shadow: 0 0 0 8px transparent; }
     }
 
-    @@media (max-width: 680px) {
-        .configure-view,
-        .running-view,
-        .result-view {
-            padding: 1rem;
-        }
-
-        .two-column,
-        .target-list,
-        .format-grid,
-        .advanced-grid,
-        .run-summary,
-        .result-summary {
+    @@media (max-width: 480px) {
+        .capture-choice-grid-2,
+        .capture-target-grid,
+        .capture-format-grid,
+        .capture-meta-grid-3,
+        .capture-meta-grid-4 {
             grid-template-columns: 1fr;
         }
 
-        .project-picker {
-            grid-template-columns: 1fr;
+        .capture-meta-grid > div + div {
+            border-left: 0;
         }
 
-        .section-heading.with-action {
+        .capture-meta-grid > div + div::before {
+            inset-block: 0 auto;
+            inset-inline: var(--row-padding-x);
+            width: auto;
+            height: 1px;
+        }
+
+        .sherpa-empty-inline,
+        .capture-tool-banner,
+        .capture-state-header {
             align-items: flex-start;
+            flex-direction: column;
+        }
+
+        .capture-empty-actions {
+            width: 100%;
+            justify-content: flex-start;
         }
     }
 
     @@media (prefers-reduced-motion: reduce) {
-        .spinner,
-        .record-dot {
+        .capture-spinner,
+        .capture-record-dot {
             animation: none;
         }
 
-        .choice-card,
-        .format-card,
-        .target-card,
-        .chevron {
+        .sherpa-choice-card,
+        .sherpa-disclosure-chev {
             transition: none;
         }
     }

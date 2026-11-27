@@ -7,14 +7,14 @@
 @inject IEncryptedSettingsService SettingsService
 
 <div class="form-content">
-    <div class="dialog-subheader">
+    <div class="dialog-subheader sherpa-badge sherpa-badge-accent">
         <span class="bundle-id-label"><span class="bundle-id-prefix">BUNDLE ID</span> <span class="@(demoMode ? "demo-blur" : "")">@bundleId?.Identifier</span></span>
     </div>
     <div class="capabilities-body">
         @if (isLoadingCapabilities)
         {
             <div class="loading-capabilities">
-                <i class="fas fa-spinner fa-spin"></i> Loading capabilities...
+                <i class="fa-solid fa-spinner fa-spin"></i> Loading capabilities...
             </div>
         }
         else
@@ -23,29 +23,30 @@
             {
                 <div class="capability-category">
                     <h3 class="category-title">@category.Key</h3>
-                    <div class="capability-list">
+                    <div class="capability-list sherpa-list">
                         @foreach (var capType in category.Value)
                         {
                             var isEnabled = IsCapabilityEnabled(capType);
                             var capId = GetCapabilityId(capType);
                             var isToggleable = CapabilityCategories.IsToggleable(capType);
-                            <div class="capability-item @(isEnabled ? "enabled" : "") @(!isToggleable ? "read-only" : "")">
+                            <div class="capability-item sherpa-list-row sherpa-list-row-interactive @(isEnabled ? "enabled" : "") @(!isToggleable ? "read-only" : "")"
+                                 @onclick="@(async () => { if (isToggleable && !isTogglingCapability) await ToggleCapability(capType, capId, !isEnabled); })">
                                 <div class="capability-info">
-                                    <i class="fas @CapabilityCategories.GetIcon(capType)"></i>
+                                    <i class="fa-solid @CapabilityCategories.GetIcon(capType)"></i>
                                     <span class="capability-name">@CapabilityCategories.GetDisplayName(capType)</span>
                                     @if (!isToggleable)
                                     {
-                                        <span class="capability-readonly-badge" title="This capability cannot be toggled via the API. Use the Apple Developer Portal or Xcode.">
-                                            <i class="fas fa-lock"></i> Read-only
+                                        <span class="capability-readonly-badge sherpa-badge sherpa-badge-neutral" title="This capability cannot be toggled via the API. Use the Apple Developer Portal or Xcode.">
+                                            <i class="fa-solid fa-lock"></i> Read-only
                                         </span>
                                     }
                                 </div>
-                                <label class="toggle-switch">
+                                <label class="capability-checkbox" @onclick:stopPropagation="true">
                                     <input type="checkbox"
                                            checked="@isEnabled"
                                            disabled="@(isTogglingCapability || !isToggleable)"
+                                           @onclick:stopPropagation="true"
                                            @onchange="@(e => ToggleCapability(capType, capId, (bool)(e.Value ?? false)))" />
-                                    <span class="toggle-slider"></span>
                                 </label>
                             </div>
                         }
@@ -146,19 +147,15 @@
 }
 
 <style>
-    .form-content { padding: 16px 20px; }
+    .form-content { padding: 16px 24px; }
     .dialog-subheader {
         display: inline-block;
-        padding: 0.5rem 1rem;
-        background: rgba(139, 92, 246, 0.12);
-        border: none;
-        border-radius: var(--card-radius, 1rem);
         margin-bottom: 1.25rem;
     }
     .bundle-id-label {
         font-family: 'Monaco', 'Menlo', monospace;
         font-size: 0.8125rem;
-        color: var(--accent-primary);
+        color: var(--accent);
         font-weight: 500;
     }
     .bundle-id-prefix {
@@ -167,12 +164,12 @@
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.05em;
-        color: rgba(139, 92, 246, 0.7);
+        color: var(--accent);
         margin-right: 0.375rem;
     }
 
     .capabilities-body {
-        overflow-y: auto;
+        overflow-y: auto; overscroll-behavior: contain;
     }
     .loading-capabilities {
         text-align: center;
@@ -187,27 +184,23 @@
         font-weight: 600;
         color: var(--text-secondary);
         margin: 0 0 0.75rem 0;
-        padding-bottom: 0.5rem;
-        border-bottom: 1px solid var(--border-color);
     }
     .capability-list {
         display: flex;
         flex-direction: column;
-        gap: 0.5rem;
+        overflow: hidden;
     }
     .capability-item {
         display: flex;
         justify-content: space-between;
         align-items: center;
         padding: 0.75rem 1rem;
-        background: var(--bg-hover);
-        border-radius: 0.75rem;
-        border: 1px solid transparent;
-        transition: all 0.15s;
+        border: 0;
+        cursor: pointer;
+        transition: background 0.15s;
     }
     .capability-item.enabled {
-        background: rgba(72, 187, 120, 0.15);
-        border-color: #38a169;
+        background: var(--status-success-bg);
     }
     .capability-info {
         display: flex;
@@ -218,20 +211,16 @@
         font-size: 1rem;
         width: 1.25rem;
         text-align: center;
-        color: #718096;
+        color: var(--text-muted);
     }
     .capability-item.enabled .capability-info i {
-        color: #38a169;
+        color: var(--status-success-fg);
     }
     .capability-item.read-only {
         opacity: 0.65;
+        cursor: default;
     }
     .capability-readonly-badge {
-        font-size: 0.7rem;
-        color: var(--text-muted);
-        background: var(--bg-hover);
-        padding: 0.1rem 0.4rem;
-        border-radius: 0.25rem;
         white-space: nowrap;
     }
     .capability-readonly-badge i {
@@ -242,49 +231,13 @@
         color: var(--text-primary);
     }
 
-    /* Toggle Switch */
-    .toggle-switch {
-        position: relative;
-        display: inline-block;
-        width: 44px;
-        height: 1.5rem;
-    }
-    .toggle-switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-    }
-    .toggle-slider {
-        position: absolute;
+    .capability-checkbox {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 32px;
+        min-height: 32px;
         cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: #cbd5e0;
-        transition: 0.2s;
-        border-radius: 1.5rem;
-    }
-    .toggle-slider:before {
-        position: absolute;
-        content: "";
-        height: 18px;
-        width: 18px;
-        left: 3px;
-        bottom: 3px;
-        background-color: white;
-        transition: 0.2s;
-        border-radius: 50%;
-    }
-    .toggle-switch input:checked + .toggle-slider {
-        background-color: #48bb78;
-    }
-    .toggle-switch input:checked + .toggle-slider:before {
-        transform: translateX(20px);
-    }
-    .toggle-switch input:disabled + .toggle-slider {
-        opacity: 0.5;
-        cursor: not-allowed;
     }
 
 </style>

@@ -44,6 +44,7 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
 
     public FormPage()
     {
+        this.SetDynamicResource(BackgroundColorProperty, FormTheme.PageBg);
 
 #if MACOSAPP
         Microsoft.Maui.Platforms.MacOS.Platform.MacOSPage.SetModalSheetSizesToContent(this, true);
@@ -79,8 +80,9 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
             Text = FormTitle,
             FontSize = 18,
             FontAttributes = FontAttributes.Bold,
-            Margin = new Thickness(28, 24, 28, 12),
+            Margin = new Thickness(24, 18, 24, 12),
         };
+        titleLabel.SetDynamicResource(Label.TextColorProperty, FormTheme.TextPrimary);
 
         // Header separator — full width
         var headerSeparator = new BoxView { HeightRequest = 1 };
@@ -120,13 +122,14 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
         {
             Text = "Cancel",
             FontSize = 13,
-            BackgroundColor = Colors.Transparent,
-            BorderWidth = 0,
-            CornerRadius = 5,
+            BorderWidth = 1,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
         };
-        cancelButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimary);
+        cancelButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.SecondaryButtonBg);
+        cancelButton.SetDynamicResource(Button.BorderColorProperty, FormTheme.ButtonOutlineBorder);
+        cancelButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextPrimary);
         cancelButton.Clicked += OnCancelClicked;
 
         _submittingIndicator = new ActivityIndicator
@@ -144,20 +147,20 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
             Text = SubmitButtonText,
             FontSize = 13,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Colors.White,
-            CornerRadius = 5,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
             IsEnabled = CanSubmit,
         };
         _submitButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.AccentPrimary);
+        _submitButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimaryText);
         _submitButton.Clicked += OnSubmitClicked;
 
         var footerLayout = new HorizontalStackLayout
         {
             Spacing = 12,
             HorizontalOptions = LayoutOptions.End,
-            Margin = new Thickness(28, 12, 28, 24),
+            Margin = new Thickness(24, 12, 24, 18),
             Children = { cancelButton, _submittingIndicator, _submitButton },
         };
 

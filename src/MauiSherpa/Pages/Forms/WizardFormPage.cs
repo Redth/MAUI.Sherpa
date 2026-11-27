@@ -32,6 +32,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
     private List<AppKit.NSButton>? _macHeaderButtons;
 #endif
     private View? _webView;
+    private HybridLoadingView? _loadingView;
     private bool _isOnLastStep;
     private bool _isClosed;
 
@@ -101,7 +102,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
                 new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Auto),
             },
-            Padding = new Thickness(28, 20, 20, 12),
+            Padding = new Thickness(24, 18, 24, 12),
         };
         Grid.SetColumn(titleLabel, 0);
         Grid.SetColumn(_headerActionsLayout, 1);
@@ -116,27 +117,22 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
         headerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
 
         // BlazorWebView
-        ModalWebViewReadySignal.Ready += OnBlazorReady;
-        View webView;
 #if MACOSAPP
-        var blazorWebView = new MacOSBlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = BlazorRoute,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new BlazorRootComponent
         {
             Selector = "#app",
             ComponentType = typeof(Components.ModalApp)
         });
-        webView = blazorWebView;
 #else
-        var blazorWebView = new BlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = BlazorRoute,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new RootComponent
         {
@@ -144,9 +140,10 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             ComponentType = typeof(Components.ModalApp)
         });
         HandlerProperties.SetDisconnectPolicy(blazorWebView, HandlerDisconnectPolicy.Manual);
-        webView = blazorWebView;
 #endif
-        _webView = webView;
+        _webView = blazorWebView;
+        var webView = new HybridLoadingView(blazorWebView);
+        _loadingView = webView;
 
         // Footer separator
         var footerSeparator = new BoxView { HeightRequest = 1 };
@@ -157,13 +154,14 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
         {
             Text = "Cancel",
             FontSize = 13,
-            BackgroundColor = Colors.Transparent,
-            BorderWidth = 0,
-            CornerRadius = 5,
+            BorderWidth = 1,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
         };
-        cancelButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimary);
+        cancelButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.SecondaryButtonBg);
+        cancelButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextPrimary);
+        cancelButton.SetDynamicResource(Button.BorderColorProperty, FormTheme.ButtonOutlineBorder);
         cancelButton.Clicked += OnCancelClicked;
 
         // Back button (right side, beside primary)
@@ -171,13 +169,14 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
         {
             Text = "← Back",
             FontSize = 13,
-            BackgroundColor = Colors.Transparent,
-            BorderWidth = 0,
-            CornerRadius = 5,
+            BorderWidth = 1,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
         };
-        _backButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextSecondary);
+        _backButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.SecondaryButtonBg);
+        _backButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextPrimary);
+        _backButton.SetDynamicResource(Button.BorderColorProperty, FormTheme.ButtonOutlineBorder);
         _backButton.Clicked += OnBackClicked;
 
         // Submitting indicator
@@ -197,14 +196,14 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             Text = "Next →",
             FontSize = 13,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Colors.White,
-            CornerRadius = 5,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
             MinimumWidthRequest = 88,
             IsEnabled = false,
         };
         _primaryButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.AccentPrimary);
+        _primaryButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimaryText);
         _primaryButton.Clicked += OnPrimaryClicked;
 
         // Footer layout: Cancel on left, Back + Primary on right
@@ -222,7 +221,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
                 new ColumnDefinition(GridLength.Auto),
                 new ColumnDefinition(GridLength.Star),
             },
-            Margin = new Thickness(28, 12, 28, 24),
+            Margin = new Thickness(24, 12, 24, 18),
         };
         Grid.SetColumn(cancelButton, 0);
         Grid.SetColumn(rightButtons, 1);
@@ -244,6 +243,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             RowSpacing = 0,
             VerticalOptions = LayoutOptions.Fill,
         };
+        grid.SetDynamicResource(Grid.BackgroundColorProperty, FormTheme.PageBg);
 
         Grid.SetRow(headerGrid, 0);
         Grid.SetRow(headerSeparator, 1);
@@ -397,21 +397,11 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
     {
         if (_isClosed) return;
         _isClosed = true;
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
+        _loadingView?.StopLoading();
         _bridge.WizardStateChanged -= OnWizardStateChanged;
         _bridge.HeaderActionsChanged -= OnHeaderActionsChanged;
         _bridge.CloseRequested -= OnCloseRequested;
         _bridgeHolder.Remove(_bridge);
         _tcs.TrySetResult(result);
-    }
-
-    private void OnBlazorReady(double contentHeight)
-    {
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
-        Dispatcher.Dispatch(async () =>
-        {
-            if (_webView != null)
-                await _webView.FadeToAsync(1, 200, Easing.CubicIn);
-        });
     }
 }

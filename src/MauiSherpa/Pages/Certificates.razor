@@ -32,7 +32,59 @@
 @inject IPublishProfileService PublishProfileService
 @inject IPublishProfileHealthService PublishProfileHealth
 
-<h1><i class="fas fa-certificate"></i> Certificates</h1>
+<div class="sherpa-list-header-row">
+    <div class="sherpa-list-header-lead">
+        <h1><i class="fa-solid fa-certificate"></i> Certificates</h1>
+        @if (HasActiveFilters)
+        {
+            <span class="sherpa-filter-pill">
+                <i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i>
+                @FilteredCertificates.Count() of @certificates.Count
+            </span>
+        }
+    </div>
+    @if (IdentityState.SelectedIdentity != null && !LocalVaultAccess.GetState().RequiresUserAction)
+    {
+        <div class="sherpa-list-header-actions">
+            @if (!isSelectionMode)
+            {
+                <button class="btn btn-secondary btn-sm" @onclick="BeginSelectionModeAsync" disabled="@(isLoading || !FilteredCertificates.Any())">
+                    <i class="fa-solid fa-check-square fa-fw"></i> Select
+                </button>
+            }
+            else
+            {
+                <div class="sherpa-selection-inline">
+                    <div class="sherpa-selection-pill">
+                        <label>
+                            <input type="checkbox"
+                                   checked="@AllVisibleSelected"
+                                   disabled="@isLoading"
+                                   @onchange="ToggleAllVisible" />
+                            <span>All</span>
+                        </label>
+                        <span class="sherpa-selection-sep"></span>
+                        <span class="sherpa-selection-count">@selectedCertificateIds.Count selected</span>
+                        @if (HiddenSelectionCount > 0)
+                        {
+                            <span class="sherpa-selection-hidden">(@HiddenSelectionCount hidden)</span>
+                        }
+                    </div>
+                    <button class="btn btn-primary btn-sm" @onclick="BackUpSelectedAsync" disabled="@(isLoading || selectedCertificateIds.Count == 0)">
+                        <i class="fa-solid fa-cloud-arrow-up fa-fw"></i> Back Up
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="InstallSelectedAsync" disabled="@(isLoading || selectedCertificateIds.Count == 0)">
+                        <i class="fa-solid fa-download fa-fw"></i> Install
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="ExportSelectedAsync" disabled="@(isLoading || selectedCertificateIds.Count == 0)">
+                        <i class="fa-solid fa-file-export fa-fw"></i> Export
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="CancelSelectionMode">Done</button>
+                </div>
+            }
+        </div>
+    }
+</div>
 
 <AppleIdentityPicker />
 
@@ -46,48 +98,29 @@
     @if (!PlatformInfo.HasNativeToolbar)
     {
     <div class="toolbar">
-        @if (isSelectionMode)
-        {
-            <button data-screenshot-external class="btn btn-primary" @onclick="BackUpSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
-                <i class="fas fa-cloud-arrow-up"></i> Back Up
-            </button>
-            <button data-screenshot-external class="btn btn-secondary" @onclick="InstallSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
-                <i class="fas fa-download"></i> Install
-            </button>
-            <button data-screenshot-external class="btn btn-secondary" @onclick="ExportSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)" title="Export">
-                <i class="fas fa-file-export"></i> Export Selected...
-            </button>
-            <button class="btn btn-secondary" @onclick="CancelSelectionMode">
-                <i class="fas fa-times"></i> Cancel
-            </button>
-        }
-        else
-        {
-            <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
-                <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
-            </button>
-            <button data-screenshot-external class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
-                <i class="fas fa-plus"></i> Create Certificate
-            </button>
-            <button class="btn btn-secondary" @onclick="BeginSelectionModeAsync" disabled="@isLoading">
-                <i class="fas fa-check-square"></i> Select
-            </button>
-        }
+        <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
+            <i class="fa-solid @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+        </button>
+        <button data-screenshot-external class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
+            <i class="fa-solid fa-plus"></i> Create Certificate
+        </button>
     </div>
     }
 
     <!-- Cloud Sync Hint -->
     @if (CloudSecretsService.ActiveProvider == null && !syncHintDismissed)
     {
-        <div class="alert alert-info alert-dismissible">
+        <div class="sherpa-banner sherpa-banner-info">
             <div class="alert-content">
-                <i class="fas fa-cloud info-icon"></i>
+                <i class="fa-solid fa-cloud info-icon"></i>
                 <div>
                     <strong>Sync certificates across machines</strong>
                     <p>Configure a secrets provider in Settings to securely store signing certificates and private keys. Use a cloud provider to sync across machines.</p>
                 </div>
             </div>
-            <button type="button" class="btn-close" @onclick="DismissSyncHint" title="Dismiss">×</button>
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" @onclick="DismissSyncHint" title="Dismiss" aria-label="Dismiss sync hint">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+            </button>
         </div>
     }
 
@@ -96,32 +129,40 @@
     {
     <div class="filter-section">
         <div class="search-box">
-            <span class="search-icon"><i class="fas fa-search"></i></span>
+            <span class="search-icon"><i class="fa-solid fa-search"></i></span>
             <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search certificates..." />
             @if (!string.IsNullOrEmpty(searchQuery))
             {
-                <button class="clear-btn" @onclick="@(() => searchQuery = "")">×</button>
+                <button class="clear-btn" @onclick="@(() => searchQuery = "")" aria-label="Clear certificate search">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
             }
         </div>
         <div class="filter-chips">
-            <select @bind="filterType" class="filter-select">
-                <option value="">All Types</option>
-                <option value="DEVELOPMENT">Development</option>
-                <option value="DISTRIBUTION">Distribution</option>
-                <option value="DEVELOPER_ID">Developer ID</option>
-                <option value="DEVELOPER_ID_INSTALLER">Developer ID Installer</option>
-            </select>
-            <select @bind="filterPlatform" class="filter-select">
-                <option value="">All Platforms</option>
-                <option value="IOS">iOS</option>
-                <option value="MAC">macOS</option>
-            </select>
-            <select @bind="filterStatus" class="filter-select">
-                <option value="">All Status</option>
-                <option value="valid">Valid</option>
-                <option value="expiring">Expiring Soon</option>
-                <option value="expired">Expired</option>
-            </select>
+            <SherpaSelect TValue="string"
+                          Value="@filterType"
+                          ValueChanged="@(value => filterType = value ?? "")"
+                          Options="CertificateTypeFilterOptions"
+                          LeadingIcon="fa-solid fa-certificate"
+                          AriaLabel="Filter by certificate type"
+                          Compact="true"
+                          Class="filter-select" />
+            <SherpaSelect TValue="string"
+                          Value="@filterPlatform"
+                          ValueChanged="@(value => filterPlatform = value ?? "")"
+                          Options="PlatformFilterOptions"
+                          LeadingIcon="fa-brands fa-apple"
+                          AriaLabel="Filter by platform"
+                          Compact="true"
+                          Class="filter-select" />
+            <SherpaSelect TValue="string"
+                          Value="@filterStatus"
+                          ValueChanged="@(value => filterStatus = value ?? "")"
+                          Options="StatusFilterOptions"
+                          LeadingIcon="fa-solid fa-circle-dot"
+                          AriaLabel="Filter by certificate status"
+                          Compact="true"
+                          Class="filter-select" />
         </div>
         @if (HasActiveFilters)
         {
@@ -135,39 +176,15 @@
         <div class="error-bar">@errorMessage</div>
     }
 
-    <div class="results-info">
-        Showing @FilteredCertificates.Count() of @certificates.Count certificates
-    </div>
-
-    @if (isSelectionMode)
-    {
-        <div class="selection-bar">
-            <label class="select-all-checkbox">
-                <input type="checkbox"
-                       checked="@AllVisibleSelected"
-                       disabled="@isLoading"
-                       @onchange="ToggleAllVisible" />
-                <span>Select all certificates shown</span>
-            </label>
-            <span class="selection-count">@selectedCertificateIds.Count selected</span>
-        </div>
-    }
-
-    <div class="cert-list">
-        @if (isLoading && certificates.Count == 0)
+    <div class="cert-list sherpa-list">
+        @if (!hasLoaded || (isLoading && certificates.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner">
-                    <i class="fas fa-certificate"></i>
-                </div>
-                <div class="loading-title">Loading Certificates</div>
-                <div class="loading-description">Fetching certificates from App Store Connect...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading Apple certificates..." />
         }
         else if (!FilteredCertificates.Any())
         {
             <div class="empty-state">
-                <div class="empty-icon"><i class="fas @(certificates.Count == 0 ? "fa-lock" : "fa-search")"></i></div>
+                <div class="empty-icon"><i class="fa-solid @(certificates.Count == 0 ? "fa-lock" : "fa-search")"></i></div>
                 <div class="empty-title">@(certificates.Count == 0 ? "No certificates found" : "No matching certificates")</div>
                 <div class="empty-description">@(certificates.Count == 0 ? "Click \"Create Certificate\" to generate a new signing certificate" : "No certificates match your search or filters. Try adjusting your criteria.")</div>
             </div>
@@ -181,7 +198,7 @@
                 var syncStatus = GetSyncStatus(cert);
                 
                 <div @key="cert.Id"
-                     class="cert-card @(isExpired ? "expired" : isExpiringSoon ? "expiring" : "") @(selectedCertificateIds.Contains(cert.Id) ? "selected" : "") @(isSelectionMode && !isLoading ? "selectable" : "")"
+                     class="cert-card sherpa-list-row @(isExpired ? "expired" : isExpiringSoon ? "expiring" : "") @(selectedCertificateIds.Contains(cert.Id) ? "selected" : "") @(isSelectionMode ? "selectable sherpa-list-row-interactive" : "")"
                      @onclick="() => { if (isSelectionMode) ToggleCertificateSelection(cert.Id, !selectedCertificateIds.Contains(cert.Id)); }">
                     @if (isSelectionMode)
                     {
@@ -190,54 +207,56 @@
                                    aria-label="@($"Select {cert.Name}")"
                                    checked="@selectedCertificateIds.Contains(cert.Id)"
                                    disabled="@isLoading"
+                                   @onclick:stopPropagation="true"
                                    @onchange="@(e => ToggleCertificateSelection(cert.Id, e.Value is bool selected && selected))" />
                         </label>
                     }
-                    <div class="cert-icon"><i class="fas fa-lock"></i></div>
-                    <div class="cert-details">
-                        <div class="cert-name"><span>@cert.Name</span></div>
-                        <div class="cert-serial">
-                            Serial: <span class="@(demoMode ? "demo-blur" : "")">@cert.SerialNumber</span>
-                            <button class="btn-copy" @onclick="@(() => CopyToClipboard(cert.SerialNumber))" @onclick:stopPropagation="true" title="Copy to clipboard">
-                                <i class="fas fa-copy"></i>
-                            </button>
-                        </div>
-                        <div class="cert-badges">
+                    <div class="cert-icon sherpa-icon-well sherpa-icon-well-apple">
+                        <i class="fa-solid fa-certificate"></i>
+                        <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
+                    </div>
+                    <div class="cert-details sherpa-row-stack">
+                        <div class="cert-name sherpa-row-title">
+                            <span>@cert.Name</span>
                             @if (!string.IsNullOrEmpty(cert.CertificateType))
                             {
-                                <span class="badge badge-type">@FormatCertType(cert.CertificateType)</span>
+                                <span class="sherpa-badge sherpa-badge-neutral">@FormatCertType(cert.CertificateType)</span>
                             }
                             @{ var formattedPlatform = FormatPlatform(cert.Platform); }
                             @if (!string.IsNullOrEmpty(formattedPlatform))
                             {
-                                <span class="badge badge-platform">@formattedPlatform</span>
+                                <span class="sherpa-badge sherpa-badge-neutral">@formattedPlatform</span>
                             }
                             @if (cert.IsLocalOnly)
                             {
-                                <span class="badge badge-local-only" title="Not published by App Store Connect — read from your local keychain">
-                                    <i class="fas fa-key"></i> Keychain only
+                                <span class="sherpa-badge sherpa-badge-info" title="Not published by App Store Connect — read from your local keychain">
+                                    <i class="fa-solid fa-key"></i> Keychain only
                                 </span>
                             }
                             @if (isExpired)
                             {
-                                <span class="badge badge-expired">Expired</span>
+                                <span class="sherpa-badge sherpa-badge-danger"><span class="sherpa-dot sherpa-dot-danger"></span> Expired</span>
                             }
                             else if (isExpiringSoon)
                             {
-                                <span class="badge badge-expiring">Expiring Soon</span>
+                                <span class="sherpa-badge sherpa-badge-warning"><span class="sherpa-dot sherpa-dot-warning"></span> Expiring Soon</span>
                             }
                             else
                             {
-                                <span class="badge badge-valid">Valid</span>
+                                <span class="sherpa-badge sherpa-badge-success"><span class="sherpa-dot sherpa-dot-success"></span> Valid</span>
                             }
                         </div>
-                        <div class="cert-expiry">
-                            Expires: @cert.ExpirationDate.ToString("MMM dd, yyyy")
+                        <div class="cert-serial sherpa-row-sub mono">
+                            <span>Serial: <span class="@(demoMode ? "demo-blur" : "")">@cert.SerialNumber</span></span>
+                            <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(cert.SerialNumber))" @onclick:stopPropagation="true" title="Copy serial" aria-label="@($"Copy serial for {cert.Name}")">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
+                            <span>· Expires @cert.ExpirationDate.ToString("MMM dd, yyyy")</span>
                         </div>
                     </div>
                     @if (!isSelectionMode)
                     {
-                    <div class="cert-actions">
+                    <div class="cert-actions sherpa-row-actions">
                         @if (!string.IsNullOrWhiteSpace(cert.SerialNumber))
                         {
                             <MauiSherpa.Components.SecretProviderPickerHost
@@ -245,36 +264,9 @@
                                 Item="@(new SecretItemRef(SecretItemKind.Certificate, GetCertificateSyncItemId(cert.SerialNumber), cert.Name))"
                                 CanAddProviderCopy="@(syncStatus != SecretLocation.None)"
                                 UnavailableSourceReason="This certificate has no matching private key in Keychain and no provider copy. Import or install its private key before syncing." />
-                            @if (syncStatus is SecretLocation.CloudOnly)
-                            {
-                                <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => InstallLocally(cert))" title="Install private key locally">
-                                    <i class="fas fa-download"></i>
-                                </button>
-                            }
                         }
-                        <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => ShowExportDialog(cert))"
-                                disabled="@isLoading" title="Export">
-                            <i class="fas fa-file-export"></i>
-                        </button>
-                        @if (!string.IsNullOrWhiteSpace(cert.SerialNumber) &&
-                             syncStatus is SecretLocation.LocalOnly or SecretLocation.Both)
-                        {
-                            <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="@(() => DeleteLocalCertificate(cert))" title="Delete private key from Keychain">
-                                <i class="fas fa-trash-alt"></i>
-                            </button>
-                        }
-                        @if (!cert.IsLocalOnly)
-                        {
-                            <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => RenewCertificate(cert))"
-                                    disabled="@isLoading" title="Renew… (replace this certificate and move its provisioning profiles)"
-                                    aria-label="@($"Renew {cert.Name}")">
-                                <i class="fas fa-rotate"></i>
-                            </button>
-                            <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="@(() => RevokeCertificate(cert))"
-                                    disabled="@isLoading" title="Revoke">
-                                <i class="fas fa-ban"></i>
-                            </button>
-                        }
+                        <SherpaActionMenu Items="@GetCertificateActions(cert, syncStatus)"
+                                          AriaLabel="@($"Actions for {cert.Name}")" />
                     </div>
                     }
                 </div>
@@ -286,73 +278,45 @@
 
 
 <style>
-    h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
-
     .toolbar { margin-bottom: 1rem; display: flex; gap: 0.75rem; flex-wrap: wrap; }
-    .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border-radius: 0.75rem; margin-bottom: 1rem; }
+    .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border: 1px solid var(--status-error-border); border-radius: var(--radius-lg); margin-bottom: 1rem; }
 
-    /* Info Alert */
-    .alert-info {
-        background: linear-gradient(135deg, rgba(66, 153, 225, 0.1), rgba(66, 153, 225, 0.05));
-        border: 1px solid rgba(66, 153, 225, 0.3);
-        border-radius: 0.5rem;
-        padding: 1rem;
+    .sherpa-banner {
         margin-bottom: 1rem;
-        display: flex;
-        align-items: flex-start;
-        gap: 0.75rem;
     }
 
-    .alert-info .alert-content {
+    .sherpa-banner .alert-content {
         flex: 1;
         display: flex;
-        gap: 0.75rem;
+        gap: var(--space-3);
         align-items: flex-start;
     }
 
-    .alert-info .info-icon {
-        font-size: 1.5rem;
-        color: var(--accent-primary);
+    .sherpa-banner .info-icon {
+        color: inherit;
         flex-shrink: 0;
         margin-top: 2px;
     }
 
-    .alert-info strong {
+    .sherpa-banner strong {
         display: block;
-        color: var(--text-primary);
         margin-bottom: 0.25rem;
     }
 
-    .alert-info p {
+    .sherpa-banner p {
         margin: 0;
-        color: var(--text-secondary);
         font-size: 0.875rem;
-        line-height: 1.5;
-    }
-
-    .alert-info .btn-close {
-        background: none;
-        border: none;
-        font-size: 1.25rem;
-        color: var(--text-secondary);
-        cursor: pointer;
-        padding: 0;
-        line-height: 1;
-        opacity: 0.6;
-        transition: opacity 0.2s;
-    }
-
-    .alert-info .btn-close:hover {
-        opacity: 1;
+        line-height: 1.45;
     }
 
     /* Filter Section Styles */
     .filter-section {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        padding: 1rem;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: 10px 14px;
         margin-bottom: 1rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        box-shadow: none;
         display: flex;
         flex-wrap: wrap;
         gap: 0.75rem;
@@ -360,54 +324,44 @@
     }
 
     .search-box {
-        position: relative;
         flex: 1;
         min-width: 200px;
     }
 
     .search-box input {
         width: 100%;
-        padding: 0.625rem 36px 0.625rem 36px;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
+        padding: 0;
+        border: 0;
+        background: transparent;
         box-sizing: border-box;
     }
 
     .search-box input:focus {
         outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+        box-shadow: none;
     }
 
     .search-icon {
-        position: absolute;
-        left: 0.75rem;
-        top: 50%;
-        transform: translateY(-50%);
         font-size: 0.875rem;
         opacity: 0.5;
     }
 
     .clear-btn {
-        position: absolute;
-        right: 0.5rem;
-        top: 50%;
-        transform: translateY(-50%);
-        background: var(--border-color);
-        border: none;
-        border-radius: 50%;
-        width: 1.25rem;
-        height: 1.25rem;
-        font-size: 0.875rem;
-        cursor: pointer;
-        display: flex;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: var(--radius-sm);
+        font-size: 0.875rem;
+        cursor: pointer;
         color: var(--text-muted);
     }
 
-    .clear-btn:hover { background: var(--bg-hover); }
+    .clear-btn:hover { background: var(--surface-card-hover); }
 
     .filter-chips {
         display: flex;
@@ -415,20 +369,7 @@
         flex-wrap: wrap;
     }
 
-    .filter-select {
-        padding: 0.5rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.8125rem;
-        background: var(--card-bg);
-        cursor: pointer;
-        min-width: 120px;
-    }
-
-    .filter-select:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-    }
+    .filter-select { min-width: 120px; }
 
     .clear-filters-btn {
         padding: 0.5rem 0.75rem;
@@ -445,52 +386,28 @@
         color: var(--text-secondary);
     }
 
-    .results-info {
-        font-size: 0.8125rem;
-        color: var(--text-muted);
-        margin-bottom: 0.75rem;
-    }
-    .btn i { font-size: 0.75rem; }
-    .btn-icon {
-        width: 2rem; height: 2rem; padding: 0;
-        display: inline-flex; align-items: center; justify-content: center;
-        border-radius: 0.375rem; font-size: 0.8125rem;
-    }
-    .btn-icon i { font-size: 0.8125rem; margin: 0; }
-
-    .cert-list { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem; }
+    .cert-list { margin-bottom: 1.25rem; }
 
     .cert-card {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        padding: 0.875rem;
-        display: flex;
-        align-items: flex-start;
-        gap: 1rem;
-        border-left: 0.25rem solid var(--accent-success);
+        align-items: center;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
     }
 
-    .cert-card.expired { border-left-color: #f56565; opacity: 0.7; }
-    .cert-card.expiring { border-left-color: var(--accent-warning); }
-    .cert-card.selected { box-shadow: 0 0 0 2px var(--accent-primary); }
+    .cert-card.expired { opacity: 0.7; }
+    .cert-card.selected { background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-card)); }
     .cert-card.selectable { cursor: pointer; }
 
-    .cert-icon { font-size: 1.5rem; color: #6b46c1; }
-    .cert-icon i { font-size: 1.25rem; }
-    .cert-details { flex: 1; }
-    .cert-name { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
-    .cert-serial { 
-        font-family: monospace; 
-        font-size: 0.75rem; 
-        color: var(--text-muted); 
-        margin-top: 0.25rem;
+    .cert-details { min-width: 0; }
+    .cert-name {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 6px;
     }
-    .cert-expiry { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.5rem; }
-    .cert-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
-    .cert-actions { display: flex; gap: 0.25rem; align-items: center; position: relative; }
+    .cert-serial { display: flex; align-items: center; gap: 6px; }
+    .cert-actions { position: relative; }
     .cert-select {
         display: flex;
         align-items: center;
@@ -503,52 +420,18 @@
         accent-color: var(--accent-primary);
     }
 
-    .selection-bar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        padding: 0.75rem 1rem;
-        margin-bottom: 0.75rem;
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: var(--card-radius);
-    }
-    .select-all-checkbox {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        color: var(--text-secondary);
-        cursor: pointer;
-        font-size: 0.875rem;
-    }
-    .select-all-checkbox input { accent-color: var(--accent-primary); }
-    .selection-count {
-        color: var(--text-muted);
-        font-size: 0.8125rem;
-        white-space: nowrap;
-    }
-
     .btn-copy {
-        background: none;
-        border: none;
-        color: #a0aec0;
-        cursor: pointer;
-        padding: 2px 0.375rem;
-        font-size: 0.75rem;
-        border-radius: 0.25rem;
-        transition: all 0.15s;
+        width: 20px;
+        min-width: 20px;
+        height: 20px;
+        min-height: 20px;
         flex-shrink: 0;
     }
-    .btn-copy:hover {
-        color: var(--accent-primary);
-        background: var(--bg-hover);
-    }
 
-    .badge { padding: 2px 0.625rem; border-radius: 0.75rem; font-size: 0.75rem; font-weight: 500; }
-    .badge-type { background: #faf5ff; color: #6b46c1; }
+    .badge { padding: 2px 0.625rem; border-radius: var(--radius-pill); font-size: 0.75rem; font-weight: 500; }
+    .badge-type { background: var(--accent-soft); color: var(--accent); }
     .badge-local-only { background: var(--sync-local-bg); color: var(--sync-local-text); }
-    .badge-platform { background: #bee3f8; color: #2c5282; }
+    .badge-platform { background: var(--status-info-bg); color: var(--status-info-text); }
     .badge-valid { background: var(--status-success-bg); color: var(--status-success-text); }
     .badge-expiring { background: var(--status-warning-bg); color: var(--status-warning-text); }
     .badge-expired { background: var(--status-error-bg); color: var(--status-error-text); }
@@ -558,10 +441,10 @@
     .badge-sync-local { background: var(--sync-local-bg); color: var(--sync-local-text); }
     .badge-sync-cloud { background: var(--sync-cloud-bg); color: var(--sync-cloud-text); }
     .badge-sync-none { background: var(--sync-none-bg); color: var(--sync-none-text); }
-    .text-sync-both { color: #22c55e; }
-    .text-sync-local { color: #3b82f6; }
-    .text-sync-cloud { color: #eab308; }
-    .text-sync-none { color: #6b7280; }
+    .text-sync-both { color: var(--status-success-fg); }
+    .text-sync-local { color: var(--status-info-fg); }
+    .text-sync-cloud { color: var(--status-warning-fg); }
+    .text-sync-none { color: var(--text-muted); }
     
     /* Sync dropdown menu */
     .cert-dropdown-menu {
@@ -587,11 +470,11 @@
     .cert-dropdown-item:hover:not(.disabled) { background: var(--bg-tertiary); }
     .cert-dropdown-item.disabled { color: var(--text-muted); cursor: default; opacity: 0.5; }
     .cert-dropdown-item i { font-size: 0.75rem; width: 0.875rem; text-align: center; color: var(--text-secondary); }
-    .cert-dropdown-item.danger { color: var(--accent-danger, #e53e3e); }
-    .cert-dropdown-item.danger i { color: var(--accent-danger, #e53e3e); }
+    .cert-dropdown-item.danger { color: var(--accent-danger); }
+    .cert-dropdown-item.danger i { color: var(--accent-danger); }
 
     .empty-state { background: var(--card-bg); border-radius: var(--card-radius); padding: 3.75rem 2.5rem; text-align: center; }
-    .empty-icon { font-size: 48px; margin-bottom: 1rem; color: #a0aec0; }
+    .empty-icon { font-size: 48px; margin-bottom: 1rem; color: var(--text-muted); }
     .empty-icon i { font-size: 48px; }
     .empty-title { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
     .empty-description { color: var(--text-muted); font-size: 0.875rem; }
@@ -600,7 +483,9 @@
 
 @code {
     private List<AppleCertificate> certificates = new();
-    private bool isLoading = false;
+    private bool isLoading = true;
+    private bool hasLoaded;
+    private bool isDisposed;
     private bool demoMode = false;
     private string errorMessage = "";
     private string cloudSecretsErrorMessage = "";
@@ -610,6 +495,27 @@
     private string filterType = "";
     private string filterPlatform = "";
     private string filterStatus = "";
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> CertificateTypeFilterOptions =
+    [
+        new("", "All Types"),
+        new("DEVELOPMENT", "Development"),
+        new("DISTRIBUTION", "Distribution"),
+        new("DEVELOPER_ID", "Developer ID"),
+        new("DEVELOPER_ID_INSTALLER", "Developer ID Installer")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> PlatformFilterOptions =
+    [
+        new("", "All Platforms"),
+        new("IOS", "iOS", Icon: "fa-brands fa-apple"),
+        new("MAC", "macOS", Icon: "fa-brands fa-apple")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> StatusFilterOptions =
+    [
+        new("", "All Status"),
+        new("valid", "Valid", DotCssClass: "sherpa-dot-success"),
+        new("expiring", "Expiring Soon", DotCssClass: "sherpa-dot-warning"),
+        new("expired", "Expired", DotCssClass: "sherpa-dot-danger")
+    ];
     private bool isSelectionMode;
     private readonly HashSet<string> selectedCertificateIds = new(StringComparer.Ordinal);
     private IReadOnlyList<LocalSigningIdentity> localIdentities = Array.Empty<LocalSigningIdentity>();
@@ -641,6 +547,17 @@
         {
             var visibleIds = FilteredCertificates.Select(certificate => certificate.Id).ToList();
             return visibleIds.Count > 0 && visibleIds.All(selectedCertificateIds.Contains);
+        }
+    }
+
+    private int HiddenSelectionCount
+    {
+        get
+        {
+            var visibleIds = FilteredCertificates
+                .Select(certificate => certificate.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            return selectedCertificateIds.Count(id => !visibleIds.Contains(id));
         }
     }
 
@@ -714,8 +631,14 @@
     
     private void OnIdentityChanged()
     {
+        if (!string.Equals(_loadedIdentityId, IdentityState.SelectedIdentity?.Id, StringComparison.Ordinal))
+            hasLoaded = false;
+
         InvokeAsync(async () =>
         {
+            isSelectionMode = false;
+            selectedCertificateIds.Clear();
+            UpdateToolbarItemStates();
             await RefreshData();
             StateHasChanged();
         });
@@ -753,8 +676,64 @@
         });
     }
 
+    private IReadOnlyList<SherpaMenuItem> GetCertificateActions(AppleCertificate cert, SecretLocation syncStatus)
+    {
+        var items = new List<SherpaMenuItem>();
+
+        if (!string.IsNullOrWhiteSpace(cert.SerialNumber) && syncStatus is SecretLocation.CloudOnly)
+        {
+            items.Add(SherpaMenuItem.Action(
+                "Install Private Key Locally",
+                "fa-solid fa-download",
+                () => InstallLocally(cert),
+                disabled: isLoading));
+        }
+
+        items.Add(SherpaMenuItem.Action(
+            "Export Certificate...",
+            "fa-solid fa-file-export",
+            () => ShowExportDialog(cert),
+            disabled: isLoading));
+
+        if (!cert.IsLocalOnly)
+        {
+            items.Add(SherpaMenuItem.Action(
+                "Renew Certificate...",
+                "fa-solid fa-rotate",
+                () => RenewCertificate(cert),
+                disabled: isLoading,
+                title: "Replace this certificate and move its provisioning profiles"));
+        }
+
+        items.Add(SherpaMenuItem.Divider);
+
+        if (!string.IsNullOrWhiteSpace(cert.SerialNumber) &&
+            syncStatus is SecretLocation.LocalOnly or SecretLocation.Both)
+        {
+            items.Add(SherpaMenuItem.Action(
+                "Delete Local Key",
+                "fa-solid fa-trash-can",
+                () => DeleteLocalCertificate(cert),
+                isDanger: true,
+                title: "Delete private key from Keychain"));
+        }
+
+        if (!cert.IsLocalOnly)
+        {
+            items.Add(SherpaMenuItem.Action(
+                "Revoke Certificate",
+                "fa-solid fa-ban",
+                () => RevokeCertificate(cert),
+                isDanger: true,
+                disabled: isLoading));
+        }
+
+        return items;
+    }
+
     public void Dispose()
     {
+        isDisposed = true;
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
@@ -767,6 +746,7 @@
     {
         InvokeAsync(async () =>
         {
+            UpdateToolbarItemStates();
             if (!LocalVaultAccess.GetState().RequiresUserAction)
                 await InitializeCloudSecretsAsync();
 
@@ -781,16 +761,8 @@
         {
             switch (actionId)
             {
-                case "refresh":
-                    ToolbarService.SetItemEnabled("refresh", false);
-                    try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
-                    break;
+                case "refresh": await RefreshData(forceRefresh: true); break;
                 case "create": await ShowCreateDialog(); break;
-                case "select": await BeginSelectionModeAsync(); break;
-                case "backup-selected": await BackUpSelectedAsync(); break;
-                case "install-selected": await InstallSelectedAsync(); break;
-                case "export-selected": await ExportSelectedAsync(); break;
-                case "cancel-selection": CancelSelectionMode(); break;
             }
             StateHasChanged();
         });
@@ -805,7 +777,9 @@
             _loadedIdentityId = null;
             certificates.Clear();
             syncStatuses.Clear();
+            hasLoaded = false;
             isLoading = false;
+            UpdateToolbarItemStates();
             return;
         }
 
@@ -817,6 +791,7 @@
         var loadVersion = ++_certificateLoadVersion;
         _loadedIdentityId = identity.Id;
         isLoading = true;
+        UpdateToolbarItemStates();
         errorMessage = "";
         
         ToastMessage? toast = null;
@@ -884,11 +859,13 @@
 
             if (IsCurrentCertificateLoad(loadVersion, identity.Id))
             {
+                hasLoaded = true;
                 // Let a failed load be retried for the same identity.
                 if (!string.IsNullOrEmpty(errorMessage))
                     _loadedIdentityId = null;
 
                 isLoading = false;
+                UpdateToolbarItemStates();
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -925,6 +902,7 @@
     private async Task ShowCreateDialog()
     {
         var page = new CreateCertificatePage(
+            BridgeHolder,
             requireDiskExport: !LocalCertificateService.IsSupported);
         var request = await FormModalService.ShowAsync<CreateCertificateFormResult>(page);
         if (request == null) return;
@@ -943,18 +921,18 @@
                     "Use My Own Request");
                 if (generateRequest)
                 {
+                    var suggestedRequestName =
+                        $"{request.CertificateType.ToLowerInvariant().Replace('_', '-')}-{DateTime.Now:yyyyMMdd-HHmmss}.certSigningRequest";
                     var csrPage = new CreateCertificateRequestPage(
+                        BridgeHolder,
                         IdentityState.SelectedIdentity?.Name ?? "Apple Signing Key",
                         isPaymentProcessing: request.CertificateType == "APPLE_PAY",
-                        storeKeyInKeychain: storeKeyInKeychain);
+                        storeKeyInKeychain: storeKeyInKeychain,
+                        suggestedFileName: suggestedRequestName);
                     var csr = await FormModalService.ShowAsync<CreateCertificateRequestFormResult>(csrPage);
                     if (csr == null) return;
 
-                    var requestPath = await DialogService.PickSaveFileAsync(
-                        "Save Certificate Signing Request",
-                        $"{request.CertificateType.ToLowerInvariant().Replace('_', '-')}-{DateTime.Now:yyyyMMdd-HHmmss}.certSigningRequest",
-                        "certSigningRequest",
-                        startOnDesktop: true);
+                    var requestPath = csrPage.SavePath;
                     if (string.IsNullOrWhiteSpace(requestPath)) return;
 
                     if (storeKeyInKeychain)
@@ -1125,24 +1103,11 @@
 
     private void ConfigureToolbar()
     {
-        if (isSelectionMode)
-        {
-            ToolbarService.SetItems(
-                new ToolbarAction("backup-selected", "Back Up", "icloud.and.arrow.up"),
-                new ToolbarAction("install-selected", "Install", "square.and.arrow.down"),
-                new ToolbarAction("export-selected", "Export Selected...", "square.and.arrow.up", ToolTip: "Export"),
-                new ToolbarAction("cancel-selection", "Cancel", "xmark", IsPrimary: false));
-            UpdateSelectionToolbar();
-        }
-        else
-        {
-            ToolbarService.SetItems(
-                new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
-                new ToolbarAction("create", "Create Certificate", "plus"),
-                new ToolbarAction("select", "Select", "checkmark.circle"));
-        }
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Create Certificate", "plus"));
+        UpdateToolbarItemStates();
 
-        // SetItems resets the native search field and filters; restore the current values.
         ToolbarService.SetSearch("Search certificates...");
         if (!string.IsNullOrEmpty(searchQuery))
             ToolbarService.NotifySearchTextChanged(searchQuery);
@@ -1162,14 +1127,12 @@
 
         isSelectionMode = true;
         selectedCertificateIds.Clear();
-        ConfigureToolbar();
     }
 
     private void CancelSelectionMode()
     {
         isSelectionMode = false;
         selectedCertificateIds.Clear();
-        ConfigureToolbar();
     }
 
     private void ToggleCertificateSelection(string certificateId, bool selected)
@@ -1181,7 +1144,7 @@
             selectedCertificateIds.Add(certificateId);
         else
             selectedCertificateIds.Remove(certificateId);
-        UpdateSelectionToolbar();
+        UpdateToolbarItemStates();
     }
 
     private void ToggleAllVisible(ChangeEventArgs args)
@@ -1194,15 +1157,20 @@
             selectedCertificateIds.UnionWith(visibleIds);
         else
             selectedCertificateIds.ExceptWith(visibleIds);
-        UpdateSelectionToolbar();
+        UpdateToolbarItemStates();
     }
 
-    private void UpdateSelectionToolbar()
+    private void UpdateToolbarItemStates()
     {
-        var hasSelection = selectedCertificateIds.Count > 0;
-        ToolbarService.SetItemEnabled("backup-selected", hasSelection);
-        ToolbarService.SetItemEnabled("install-selected", hasSelection);
-        ToolbarService.SetItemEnabled("export-selected", hasSelection);
+        if (isDisposed)
+            return;
+
+        var ready = IdentityState.SelectedIdentity != null &&
+            !LocalVaultAccess.GetState().RequiresUserAction &&
+            !isLoading;
+
+        ToolbarService.SetItemEnabled("refresh", ready);
+        ToolbarService.SetItemEnabled("create", ready);
     }
 
     private List<AppleCertificate> GetSelectedCertificates() => certificates
@@ -1458,6 +1426,7 @@
 
         // Step 1: choose the replacement.
         var form = await FormModalService.ShowAsync<RenewCertificateFormResult>(new RenewCertificatePage(
+            BridgeHolder,
             oldCert,
             typeLabel,
             candidates,
@@ -2087,10 +2056,10 @@
     
     private string GetSyncStatusIcon(SecretLocation location) => location switch
     {
-        SecretLocation.Both => "fas fa-check-circle text-sync-both",
-        SecretLocation.LocalOnly => "fas fa-hdd text-sync-local",
-        SecretLocation.CloudOnly => "fas fa-cloud text-sync-cloud",
-        _ => "fas fa-times-circle text-sync-none"
+        SecretLocation.Both => "fa-solid fa-check-circle text-sync-both",
+        SecretLocation.LocalOnly => "fa-solid fa-hdd text-sync-local",
+        SecretLocation.CloudOnly => "fa-solid fa-cloud text-sync-cloud",
+        _ => "fa-solid fa-times-circle text-sync-none"
     };
     
     private string GetSyncStatusText(SecretLocation location) => location switch

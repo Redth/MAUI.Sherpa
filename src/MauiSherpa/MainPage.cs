@@ -16,8 +16,9 @@ public class MainPage : ContentPage
     public MainPage(ISplashService splashService, IToolbarService toolbarService, IThemeService themeService)
     {
         _splashService = splashService;
+        this.SetDynamicResource(BackgroundColorProperty, Pages.Forms.FormTheme.WindowBg);
         
-        _blazorWebView = new BlazorWebView
+        _blazorWebView = new ThemedBlazorWebView
         {
             HostPage = "wwwroot/index.html"
         };
@@ -114,19 +115,7 @@ public class MainPage : ContentPage
             ZIndex = 1000
         };
 
-#if WINDOWS
-        overlay.SetDynamicResource(BackgroundColorProperty, Pages.Forms.FormTheme.PageBg);
-#else
-        overlay.BackgroundColor = Color.FromArgb("#1a1625");
-
-        // Add gradient background using BoxView layers
-        var gradientTop = new BoxView
-        {
-            Color = Color.FromArgb("#2d1f4e"),
-            Opacity = 0.5
-        };
-        overlay.Children.Add(gradientTop);
-#endif
+        overlay.SetDynamicResource(BackgroundColorProperty, Pages.Forms.FormTheme.WindowBg);
         
         // Content stack
         var contentStack = new VerticalStackLayout
@@ -150,50 +139,35 @@ public class MainPage : ContentPage
         var title = new Label
         {
             Text = "MAUI Sherpa",
-#if !WINDOWS
-            TextColor = Colors.White,
-#endif
             FontSize = 28,
             FontAttributes = FontAttributes.Bold,
             HorizontalOptions = LayoutOptions.Center,
             Margin = new Thickness(0, 24, 0, 0)
         };
-#if WINDOWS
         title.SetDynamicResource(Label.TextColorProperty, Pages.Forms.FormTheme.TextPrimary);
-#endif
         contentStack.Children.Add(title);
         
         // Subtitle
         var subtitle = new Label
         {
             Text = "Your guide to .NET MAUI development",
-#if !WINDOWS
-            TextColor = Color.FromArgb("#9999aa"),
-#endif
             FontSize = 14,
             HorizontalOptions = LayoutOptions.Center,
             Margin = new Thickness(0, 8, 0, 0)
         };
-#if WINDOWS
         subtitle.SetDynamicResource(Label.TextColorProperty, Pages.Forms.FormTheme.TextMuted);
-#endif
         contentStack.Children.Add(subtitle);
         
         // Loading indicator
         var loadingIndicator = new ActivityIndicator
         {
             IsRunning = true,
-#if !WINDOWS
-            Color = Color.FromArgb("#8b5cf6"),
-#endif
             WidthRequest = 32,
             HeightRequest = 32,
             Margin = new Thickness(0, 40, 0, 0),
             HorizontalOptions = LayoutOptions.Center
         };
-#if WINDOWS
         loadingIndicator.SetDynamicResource(ActivityIndicator.ColorProperty, Pages.Forms.FormTheme.AccentPrimary);
-#endif
         contentStack.Children.Add(loadingIndicator);
         
         overlay.Children.Add(contentStack);

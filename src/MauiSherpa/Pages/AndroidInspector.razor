@@ -10,43 +10,22 @@
 
 <div class="inspector-page">
     <div class="inspector-sdk-context">Active SDK: <span class="mono text-selectable">@(Sdk.SdkPath ?? "No SDK selected")</span></div>
-    <div class="inspector-tabstrip">
-        <div class="inspector-tabs">
-            <button class="inspector-tab @(ActiveTab == InspectorTab.Logcat ? "active" : "")"
-                    @onclick="@(() => SetTab(InspectorTab.Logcat))">
-                <i class="fas fa-scroll"></i> Logcat
-            </button>
-            <button class="inspector-tab @(ActiveTab == InspectorTab.Files ? "active" : "")"
-                    @onclick="@(() => SetTab(InspectorTab.Files))">
-                <i class="fas fa-folder-open"></i> Files
-            </button>
-            <button class="inspector-tab @(ActiveTab == InspectorTab.Shell ? "active" : "")"
-                    @onclick="@(() => SetTab(InspectorTab.Shell))">
-                <i class="fas fa-terminal"></i> Shell
-            </button>
-            <button class="inspector-tab @(ActiveTab == InspectorTab.Capture ? "active" : "")"
-                    @onclick="@(() => SetTab(InspectorTab.Capture))">
-                <i class="fas fa-camera"></i> Capture
-            </button>
-            <button class="inspector-tab @(ActiveTab == InspectorTab.Tools ? "active" : "")"
-                    @onclick="@(() => SetTab(InspectorTab.Tools))">
-                <i class="fas fa-wrench"></i> Tools
-            </button>
-            <button class="inspector-tab @(ActiveTab == InspectorTab.Apps ? "active" : "")"
-                    @onclick="@(() => SetTab(InspectorTab.Apps))">
-                <i class="fas fa-th-large"></i> Apps
-            </button>
-        </div>
-        <div class="inspector-device-selector">
-            <i class="fab fa-android inspector-device-icon"></i>
-            <select class="inspector-device-select" value="@Serial" @onchange="OnDeviceChanged">
-                @foreach (var d in connectedDevices)
-                {
-                    <option value="@d.Serial" selected="@(d.Serial == Serial)">@(d.Model ?? d.Serial)</option>
-                }
-            </select>
-        </div>
-    </div>
+    <SherpaTabs Items="InspectorTabs"
+                ActiveKey="@ActiveTab.ToString()"
+                ActiveKeyChanged="OnTabChanged"
+                Variant="SherpaTabVariant.Inspector"
+                AriaLabel="Android inspector tools">
+        <TrailingContent>
+            <SherpaSelect TValue="string"
+                          Value="@Serial"
+                          ValueChanged="OnDeviceChanged"
+                          Options="DeviceOptions"
+                          LeadingIcon="fa-brands fa-android"
+                          AriaLabel="Connected Android device"
+                          Compact="true"
+                          AlignEnd="true" />
+        </TrailingContent>
+    </SherpaTabs>
 
     <div class="inspector-body" @key="sdkRevision">
         @switch (ActiveTab)
@@ -74,83 +53,21 @@
 </div>
 
 <style>
-    .inspector-sdk-context { padding: 8px 16px; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; border-bottom: 1px solid var(--border-color); }
+    .inspector-sdk-context {
+        padding: 5px 16px;
+        font-size: 11px;
+        line-height: 18px;
+        color: var(--text-secondary);
+        background: var(--surface-card);
+        overflow-wrap: anywhere;
+        border-bottom: 1px solid var(--border-hairline);
+    }
     .inspector-page {
         display: flex;
         flex-direction: column;
         height: 100vh;
-        background: var(--bg-primary);
+        background: var(--surface-canvas);
         overflow: hidden;
-    }
-
-    .inspector-tabstrip {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0 0.5rem;
-        background: var(--bg-tertiary, #edf2f7);
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
-        flex-shrink: 0;
-        gap: 0.5rem;
-    }
-    .inspector-tabs {
-        display: flex;
-        gap: 0;
-    }
-    .inspector-tab {
-        background: none;
-        border: none;
-        padding: 0.5rem 0.75rem;
-        font-size: 0.8125rem;
-        font-weight: 500;
-        color: var(--text-secondary);
-        cursor: pointer;
-        border-bottom: 2px solid transparent;
-        transition: all 0.15s;
-        display: flex;
-        align-items: center;
-        gap: 0.3125rem;
-        white-space: nowrap;
-    }
-    .inspector-tab:hover {
-        color: var(--text-primary);
-        background: var(--bg-secondary);
-    }
-    .inspector-tab.active {
-        color: var(--accent-primary, #4299e1);
-        border-bottom-color: var(--accent-primary, #4299e1);
-        font-weight: 600;
-    }
-    .inspector-tab i {
-        font-size: 0.75rem;
-    }
-
-    .inspector-device-selector {
-        display: flex;
-        align-items: center;
-        gap: 0.25rem;
-        padding: 3px 0.5rem;
-        border-radius: 0.375rem;
-        background: var(--bg-secondary, #fff);
-        cursor: pointer;
-        flex-shrink: 0;
-    }
-    .inspector-device-icon {
-        color: #3ddc84;
-        font-size: 0.75rem;
-        flex-shrink: 0;
-    }
-    .inspector-device-select {
-        border: none;
-        outline: none !important;
-        background: transparent;
-        font-size: 0.75rem;
-        font-family: 'Consolas', 'Monaco', monospace;
-        color: var(--text-primary);
-        cursor: pointer;
-        -webkit-appearance: none;
-        appearance: none;
-        max-width: 180px;
     }
 
     .inspector-body {
@@ -171,6 +88,23 @@
 
     private InspectorTab ActiveTab = InspectorTab.Logcat;
     private List<DeviceInfo> connectedDevices = new();
+    private static readonly IReadOnlyList<SherpaTabItem> InspectorTabs =
+    [
+        new(nameof(InspectorTab.Logcat), "Logcat", "fa-solid fa-scroll"),
+        new(nameof(InspectorTab.Files), "Files", "fa-solid fa-folder-open"),
+        new(nameof(InspectorTab.Shell), "Shell", "fa-solid fa-terminal"),
+        new(nameof(InspectorTab.Capture), "Capture", "fa-solid fa-camera"),
+        new(nameof(InspectorTab.Tools), "Tools", "fa-solid fa-wrench"),
+        new(nameof(InspectorTab.Apps), "Apps", "fa-solid fa-table-cells-large")
+    ];
+    private IReadOnlyList<SherpaSelectOption<string>> DeviceOptions =>
+        connectedDevices
+            .Select(device => new SherpaSelectOption<string>(
+                device.Serial,
+                device.Model ?? device.Serial,
+                device.Serial,
+                "fa-brands fa-android"))
+            .ToArray();
 
     protected override void OnInitialized()
     {
@@ -204,9 +138,14 @@
         InspectorService.SetTab(tab);
     }
 
-    private async Task OnDeviceChanged(ChangeEventArgs e)
+    private void OnTabChanged(string key)
     {
-        var newSerial = e.Value?.ToString();
+        if (Enum.TryParse<InspectorTab>(key, out var tab))
+            SetTab(tab);
+    }
+
+    private async Task OnDeviceChanged(string? newSerial)
+    {
         if (string.IsNullOrEmpty(newSerial) || newSerial == Serial) return;
         Serial = newSerial;
         var device = connectedDevices.FirstOrDefault(d => d.Serial == newSerial);

@@ -28,14 +28,14 @@ FORM: Extension of the established Sherpa world; no new identity.
 
         @if (banner != null)
         {
-            <div class="ap-banner @(banner.IsLiveVerified ? "is-ok" : "")" role="status">
+            <div class="ap-banner sherpa-banner @(banner.IsLiveVerified ? "sherpa-banner-success is-ok" : "sherpa-banner-info")" role="status">
                 <i class="fa-solid @(banner.IsLiveVerified ? "fa-circle-check" : "fa-circle-info")" aria-hidden="true"></i>
                 <div><strong>@ResultTitle(banner)</strong><span>@banner.Message</span></div>
             </div>
         }
         @if (loadError != null)
         {
-            <div class="ap-banner is-error" role="alert">
+            <div class="ap-banner sherpa-banner sherpa-banner-danger is-error" role="alert">
                 <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                 <div><strong>Couldn't read Apple devices</strong><span>@loadError</span></div>
             </div>
@@ -49,38 +49,52 @@ FORM: Extension of the established Sherpa world; no new identity.
                     <i class="fa-solid fa-wifi" aria-hidden="true"></i> Pair over Wi-Fi…
                 </button>
             </div>
-            <ul class="ap-list">
-                @if (AvailableDevices.Count == 0)
-                {
-                    <li class="ap-row ap-row-empty">
-                        <span class="ap-glyph is-hint" aria-hidden="true"><i class="fa-brands fa-usb"></i></span>
-                        <div class="ap-text">
-                            <span class="ap-name">Connect a device with a USB cable</span>
-                            <span class="ap-meta">Unlock it and it will appear here. Sherpa checks every few seconds.</span>
-                        </div>
-                    </li>
-                }
-                @foreach (var device in AvailableDevices)
-                {
-                    @Row(device)
-                }
-            </ul>
+            @if (initialLoad && loading)
+            {
+                <SherpaListSkeleton Rows="2" Label="Looking for available Apple devices..." />
+            }
+            else
+            {
+                <ul class="ap-list sherpa-list">
+                    @if (AvailableDevices.Count == 0)
+                    {
+                        <li class="ap-row ap-row-empty">
+                            <span class="ap-glyph is-hint" aria-hidden="true"><i class="fa-brands fa-usb"></i></span>
+                            <div class="ap-text">
+                                <span class="ap-name">Connect a device with a USB cable</span>
+                                <span class="ap-meta">Unlock it and it will appear here. Sherpa checks every few seconds.</span>
+                            </div>
+                        </li>
+                    }
+                    @foreach (var device in AvailableDevices)
+                    {
+                        @Row(device)
+                    }
+                </ul>
+            }
         </div>
 
         <div class="ap-group">
             <div class="ap-group-head"><h3>My Devices</h3></div>
-            <ul class="ap-list">
-                @if (PairedDevices.Count == 0)
-                {
-                    <li class="ap-row ap-row-empty">
-                        <span>@(initialLoad ? "Looking for paired devices…" : "No devices are paired with this Mac yet.")</span>
-                    </li>
-                }
-                @foreach (var device in PairedDevices)
-                {
-                    @Row(device)
-                }
-            </ul>
+            @if (initialLoad && loading)
+            {
+                <SherpaListSkeleton Rows="2" Label="Looking for paired Apple devices..." />
+            }
+            else
+            {
+                <ul class="ap-list sherpa-list">
+                    @if (PairedDevices.Count == 0)
+                    {
+                        <li class="ap-row ap-row-empty">
+                            <span>No devices are paired with this Mac yet.</span>
+                        </li>
+                    }
+                    @foreach (var device in PairedDevices)
+                    {
+                        @Row(device)
+                    }
+                </ul>
+            }
         </div>
     }
     else
@@ -110,7 +124,7 @@ FORM: Extension of the established Sherpa world; no new identity.
 
         @if (pairingCode == null)
         {
-            <ol class="ap-list ap-steps">
+            <ol class="ap-list sherpa-list ap-steps">
                 <li class="ap-row">
                     <span class="ap-step" aria-hidden="true">1</span>
                     <div class="ap-text"><span class="ap-name">Open Paired Macs on your device</span><span class="ap-meta">Settings › Developer › Paired Macs. Developer Mode must be on.</span></div>
@@ -130,7 +144,7 @@ FORM: Extension of the established Sherpa world; no new identity.
         {
             @if (wifiResult != null)
             {
-                <div class="ap-banner @(wifiResult.IsLiveVerified ? "is-ok" : "")" role="status">
+                <div class="ap-banner sherpa-banner @(wifiResult.IsLiveVerified ? "sherpa-banner-success is-ok" : "sherpa-banner-info")" role="status">
                     <i class="fa-solid @(wifiResult.IsLiveVerified ? "fa-circle-check" : "fa-circle-info")" aria-hidden="true"></i>
                     <div><strong>@ResultTitle(wifiResult)</strong><span>@wifiResult.Message</span></div>
                 </div>
@@ -149,44 +163,43 @@ FORM: Extension of the established Sherpa world; no new identity.
 
 <style>
     .ap {
-        --ap-accent: var(--accent-purple);
-        --ap-accent-ink: #6b46c1;
-        --ap-card: #F7F7F7;
-        --ap-sep: #E0E0E0;
-        --ap-live: #2f855a;
-        --ap-danger: var(--accent-danger);
+        --ap-accent: var(--accent);
+        --ap-accent-ink: var(--accent);
+        --ap-card: var(--surface-card);
+        --ap-sep: var(--border-hairline);
+        --ap-live: var(--status-success-fg);
+        --ap-danger: var(--status-error-fg);
         padding: 14px 24px 22px;
         color: var(--text-primary);
         font-size: 13px;
     }
-    .theme-dark .ap { --ap-accent-ink: #d6bcfa; --ap-card: #2C2C2C; --ap-sep: #454545; --ap-live: #68d391; }
     .ap p { margin: 0; }
     .ap button { font-family: inherit; line-height: 1.2; }
     .ap :is(button, input):focus-visible { outline: 2px solid var(--ap-accent); outline-offset: 2px; }
 
     .ap-intro p { font-size: 13px; line-height: 1.4; }
     .ap-intro { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; color: var(--text-secondary); }
-    .ap-icon-btn { display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
-    .ap-icon-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+    .ap-icon-btn { display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); cursor: pointer; }
+    .ap-icon-btn:hover:not(:disabled) { background: var(--surface-card-hover); color: var(--text-primary); }
     .ap-icon-btn:disabled { opacity: 0.5; cursor: default; }
 
     .ap-group + .ap-group { margin-top: 20px; }
     .ap-group-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 24px; margin: 0 0 7px 2px; }
     .ap-group h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; font-weight: 600; color: var(--text-primary); }
-    .ap-link { display: inline-flex; align-items: center; gap: 6px; height: 24px; margin-right: -6px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ap-accent-ink); font-size: 12px; font-weight: 500; cursor: pointer; }
+    .ap-link { display: inline-flex; align-items: center; gap: 6px; height: 24px; margin-right: -6px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ap-accent-ink); font-size: 12px; font-weight: 500; cursor: pointer; }
     .ap-link i { font-size: 11px; }
     .ap-link:hover:not(:disabled) { background: color-mix(in srgb, var(--ap-accent) 12%, transparent); }
     .ap-link:disabled { opacity: 0.45; cursor: default; }
     .ap-scan { font-size: 11px; color: var(--text-muted); }
 
-    .ap-list { list-style: none; margin: 0; padding: 0; background: var(--ap-card); border-radius: 10px; overflow: hidden; }
+    .ap-list { list-style: none; margin: 0; padding: 0; background: var(--ap-card); overflow: hidden; }
     .ap-row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 9px 12px; box-sizing: border-box; transition: background-color 180ms cubic-bezier(0.16, 1, 0.3, 1); }
-    .ap-row + .ap-row::before { content: ""; position: absolute; top: 0; left: 56px; right: 0; height: 1px; background: var(--ap-sep); }
+    .ap-row + .ap-row::before { content: ""; position: absolute; inset-block-start: 0; inset-inline: 56px var(--row-padding-x); height: 1px; background: var(--ap-sep); }
     .ap-row.is-highlighted { background: color-mix(in srgb, var(--ap-accent) 9%, transparent); }
     .ap-row-empty { color: var(--text-secondary); font-size: 12px; }
     .ap-row-empty > span:only-child { padding: 6px 2px; }
 
-    .ap-glyph { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 15px; }
+    .ap-glyph { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius-md); background: var(--surface-well); color: var(--text-secondary); font-size: 15px; }
     .ap-glyph.is-live { color: var(--ap-accent-ink); background: color-mix(in srgb, var(--ap-accent) 16%, transparent); }
     .ap-glyph.is-hint { background: transparent; border: 1px dashed var(--ap-sep); }
     .ap-text { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
@@ -198,54 +211,63 @@ FORM: Extension of the established Sherpa world; no new identity.
     .ap-trailing { display: flex; flex: none; align-items: center; gap: 10px; }
     .ap-status { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11.5px; white-space: nowrap; }
     .ap-status i { font-size: 11px; }
-    .ap-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); opacity: 0.6; }
+    .ap-dot { width: 7px; height: 7px; border-radius: var(--radius-pill); background: var(--text-muted); opacity: 0.6; }
     .ap-dot.is-live { background: var(--ap-live); opacity: 1; }
     .ap-working { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11.5px; white-space: nowrap; }
 
-    .ap-btn { height: 24px; padding: 0 11px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease; }
+    .ap-btn { min-height: var(--control-height-sm); padding: 0 11px; border: 1px solid var(--border-control); border-radius: var(--radius-sm); background: var(--surface-control); color: var(--text-primary); font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease; }
     .ap-btn:hover:not(:disabled) { border-color: var(--text-muted); }
     .ap-btn.is-primary { border-color: transparent; background: color-mix(in srgb, var(--ap-accent) 18%, transparent); color: var(--ap-accent-ink); font-weight: 600; }
     .ap-btn.is-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--ap-accent) 28%, transparent); }
-    .ap-btn.is-danger { border-color: transparent; background: var(--ap-danger); color: #fff; font-weight: 600; }
+    .ap-btn.is-danger { border-color: transparent; background: var(--ap-danger); color: var(--status-error-ink); font-weight: 600; }
     .ap-btn:disabled { opacity: 0.45; cursor: default; }
-    .ap-unpair { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; }
+    .ap-unpair { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); cursor: pointer; }
     .ap-unpair:hover:not(:disabled) { background: color-mix(in srgb, var(--ap-danger) 12%, transparent); color: var(--ap-danger); }
     .ap-unpair:disabled { opacity: 0.4; cursor: default; }
     .ap-hint { color: var(--text-muted); font-size: 11.5px; white-space: nowrap; }
 
-    .ap-banner { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 16px; padding: 11px 13px; border-radius: 10px; background: var(--ap-card); font-size: 12px; line-height: 1.45; }
-    .ap-banner > i { margin-top: 2px; color: var(--text-secondary); }
+    .ap-banner { margin-bottom: 16px; font-size: 12px; }
+    .ap-banner > i { margin-top: 2px; color: inherit; }
     .ap-banner div { display: flex; flex-direction: column; gap: 2px; }
-    .ap-banner span { color: var(--text-secondary); }
+    .ap-banner span { color: inherit; }
     .ap-banner.is-ok > i { color: var(--ap-live); }
     .ap-banner.is-error > i, .ap-banner.is-error strong { color: var(--ap-danger); }
 
-    .ap-back { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 6px -6px; padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--ap-accent-ink); font-weight: 500; cursor: pointer; }
+    .ap-back { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 6px -6px; padding: 4px 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ap-accent-ink); font-weight: 500; cursor: pointer; }
     .ap-back i { font-size: 11px; }
-    .ap-back:hover:not(:disabled) { background: var(--bg-hover); }
+    .ap-back:hover:not(:disabled) { background: var(--surface-card-hover); }
     .ap-back:disabled { opacity: 0.45; cursor: default; }
     .ap-hero { padding: 8px 0 22px; text-align: center; }
     .ap-hero h2 { margin: 0 0 5px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
     .ap-hero p { max-width: 46ch; margin: 0 auto; color: var(--text-secondary); line-height: 1.45; }
     .ap-beacon { display: flex; align-items: center; justify-content: center; gap: 22px; margin-bottom: 14px; color: var(--text-primary); font-size: 28px; }
     .ap-beacon-wave { position: relative; display: grid; place-items: center; width: 40px; height: 40px; color: var(--text-secondary); font-size: 15px; }
-    .ap-beacon-wave::before, .ap-beacon-wave::after { content: ""; position: absolute; inset: 0; border: 1.5px solid var(--ap-accent); border-radius: 50%; opacity: 0; }
+    .ap-beacon-wave::before, .ap-beacon-wave::after { content: ""; position: absolute; inset: 0; border: 1.5px solid var(--ap-accent); border-radius: var(--radius-pill); opacity: 0; }
     .ap-beacon.is-live .ap-beacon-wave { color: var(--ap-accent-ink); }
     .ap-beacon.is-live .ap-beacon-wave::before, .ap-beacon.is-live .ap-beacon-wave::after { animation: ap-ripple 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
     .ap-beacon.is-live .ap-beacon-wave::after { animation-delay: 1.2s; }
     @@keyframes ap-ripple { from { transform: scale(0.6); opacity: 0.7; } to { transform: scale(1.9); opacity: 0; } }
     @@media (prefers-reduced-motion: reduce) { .ap-beacon.is-live .ap-beacon-wave::before, .ap-beacon.is-live .ap-beacon-wave::after { animation: none; opacity: 0.5; } }
-    .ap-code { margin: 18px auto 16px; padding: 18px 0; border-radius: 12px; background: var(--ap-card); color: var(--text-primary); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 40px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.08em; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .ap-code { margin: 18px auto 16px; padding: 18px 0; border-radius: var(--radius-lg); background: var(--ap-card); color: var(--text-primary); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 40px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.08em; white-space: pre-wrap; overflow-wrap: anywhere; }
 
-    .ap-step { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin: 0 5px; border-radius: 50%; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 11px; font-weight: 600; }
-    .ap-steps .ap-row + .ap-row::before { left: 50px; }
+    .ap-step { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin: 0 5px; border-radius: var(--radius-pill); background: var(--surface-well); color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+    .ap-steps .ap-row + .ap-row::before { inset-inline: 50px var(--row-padding-x); }
     .ap-steps .ap-meta { white-space: normal; }
     .ap-caution { display: flex; align-items: flex-start; gap: 10px; margin-top: 20px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
     .ap-caution > i { margin-top: 3px; }
     .ap-caution strong { color: var(--text-primary); font-weight: 600; }
     .ap-consent { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; font-size: 12px; line-height: 1.5; cursor: pointer; }
-    .ap-consent input { flex: none; margin: 2px 0 0; accent-color: var(--ap-accent); }
+    .ap-consent input { flex: none; margin-top: 2px; }
     .is-wifi .ap-banner { margin: 18px 0 0; }
+
+    .platform-macos .ap-list,
+    .platform-macos .ap-banner,
+    .platform-macos .ap-btn,
+    .platform-macos .ap-code {
+        border-color: transparent;
+        box-shadow: none;
+        corner-shape: squircle;
+    }
 </style>
 
 @code {

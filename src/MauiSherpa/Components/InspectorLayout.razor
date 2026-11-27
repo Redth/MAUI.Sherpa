@@ -2,9 +2,10 @@
 @using MauiSherpa.Core.Interfaces
 @inject IThemeService ThemeService
 @inject IPlatformService PlatformInfo
+@inject IJSRuntime JS
 @implements IDisposable
 
-<div class="main-layout @ThemeClass">
+<div class="main-layout inspector-layout @ThemeClass @PlatformClass">
     @Body
     @if (PlatformInfo.IsLinux)
     {
@@ -14,15 +15,56 @@
 
 @code {
     private string ThemeClass => ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
+    private string PlatformClass => PlatformInfo.IsMacOS
+        ? "platform-macos"
+        : PlatformInfo.IsWindows
+            ? "platform-windows"
+            : PlatformInfo.IsMacCatalyst
+                ? "platform-mac"
+                : "platform-linux";
 
     protected override void OnInitialized()
     {
         ThemeService.ThemeChanged += OnThemeChanged;
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await SyncBodyStateAsync();
+        }
+    }
+
     private void OnThemeChanged()
     {
-        InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await SyncBodyStateAsync();
+        });
+    }
+
+    private async Task SyncBodyStateAsync()
+    {
+        try
+        {
+            var classes = $"{ThemeClass} {PlatformClass}";
+            var bg = GetCanvasBackground();
+            var sizePx = 16.0 * ThemeService.FontScale;
+            await JS.InvokeVoidAsync(
+                "eval",
+                $"document.body.className = '{classes}'; document.body.style.backgroundColor = '{bg}'; document.documentElement.style.fontSize = '{sizePx:F1}px';");
+        }
+        catch { }
+    }
+
+    private string GetCanvasBackground()
+    {
+        if (ThemeService.IsDarkMode)
+            return PlatformInfo.IsWindows ? "#202020" : PlatformInfo.IsLinux ? "#242424" : "#1e1e1e";
+
+        return PlatformInfo.IsWindows ? "#f3f3f3" : PlatformInfo.IsLinux ? "#fafafa" : "#ffffff";
     }
 
     public void Dispose()
@@ -30,3 +72,15 @@
         ThemeService.ThemeChanged -= OnThemeChanged;
     }
 }
+
+<style>
+    .inspector-layout {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100vh;
+        overflow: hidden;
+        background: var(--surface-canvas);
+        color: var(--text-primary);
+    }
+</style>

@@ -1,0 +1,289 @@
+@using System.Text
+@using System.Text.Encodings.Web
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="sherpa-console sherpa-json-editor @(isInvalid ? "invalid" : "") @Class">
+    <div class="sherpa-console-header sherpa-json-toolbar">
+        <span class="sherpa-json-file"><i class="fa-solid fa-fw fa-code" aria-hidden="true"></i> @FileName</span>
+        <div class="sherpa-json-meta">
+            @if (MaxBytes.HasValue)
+            {
+                <span class="sherpa-json-size @(byteCount > MaxBytes.Value ? "over" : "")"
+                      title="Maximum recommended payload size: @MaxBytes.Value.ToString("N0") bytes">
+                    @byteCount.ToString("N0") / @MaxBytes.Value.ToString("N0") B
+                </span>
+            }
+            @if (!string.IsNullOrWhiteSpace(Value))
+            {
+                <span class="sherpa-badge @(isInvalid ? "sherpa-badge-danger" : "sherpa-badge-success")">
+                    <i class="fa-solid fa-fw @(isInvalid ? "fa-circle-exclamation" : "fa-circle-check")" aria-hidden="true"></i>
+                    @(isInvalid ? "Invalid JSON" : "Valid JSON")
+                </span>
+            }
+            <button type="button" class="sherpa-json-action" @onclick="Format" disabled="@(isInvalid || string.IsNullOrWhiteSpace(Value))" title="Pretty-print the JSON">
+                <i class="fa-solid fa-fw fa-align-left" aria-hidden="true"></i> Format
+            </button>
+        </div>
+    </div>
+    @if (editorFailed)
+    {
+        <textarea class="sherpa-console-body sherpa-json-input" aria-label="@FileName" rows="@Rows" spellcheck="false" placeholder="@Placeholder"
+                  value="@Value" @oninput="OnInput"></textarea>
+    }
+    else
+    {
+        <div class="sherpa-json-monaco" style="height: @(Rows * 18 + 20)px" @ref="host">
+            @if (editorId == 0)
+            {
+                <span class="sherpa-json-loading"><i class="fa-solid fa-fw fa-spinner fa-spin" aria-hidden="true"></i> Loading editor…</span>
+            }
+        </div>
+    }
+    @if (isInvalid && !string.IsNullOrEmpty(parseError))
+    {
+        <div class="sherpa-json-error"><i class="fa-solid fa-fw fa-triangle-exclamation" aria-hidden="true"></i> @parseError</div>
+    }
+</div>
+
+<style>
+    .sherpa-json-editor {
+        transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+    }
+
+    .sherpa-json-editor:focus-within {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-ring);
+    }
+
+    .sherpa-json-editor.invalid {
+        border-color: var(--status-error-border);
+    }
+
+    .sherpa-json-toolbar {
+        padding-block: 5px;
+        padding-inline-end: 6px;
+    }
+
+    .sherpa-json-file {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+        font-family: var(--font-mono);
+        font-weight: 500;
+    }
+
+    .sherpa-json-meta {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+    }
+
+    .sherpa-json-size {
+        font-family: var(--font-mono);
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .sherpa-json-size.over {
+        color: var(--status-error-fg);
+        font-weight: 700;
+    }
+
+    .sherpa-json-action {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+        padding: 3px var(--space-2);
+        color: var(--console-text);
+        background: transparent;
+        border: 0;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        font: inherit;
+    }
+
+    .sherpa-json-action:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--console-text) 12%, transparent);
+    }
+
+    .sherpa-json-action:disabled {
+        opacity: 0.45;
+        cursor: default;
+    }
+
+    .sherpa-json-monaco {
+        position: relative;
+        min-height: 7rem;
+        resize: vertical;
+        overflow: hidden;
+    }
+
+    .sherpa-json-loading {
+        position: absolute;
+        inset: var(--space-3);
+        color: var(--console-muted);
+        font-size: var(--font-size-xs);
+    }
+
+    .sherpa-json-input {
+        display: block;
+        width: 100%;
+        min-height: 8rem;
+        padding: var(--space-3);
+        background: transparent;
+        border: 0;
+        outline: none;
+        white-space: pre;
+        tab-size: 2;
+        resize: vertical;
+        box-sizing: border-box;
+    }
+
+    .sherpa-json-error {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--space-2);
+        padding: var(--space-2) var(--space-3);
+        color: var(--status-error-fg);
+        background: var(--status-error-bg);
+        border-top: 1px solid var(--status-error-border);
+        font-size: var(--font-size-xs);
+        line-height: 1.4;
+    }
+</style>
+
+@code {
+    static readonly JsonSerializerOptions FormatOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string FileName { get; set; } = "payload.json";
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string? Schema { get; set; }
+    [Parameter] public int Rows { get; set; } = 12;
+    [Parameter] public int? MaxBytes { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    bool isInvalid;
+    string? parseError;
+    int byteCount;
+
+    ElementReference host;
+    DotNetObjectReference<SherpaJsonEditor>? selfRef;
+    int editorId;
+    bool editorFailed;
+    bool disposed;
+    string? editorValue;
+
+    protected override void OnParametersSet() => Analyze();
+
+    void Analyze()
+    {
+        var text = Value ?? "";
+        byteCount = Encoding.UTF8.GetByteCount(text);
+        isInvalid = false;
+        parseError = null;
+
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        try
+        {
+            using var _ = JsonDocument.Parse(text);
+        }
+        catch (JsonException ex)
+        {
+            isInvalid = true;
+            parseError = ex.Message;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !editorFailed)
+        {
+            selfRef = DotNetObjectReference.Create(this);
+            try
+            {
+                editorValue = Value ?? "";
+                var id = await JS.InvokeAsync<int>("monacoInterop.create", host, selfRef,
+                    new { value = editorValue, schema = Schema, placeholder = Placeholder, ariaLabel = FileName });
+                if (disposed)
+                {
+                    await JS.InvokeVoidAsync("monacoInterop.dispose", id);
+                    return;
+                }
+                editorId = id;
+                if ((Value ?? "") != editorValue)
+                    await SyncEditorAsync();
+            }
+            catch (Exception ex) when (ex is JSException or InvalidOperationException)
+            {
+                editorFailed = true;
+            }
+            StateHasChanged();
+        }
+        else if (editorId != 0 && (Value ?? "") != editorValue)
+        {
+            await SyncEditorAsync();
+        }
+    }
+
+    async Task SyncEditorAsync()
+    {
+        editorValue = Value ?? "";
+        await JS.InvokeVoidAsync("monacoInterop.setValue", editorId, editorValue);
+    }
+
+    [JSInvokable]
+    public async Task OnEditorChanged(string text)
+    {
+        editorValue = text;
+        Value = text;
+        Analyze();
+        await ValueChanged.InvokeAsync(text);
+        StateHasChanged();
+    }
+
+    async Task OnInput(ChangeEventArgs e)
+    {
+        Value = e.Value?.ToString() ?? "";
+        Analyze();
+        await ValueChanged.InvokeAsync(Value);
+    }
+
+    async Task Format()
+    {
+        if (isInvalid || string.IsNullOrWhiteSpace(Value))
+            return;
+        if (editorId != 0)
+        {
+            await JS.InvokeVoidAsync("monacoInterop.format", editorId);
+            return;
+        }
+        var formatted = JsonNode.Parse(Value)?.ToJsonString(FormatOptions);
+        if (formatted == null || formatted == Value)
+            return;
+        Value = formatted;
+        Analyze();
+        await ValueChanged.InvokeAsync(Value);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        if (editorId != 0)
+        {
+            try { await JS.InvokeVoidAsync("monacoInterop.dispose", editorId); }
+            catch (JSDisconnectedException) { }
+        }
+        selfRef?.Dispose();
+    }
+}

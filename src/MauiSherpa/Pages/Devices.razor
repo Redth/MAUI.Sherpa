@@ -24,131 +24,177 @@
 @implements IDisposable
 
 <h1 class="visually-hidden">Android Devices &amp; Emulators</h1>
-<MauiSherpa.Components.AndroidSdkContext Changed="SdkChangedAsync" />
 
 <div class="device-section-heading">
-    <h2 class="device-section-label"><i class="fas fa-mobile-alt" aria-hidden="true"></i> Physical Devices</h2>
+    <h2 class="device-section-label"><i class="fa-solid fa-mobile-alt" aria-hidden="true"></i> Physical Devices</h2>
 </div>
 
 @if (!string.IsNullOrEmpty(deviceError))
 {
-    <div class="device-warning" role="alert">
-        <i class="fas fa-exclamation-triangle"></i>
+    <div class="device-warning sherpa-banner sherpa-banner-warning" role="alert">
+        <i class="fa-solid fa-exclamation-triangle"></i>
         <span>Could not check connected devices: @deviceError Previously shown devices may no longer be connected.</span>
-        <button class="btn btn-secondary" @onclick="RefreshDevices" disabled="@isLoadingDevices">Retry</button>
+        <button class="btn btn-secondary btn-sm" @onclick="RefreshDevices" disabled="@isLoadingDevices">Retry</button>
     </div>
 }
-@if (isLoadingDevices && devices.Count == 0)
+@if (!hasLoadedDevices || (isLoadingDevices && devices.Count == 0))
 {
-    <div class="empty-hint"><i class="fas fa-spinner fa-spin"></i> Scanning for devices...</div>
+    <SherpaListSkeleton Rows="2" Label="Scanning for Android devices..." />
 }
-else if (!PhysicalDevices.Any() && deviceError == null)
+else if (hasLoadedDevices && !isLoadingDevices && !PhysicalDevices.Any() && deviceError == null)
 {
-    <div class="empty-hint">No physical Android devices found. Connect a device by USB or use Pair Device to set up wireless debugging.</div>
+    <div class="sherpa-empty-inline">
+        <div class="sherpa-empty-inline-lead">
+            <span class="sherpa-icon-well sherpa-icon-well-sm sherpa-icon-well-neutral">
+                <i class="fa-solid fa-plug fa-fw" aria-hidden="true"></i>
+            </span>
+            <div class="sherpa-row-stack">
+                <span class="sherpa-empty-inline-title">No devices connected</span>
+                <span class="sherpa-row-sub">Connect via USB or pair wirelessly</span>
+            </div>
+        </div>
+        <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="PairDevice" disabled="@(IsBusy || !hasInitialized || string.IsNullOrEmpty(SdkService.SdkPath))">
+            <i class="fa-solid fa-link fa-fw" aria-hidden="true"></i> Pair Device
+        </button>
+    </div>
 }
 else
 {
-    <div class="device-list">
+    <div class="device-list sherpa-list">
         @foreach (var device in PhysicalDevices)
         {
-            <div class="device-card @(device.State == "device" ? "running" : "")" @key="device.Serial">
-                <div class="device-icon">
-                    <i class="fas fa-mobile-alt"></i><i class="fab fa-android brand-overlay"></i>
-                </div>
-                <div class="device-details">
-                    <div class="device-name">@(device.Model ?? "Unknown Device")</div>
-                    <div class="device-serial">
+            <div class="device-card sherpa-list-row @(device.State == "device" ? "running" : "")" @key="device.Serial">
+                <span class="sherpa-icon-well sherpa-icon-well-android">
+                    <i class="fa-solid fa-mobile-screen-button"></i>
+                    <span class="sherpa-brand-badge"><i class="fa-brands fa-android"></i></span>
+                </span>
+                <div class="device-details sherpa-row-stack">
+                    <div class="device-name sherpa-row-title">
+                        <span>@(device.Model ?? "Unknown Device")</span>
+                        <span class="sherpa-badge @(device.State == "device" ? "sherpa-badge-success" : "sherpa-badge-warning")">
+                            @if (device.State == "device")
+                            {
+                                <span class="sherpa-dot sherpa-dot-success"></span>
+                            }
+                            @DeviceStateLabel(device.State)
+                        </span>
+                        <span class="sherpa-badge sherpa-badge-neutral"><i class="@(device.IsWireless ? "fa-solid fa-wifi" : "fa-brands fa-usb") fa-fw"></i> @(device.IsWireless ? "Wi-Fi" : "USB")</span>
+                    </div>
+                    <div class="device-serial sherpa-row-sub mono">
                         <span class="@(demoMode ? "demo-blur" : "")">@device.Serial</span>
-                        <button class="btn-copy" @onclick="() => CopyToClipboard(device.Serial)" title="Copy serial number" aria-label="Copy serial number for @(device.Model ?? "device")">
-                            <i class="fas fa-copy"></i>
+                        <button class="btn btn-ghost btn-icon btn-sm serial-copy" @onclick="() => CopyToClipboard(device.Serial)" title="Copy serial number" aria-label="Copy serial number for @(device.Model ?? "device")">
+                            <i class="fa-regular fa-copy"></i>
                         </button>
                     </div>
-                    <div class="device-badges">
-                        <span class="badge @(device.State == "device" ? "badge-success" : "badge-warning")">@DeviceStateLabel(device.State)</span>
-                        <span class="badge badge-transport"><i class="@(device.IsWireless ? "fas fa-wifi" : "fab fa-usb")"></i> @(device.IsWireless ? "Wi-Fi" : "USB")</span>
-                    </div>
                 </div>
-                <div class="device-actions">
-                    <button data-screenshot-external class="btn btn-info btn-icon" @onclick="() => DeviceInspector.OpenAsync(device.Serial, device.Model ?? device.Serial)"
-                            disabled="@(!hasAdbSnapshot || device.State != "device")" title="Logs" aria-label="Logs for @(device.Model ?? device.Serial)"><i class="fas fa-scroll"></i></button>
-                    <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => DeviceInspector.OpenAsync(device.Serial, device.Model ?? device.Serial, InspectorTab.Files)"
-                            disabled="@(!hasAdbSnapshot || device.State != "device")" title="Inspect" aria-label="Inspect @(device.Model ?? device.Serial)"><i class="fas fa-search"></i></button>
+                <div class="device-actions sherpa-row-actions">
+                    <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="() => DeviceInspector.OpenAsync(device.Serial, device.Model ?? device.Serial)"
+                            disabled="@(!hasAdbSnapshot || device.State != "device")" title="Logcat" aria-label="Logcat for @(device.Model ?? device.Serial)"><i class="fa-solid fa-scroll fa-fw"></i> Logcat</button>
+                    <button data-screenshot-external class="btn btn-primary btn-sm" @onclick="() => DeviceInspector.OpenAsync(device.Serial, device.Model ?? device.Serial, InspectorTab.Files)"
+                            disabled="@(!hasAdbSnapshot || device.State != "device")" title="Inspect" aria-label="Inspect @(device.Model ?? device.Serial)"><i class="fa-solid fa-magnifying-glass fa-fw"></i> Inspect</button>
                 </div>
             </div>
         }
     </div>
 }
 
-<div class="device-section-heading device-section-heading-spaced">
-    <h2 class="device-section-label"><i class="fas fa-desktop" aria-hidden="true"></i> Emulators</h2>
-    @if (!isSelectionMode)
-    {
-        <button class="btn btn-secondary" @onclick="BeginSelectionMode" disabled="@(IsBusy || emulators.Count == 0)">
-            <i class="fas fa-check-square"></i> Select
-        </button>
-    }
+<div class="device-section-heading device-section-heading-spaced sherpa-list-header-row">
+    <h2 class="device-section-label">
+        <i class="fa-solid fa-desktop fa-fw" aria-hidden="true"></i>
+        <span>Emulators</span>
+        @if (emulators.Count > 0)
+        {
+            <span class="sherpa-badge sherpa-badge-neutral">@emulators.Count</span>
+        }
+        @if (HasActiveFilters)
+        {
+            <span class="sherpa-filter-pill"><i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i> @FilteredEmulators.Count() of @emulators.Count</span>
+        }
+    </h2>
+    <div class="sherpa-list-header-actions">
+        @if (!isSelectionMode)
+        {
+            <button class="btn btn-secondary btn-sm" @onclick="BeginSelectionMode" disabled="@(IsBusy || emulators.Count == 0)">
+                <i class="fa-solid fa-check-square fa-fw"></i> Select
+            </button>
+        }
+        else
+        {
+            <div class="sherpa-selection-inline">
+                <div class="sherpa-selection-pill">
+                    <label>
+                        <input type="checkbox" checked="@AllVisibleEmulatorsSelected" disabled="@(IsBusy || !SelectableEmulators.Any())" @onchange="ToggleAllVisibleEmulators" />
+                        <span>All</span>
+                    </label>
+                    <span class="sherpa-selection-sep" aria-hidden="true"></span>
+                    <span class="sherpa-selection-count" role="status">@selectedEmulators.Count selected</span>
+                    @if (HiddenSelectionCount > 0)
+                    {
+                        <span class="sherpa-selection-hidden">(@HiddenSelectionCount hidden)</span>
+                    }
+                </div>
+                <button data-screenshot-external class="btn btn-danger btn-sm" @onclick="DeleteSelectedEmulators" disabled="@(IsBusy || selectedEmulators.Count == 0 || !CanVerifyEmulatorState)">
+                    <i class="fa-solid fa-trash-can fa-fw"></i> Delete
+                </button>
+                <button class="btn btn-secondary btn-sm" @onclick="CancelSelectionMode" disabled="@isOperating">Done</button>
+            </div>
+        }
+    </div>
 </div>
 
 @if (!PlatformInfo.HasNativeToolbar)
 {
     <div class="toolbar">
-        <button class="btn btn-primary" @onclick="RefreshAll" disabled="@IsBusy"><i class="fas @(isLoadingEmulators || isLoadingDevices ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh</button>
-        <button data-screenshot-external class="btn btn-primary" @onclick="PairDevice" disabled="@IsBusy"><i class="fas fa-link"></i> Pair Device</button>
-        <button data-screenshot-external class="btn btn-success" @onclick="ShowCreateDialog" disabled="@IsBusy"><i class="fas fa-plus"></i> Create Emulator</button>
+        <button class="btn btn-primary" @onclick="RefreshAll" disabled="@IsBusy"><i class="fa-solid @(isLoadingEmulators || isLoadingDevices ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh</button>
+        <button data-screenshot-external class="btn btn-primary" @onclick="PairDevice" disabled="@IsBusy"><i class="fa-solid fa-link"></i> Pair Device</button>
+        <button data-screenshot-external class="btn btn-success" @onclick="ShowCreateDialog" disabled="@IsBusy"><i class="fa-solid fa-plus"></i> Create Emulator</button>
     </div>
     <div class="filter-bar">
         <div class="search-box">
-            <i class="fas fa-search"></i>
+            <i class="fa-solid fa-search"></i>
             <input type="search" placeholder="Search emulators..." aria-label="Search emulators" @bind="searchQuery" @bind:event="oninput" />
         </div>
-        <select class="filter-select" aria-label="Filter by state" @bind="filterState">
-            <option value="">All States</option><option value="Running">Running</option><option value="Stopped">Stopped</option>
-        </select>
-        <select class="filter-select" aria-label="Filter by device type" @bind="filterFamily">
-            <option value="">All Devices</option>
-            @foreach (var family in EmulatorFamilies) { <option value="@family">@family</option> }
-        </select>
-        <select class="filter-select" aria-label="Filter by Android version" @bind="filterTarget">
-            <option value="">All Versions</option>
-            @foreach (var target in EmulatorTargets) { <option value="@target">@target</option> }
-        </select>
+        <SherpaSelect TValue="string"
+                      Value="@filterState"
+                      ValueChanged="@(value => filterState = value ?? "")"
+                      Options="StateFilterOptions"
+                      LeadingIcon="fa-solid fa-circle-dot"
+                      AriaLabel="Filter by state"
+                      Compact="true"
+                      Class="filter-select" />
+        <SherpaSelect TValue="string"
+                      Value="@filterFamily"
+                      ValueChanged="@(value => filterFamily = value ?? "")"
+                      Options="FamilyFilterOptions"
+                      LeadingIcon="fa-solid fa-mobile-screen"
+                      AriaLabel="Filter by device type"
+                      Compact="true"
+                      Class="filter-select" />
+        <SherpaSelect TValue="string"
+                      Value="@filterTarget"
+                      ValueChanged="@(value => filterTarget = value ?? "")"
+                      Options="TargetFilterOptions"
+                      LeadingIcon="fa-brands fa-android"
+                      AriaLabel="Filter by Android version"
+                      Compact="true"
+                      Class="filter-select" />
     </div>
 }
 
 @if (HasUnknownEmulatorIdentities)
 {
-    <div class="device-warning" role="status">
-        <i class="fas fa-exclamation-triangle"></i>
+    <div class="device-warning sherpa-banner sherpa-banner-warning" role="status">
+        <i class="fa-solid fa-exclamation-triangle"></i>
         <span>A connected emulator could not be identified. Wait for it to finish starting or stop it before deleting an emulator.</span>
     </div>
 }
 
-@if (isSelectionMode)
-{
-    <div class="selection-bar">
-        <label class="select-all">
-            <input type="checkbox" checked="@AllVisibleEmulatorsSelected" disabled="@(IsBusy || !SelectableEmulators.Any())" @onchange="ToggleAllVisibleEmulators" />
-            <span>Select all shown</span>
-        </label>
-        <span class="selection-count" role="status">
-            @selectedEmulators.Count selected
-            @if (HiddenSelectionCount > 0) { <span>(@HiddenSelectionCount hidden by filters)</span> }
-        </span>
-        <div class="selection-actions">
-            <button class="btn btn-secondary" @onclick="CancelSelectionMode" disabled="@isOperating">Cancel Selection</button>
-            <button data-screenshot-external class="btn btn-danger" @onclick="DeleteSelectedEmulators" disabled="@(IsBusy || selectedEmulators.Count == 0 || !CanVerifyEmulatorState)">
-                <i class="fas fa-trash"></i> Delete Selected
-            </button>
-        </div>
-    </div>
-}
-
-<div class="device-list">
-    @if (isLoadingEmulators && emulators.Count == 0)
+<div class="device-list @(FilteredEmulators.Any() ? "sherpa-list" : "")">
+    @if (!hasLoadedEmulators || (isLoadingEmulators && emulators.Count == 0))
     {
-        <div class="empty-hint"><i class="fas fa-spinner fa-spin"></i> Loading emulators...</div>
+        <SherpaListSkeleton Rows="4" Label="Loading Android emulators..." />
     }
-    else if (emulators.Count == 0)
+    else if (hasLoadedEmulators && !isLoadingEmulators && emulators.Count == 0)
     {
         <div class="empty-state"><div class="empty-title">No emulators configured</div><div class="empty-description">Use Create Emulator to set up an Android Virtual Device.</div></div>
     }
@@ -162,7 +208,7 @@ else
         {
             var instance = RunningInstance(emulator.Name);
             var isStarting = startingEmulators.Contains(emulator.Name);
-            <div class="device-card @(instance != null ? "running" : "") @(isStarting ? "starting" : "") @(selectedEmulators.Contains(emulator.Name) ? "selected" : "") @(isSelectionMode && !IsBusy && !isStarting ? "selectable" : "")"
+            <div class="device-card sherpa-list-row @(instance != null ? "running" : "") @(isStarting ? "starting" : "") @(selectedEmulators.Contains(emulator.Name) ? "selected" : "") @(isSelectionMode && !IsBusy && !isStarting ? "selectable sherpa-list-row-interactive" : "")"
                  @key="emulator.Name"
                  @onclick="() => { if (isSelectionMode) ToggleEmulatorSelection(emulator.Name, !selectedEmulators.Contains(emulator.Name)); }">
                 @if (isSelectionMode)
@@ -172,46 +218,50 @@ else
                                @onchange="args => ToggleEmulatorSelection(emulator.Name, args.Value is true)" aria-label="Select @emulator.Name" />
                     </label>
                 }
-                <div class="device-icon">
-                    <i class="fas @(isStarting ? "fa-spinner fa-spin" : GetEmulatorFormIcon(emulator))"></i><i class="fab fa-android brand-overlay"></i>
-                </div>
-                <div class="device-details">
-                    <div class="device-name">@emulator.Name</div>
-                    <div class="device-info">
-                        @if (!string.IsNullOrEmpty(emulator.Device)) { <span>@emulator.Device</span> }
-                        @if (!string.IsNullOrEmpty(emulator.Target)) { <span>• @emulator.Target</span> }
-                    </div>
-                    <div class="device-badges">
-                        <span class="badge @(isStarting ? "badge-warning" : instance != null ? "badge-success" : CanVerifyEmulatorState ? "badge-stopped" : "badge-warning")">
+                <span class="sherpa-icon-well sherpa-icon-well-android">
+                    <i class="fa-solid @(isStarting ? "fa-spinner fa-spin" : GetEmulatorFormIcon(emulator))"></i>
+                    <span class="sherpa-brand-badge"><i class="fa-brands fa-android"></i></span>
+                </span>
+                <div class="device-details sherpa-row-stack">
+                    <div class="device-name sherpa-row-title">
+                        <span>@emulator.Name</span>
+                        <span class="sherpa-badge @(isStarting ? "sherpa-badge-warning" : instance != null ? "sherpa-badge-success" : CanVerifyEmulatorState ? "sherpa-badge-neutral" : "sherpa-badge-warning")">
+                            @if (instance != null)
+                            {
+                                <span class="sherpa-dot sherpa-dot-success"></span>
+                            }
                             @(isStarting ? "Starting" : instance != null ? "Running" : CanVerifyEmulatorState ? "Stopped" : "Unknown")
                         </span>
-                        @if (emulator.Properties.TryGetValue("hw.cpu.arch", out var arch)) { <span class="badge badge-info">@arch</span> }
+                        @if (!string.IsNullOrEmpty(emulator.Target)) { <span class="sherpa-badge sherpa-badge-neutral" title="@emulator.Target">@FormatEmulatorTarget(emulator.Target)</span> }
+                        @if (emulator.Properties.TryGetValue("hw.cpu.arch", out var arch)) { <span class="sherpa-badge sherpa-badge-neutral mono">@arch</span> }
                         @if (!HasSystemImage(emulator))
                         {
-                            <span class="badge badge-warning">System image not installed in active SDK</span>
+                            <span class="sherpa-badge sherpa-badge-warning">System image not installed</span>
                         }
+                    </div>
+                    <div class="device-info sherpa-row-sub mono">
+                        <span>@(!string.IsNullOrEmpty(emulator.Device) ? emulator.Device : emulator.Name)</span>
+                        <button class="btn btn-ghost btn-icon btn-sm serial-copy" @onclick="() => CopyToClipboard(emulator.Name)" @onclick:stopPropagation="true"
+                                title="Copy AVD name" aria-label="Copy AVD name for @emulator.Name"><i class="fa-regular fa-copy"></i></button>
                     </div>
                 </div>
                 @if (!isSelectionMode)
                 {
-                    <div class="device-actions">
+                    <div class="device-actions sherpa-row-actions">
                         @if (isStarting)
                         {
-                            <button class="btn btn-secondary btn-icon" disabled aria-label="Starting @emulator.Name"><i class="fas fa-spinner fa-spin"></i></button>
+                            <button class="btn btn-secondary btn-sm" disabled aria-label="Starting @emulator.Name"><i class="fa-solid fa-spinner fa-spin fa-fw"></i> Starting</button>
                         }
                         else if (instance != null)
                         {
-                            <button data-screenshot-external class="btn btn-info btn-icon" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, emulator.Name)" title="Logs" aria-label="Logs for @emulator.Name"><i class="fas fa-scroll"></i></button>
-                            <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, emulator.Name, InspectorTab.Files)" title="Inspect" aria-label="Inspect @emulator.Name"><i class="fas fa-search"></i></button>
-                            <button data-screenshot-external class="btn btn-warning btn-icon" @onclick="() => StopEmulator(emulator)" disabled="@IsBusy" title="Stop" aria-label="Stop @emulator.Name"><i class="fas fa-stop"></i></button>
+                            <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="() => StopEmulator(emulator)" disabled="@IsBusy" title="Stop" aria-label="Stop @emulator.Name"><i class="fa-solid fa-stop fa-fw"></i> Stop</button>
                         }
                         else
                         {
-                            <button data-screenshot-external class="btn btn-success btn-icon" @onclick="() => StartEmulator(emulator, false)" disabled="@(IsBusy || !CanVerifyEmulatorState || !HasSystemImage(emulator))" title="Start" aria-label="Start @emulator.Name"><i class="fas fa-play"></i></button>
-                            <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => StartEmulator(emulator, true)" disabled="@(IsBusy || !CanVerifyEmulatorState || !HasSystemImage(emulator))" title="Cold Boot" aria-label="Cold boot @emulator.Name"><i class="fas fa-snowflake"></i></button>
+                            <button data-screenshot-external class="btn btn-primary btn-sm" @onclick="() => StartEmulator(emulator, false)" disabled="@(IsBusy || !CanVerifyEmulatorState || !HasSystemImage(emulator))" title="Start" aria-label="Start @emulator.Name"><i class="fa-solid fa-play fa-fw"></i> Start</button>
                         }
-                        <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="() => DeleteEmulator(emulator)" disabled="@(IsBusy || isStarting || !CanVerifyEmulatorState)"
-                                title="Delete emulator" aria-label="Delete @emulator.Name"><i class="fas fa-trash"></i></button>
+                        <SherpaActionMenu Items="@GetEmulatorActions(emulator, instance, isStarting)"
+                                          AriaLabel="@($"Actions for {emulator.Name}")" />
                     </div>
                 }
             </div>
@@ -222,22 +272,27 @@ else
 @if (OtherConnectedEmulators.Any())
 {
     <div class="other-heading">Other connected emulators</div>
-    <div class="device-list">
+    <div class="device-list sherpa-list">
         @foreach (var instance in OtherConnectedEmulators)
         {
             var device = devices.FirstOrDefault(d => d.Serial == instance.Serial);
             var name = instance.AvdName ?? device?.Model ?? "Unidentified emulator";
-            <div class="device-card" @key="instance.Serial">
-                <div class="device-icon"><i class="fas fa-mobile-alt"></i><i class="fab fa-android brand-overlay"></i></div>
-                <div class="device-details">
-                    <div class="device-name">@name</div>
-                    <div class="device-serial @(demoMode ? "demo-blur" : "")">@instance.Serial</div>
-                    <div class="device-badges"><span class="badge badge-warning">@(instance.AvdName == null ? "Identity unknown" : "Not in AVD list")</span></div>
+            <div class="device-card sherpa-list-row" @key="instance.Serial">
+                <span class="sherpa-icon-well sherpa-icon-well-android">
+                    <i class="fa-solid fa-mobile-screen-button"></i>
+                    <span class="sherpa-brand-badge"><i class="fa-brands fa-android"></i></span>
+                </span>
+                <div class="device-details sherpa-row-stack">
+                    <div class="device-name sherpa-row-title">
+                        <span>@name</span>
+                        <span class="sherpa-badge sherpa-badge-warning">@(instance.AvdName == null ? "Identity unknown" : "Not in AVD list")</span>
+                    </div>
+                    <div class="device-serial sherpa-row-sub mono @(demoMode ? "demo-blur" : "")">@instance.Serial</div>
                 </div>
-                <div class="device-actions">
-                    <button data-screenshot-external class="btn btn-info btn-icon" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, name)" disabled="@(device?.State != "device")" title="Logs" aria-label="Logs for @name"><i class="fas fa-scroll"></i></button>
-                    <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, name, InspectorTab.Files)" disabled="@(device?.State != "device")" title="Inspect" aria-label="Inspect @name"><i class="fas fa-search"></i></button>
-                    <button data-screenshot-external class="btn btn-warning btn-icon" @onclick="() => StopConnectedEmulator(instance, name)" disabled="@IsBusy" title="Stop" aria-label="Stop @name"><i class="fas fa-stop"></i></button>
+                <div class="device-actions sherpa-row-actions">
+                    <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, name)" disabled="@(device?.State != "device")" title="Logcat" aria-label="Logcat for @name"><i class="fa-solid fa-scroll fa-fw"></i> Logcat</button>
+                    <button data-screenshot-external class="btn btn-primary btn-sm" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, name, InspectorTab.Files)" disabled="@(device?.State != "device")" title="Inspect" aria-label="Inspect @name"><i class="fa-solid fa-magnifying-glass fa-fw"></i> Inspect</button>
+                    <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="() => StopConnectedEmulator(instance, name)" disabled="@IsBusy" title="Stop" aria-label="Stop @name"><i class="fa-solid fa-stop fa-fw"></i> Stop</button>
                 </div>
             </div>
         }
@@ -248,45 +303,38 @@ else
     .toolbar, .filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
     .search-box { position: relative; flex: 1; min-width: 12rem; }
     .search-box i { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); }
-    .search-box input, .filter-select { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border-color); border-radius: 0.375rem; background: var(--bg-secondary); color: var(--text-primary); }
+    .search-box input { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border-control); border-radius: var(--radius-md); background: var(--surface-control); color: var(--text-primary); }
     .search-box input { padding-left: 2.25rem; }
     .filter-select { width: auto; max-width: 15rem; }
-    .device-list { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem; }
-    .device-card { display: flex; align-items: center; gap: 1rem; padding: 0.875rem; background: var(--card-bg); border-radius: var(--card-radius); border-left: 0.25rem solid transparent; }
-    .device-card.running { border-left-color: var(--accent-success); }
-    .device-card.starting { border-left-color: var(--accent-warning); background: var(--status-warning-bg); }
+    .device-list { margin-top: 0; }
+    .device-card { gap: var(--space-3); background: transparent; border: 0; border-radius: 0; }
+    .device-card.starting { background: var(--status-warning-bg); }
     .device-card.selectable { cursor: pointer; }
-    .device-card.selected { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
-    .device-icon { width: 42px; height: 42px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; position: relative; border-radius: 12px; font-size: 1.25rem; background: var(--status-success-bg); color: var(--status-success-text); }
-    .brand-overlay { position: absolute; right: 3px; bottom: 3px; font-size: 0.7rem; color: var(--text-muted); }
+    .device-card.selected { background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface-card)); }
     .device-details { flex: 1; min-width: 0; }
-    .device-name { font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; }
-    .device-info, .device-serial { margin-top: 0.25rem; font-size: 0.8125rem; color: var(--text-muted); overflow-wrap: anywhere; }
-    .device-info span { margin-right: 0.5rem; }
-    .device-serial { font-family: monospace; }
-    .btn-copy { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 2px 0.375rem; }
-    .btn-copy:hover { color: var(--accent-primary); }
-    .device-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
-    .badge { padding: 2px 0.625rem; border-radius: 0.75rem; font-size: 0.75rem; font-weight: 500; }
-    .badge-success { background: var(--status-success-bg); color: var(--status-success-text); }
-    .badge-info, .badge-transport { background: var(--status-info-bg); color: var(--status-info-text); }
-    .badge-warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
-    .badge-stopped { background: var(--bg-tertiary); color: var(--text-secondary); }
-    .device-actions, .selection-actions { display: flex; align-items: center; gap: 0.25rem; }
-    .btn-icon { width: 2rem; height: 2rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 0.375rem; }
-    .btn-icon i { margin: 0; font-size: 0.8125rem; }
-    .device-warning { display: flex; align-items: center; gap: 0.625rem; margin: 0.75rem 0; padding: 0.75rem 1rem; border-radius: 0.375rem; background: var(--status-warning-bg); color: var(--status-warning-text); }
+    .device-name { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; white-space: normal; }
+    .device-info, .device-serial { display: flex; align-items: center; gap: 4px; overflow-wrap: anywhere; white-space: normal; }
+    .serial-copy { width: 20px !important; min-width: 20px !important; height: 20px; min-height: 20px; }
+    .device-actions, .selection-actions { display: flex; align-items: center; gap: 6px; }
+    .device-warning { align-items: center; margin: 0.75rem 0; }
     .device-warning span { flex: 1; }
-    .empty-hint { margin: 0.75rem 0; color: var(--text-muted); font-size: 0.875rem; }
-    .empty-state { padding: 2.5rem; text-align: center; background: var(--card-bg); border-radius: var(--card-radius); }
-    .empty-title { font-weight: 600; color: var(--text-primary); }
-    .empty-description { margin-top: 0.5rem; font-size: 0.875rem; color: var(--text-muted); }
-    .selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; padding: 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 0.5rem; }
-    .select-all { display: flex; align-items: center; gap: 0.5rem; color: var(--text-primary); }
-    .selection-count { flex: 1; color: var(--text-secondary); font-size: 0.875rem; }
-    .selection-actions { gap: 0.5rem; }
+    .empty-hint {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0;
+        padding: 12px 14px;
+        color: var(--text-muted);
+        font-size: var(--font-size-sm);
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+    }
+    .selection-bar { margin-bottom: 10px; }
+    .select-all { display: inline-flex; align-items: center; gap: 8px; color: var(--text-primary); font-weight: 500; cursor: pointer; }
+    .selection-count { flex: 0 0 auto; }
     .emulator-select { display: flex; align-items: center; }
-    .other-heading { margin-top: 1.5rem; color: var(--text-secondary); font-size: 0.875rem; font-weight: 600; }
+    .other-heading { margin: 22px 0 10px; color: var(--text-primary); font-size: var(--font-size-h2); font-weight: 650; }
     @@media (max-width: 680px) { .device-card { gap: 0.6rem; } .device-actions { flex-wrap: wrap; justify-content: flex-end; } .selection-actions { margin-left: auto; } }
 </style>
 
@@ -301,6 +349,9 @@ else
     private bool isLoadingEmulators;
     private bool isLoadingDevices;
     private bool isOperating;
+    private bool hasInitialized;
+    private bool hasLoadedDevices;
+    private bool hasLoadedEmulators;
     private bool isSelectionMode;
     private bool hasAdbSnapshot;
     private bool demoMode = true;
@@ -310,7 +361,50 @@ else
     private string filterFamily = "";
     private string filterTarget = "";
 
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> StateFilterOptions =
+    [
+        new("", "All States"),
+        new("Running", "Running", DotCssClass: "sherpa-dot-success"),
+        new("Stopped", "Stopped", DotCssClass: "sherpa-dot-muted")
+    ];
+
+    private IReadOnlyList<SherpaSelectOption<string>> FamilyFilterOptions =>
+    [
+        new("", "All Devices"),
+        .. EmulatorFamilies.Select(family =>
+            new SherpaSelectOption<string>(family, family))
+    ];
+
+    private IReadOnlyList<SherpaSelectOption<string>> TargetFilterOptions =>
+    [
+        new("", "All Versions"),
+        .. EmulatorTargets.Select(target =>
+            new SherpaSelectOption<string>(target, FormatEmulatorTarget(target)))
+    ];
+
+    private static string FormatEmulatorTarget(string target)
+    {
+        var trimmed = target.Trim();
+        var parenIdx = trimmed.LastIndexOf(" (", StringComparison.Ordinal);
+        if (parenIdx > 0 && trimmed.EndsWith(')'))
+        {
+            var suffix = trimmed[(parenIdx + 2)..^1];
+            if (suffix.Contains("Google", StringComparison.OrdinalIgnoreCase) ||
+                suffix.Contains("Android Open Source", StringComparison.OrdinalIgnoreCase) ||
+                suffix.Contains("AOSP", StringComparison.OrdinalIgnoreCase))
+            {
+                return trimmed[..parenIdx].TrimEnd();
+            }
+        }
+        return trimmed;
+    }
+
     private bool IsBusy => isLoadingEmulators || isOperating;
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(searchQuery) ||
+        !string.IsNullOrEmpty(filterState) ||
+        !string.IsNullOrEmpty(filterFamily) ||
+        !string.IsNullOrEmpty(filterTarget);
     private bool HasUnknownEmulatorIdentities => runningEmulators.Any(e => string.IsNullOrEmpty(e.AvdName));
     private bool CanVerifyEmulatorState => hasAdbSnapshot && !HasUnknownEmulatorIdentities;
     private IEnumerable<DeviceInfo> PhysicalDevices => devices.Where(d => !d.IsEmulator);
@@ -330,6 +424,16 @@ else
 
     private RunningAndroidEmulator? RunningInstance(string name) => runningEmulators.FirstOrDefault(e => e.AvdName == name);
 
+    private void UpdateToolbarItemStates()
+    {
+        if (disposeCts.IsCancellationRequested) return;
+        var sdkAvailable = hasInitialized && !string.IsNullOrEmpty(SdkService.SdkPath);
+        ToolbarService.SetItemEnabled("refresh", hasInitialized && !IsBusy && !isLoadingDevices);
+        ToolbarService.SetItemEnabled("pair", sdkAvailable && !IsBusy);
+        ToolbarService.SetItemEnabled("create", sdkAvailable && !IsBusy);
+        ToolbarService.SetItemEnabled("device-actions", sdkAvailable && !IsBusy);
+    }
+
     protected override async Task OnInitializedAsync()
     {
         var pairAction = new ToolbarAction("pair", "Pair Device", "link");
@@ -339,15 +443,16 @@ else
                 ToolTip: "Pair Device or Create Emulator", MenuActions: [pairAction, createAction])]
             : [pairAction, createAction];
         ToolbarService.SetItems([
-            MauiSherpa.Components.AndroidSdkContext.Menu,
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             ..deviceActions]);
+        UpdateToolbarItemStates();
         ToolbarService.SetSearch("Search emulators...");
         UpdateToolbarFilters();
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
         ToolbarService.SearchTextChanged += OnSearchTextChanged;
         ToolbarService.FilterChanged += OnFilterChanged;
         DeviceWatcher.DevicesChanged += OnDevicesChanged;
+        SdkSettings.SdkPathChanged += OnSdkPathChanged;
 
         try
         {
@@ -362,6 +467,8 @@ else
         try { await SdkSettings.InitializeAsync(); }
         catch (Exception ex) { await AlertService.ShowAlertAsync("Android SDK Unavailable", ex.Message); }
         await Task.WhenAll(RefreshEmulators(), RefreshDevices());
+        hasInitialized = true;
+        UpdateToolbarItemStates();
     }
 
     private async Task RefreshAll()
@@ -375,6 +482,7 @@ else
         if (isLoadingEmulators) { emulatorRefreshPending |= forceRefresh; return; }
         var sdkPath = SdkService.SdkPath;
         isLoadingEmulators = true;
+        UpdateToolbarItemStates();
         StateHasChanged();
         try
         {
@@ -401,6 +509,9 @@ else
         finally
         {
             isLoadingEmulators = false;
+            if (sdkPath == SdkService.SdkPath)
+                hasLoadedEmulators = true;
+            UpdateToolbarItemStates();
             StateHasChanged();
             if (emulatorRefreshPending)
             {
@@ -430,6 +541,7 @@ else
         }
 
         isLoadingDevices = true;
+        UpdateToolbarItemStates();
         try
         {
             var snapshot = await AdbService.GetSnapshotAsync(disposeCts.Token);
@@ -450,6 +562,8 @@ else
         finally
         {
             isLoadingDevices = false;
+            hasLoadedDevices = true;
+            UpdateToolbarItemStates();
             deviceRefreshGate.Release();
             if (!disposeCts.IsCancellationRequested) StateHasChanged();
         }
@@ -459,6 +573,7 @@ else
     {
         if (IsBusy) return;
         isOperating = true;
+        UpdateToolbarItemStates();
         try
         {
             if (await FormModalService.ShowAsync<bool>(new Modals.AndroidDevicePairingPage(BridgeHolder)))
@@ -471,6 +586,7 @@ else
         finally
         {
             isOperating = false;
+            UpdateToolbarItemStates();
         }
     }
 
@@ -478,6 +594,7 @@ else
     {
         if (IsBusy) return;
         isOperating = true;
+        UpdateToolbarItemStates();
         try
         {
             var sysImgTask = Mediator.Request(new GetSystemImagesRequest());
@@ -493,7 +610,7 @@ else
             var availableImages = (packages ?? Enumerable.Empty<SdkPackageInfo>())
                 .Where(p => p.Path.StartsWith("system-images;", StringComparison.Ordinal))
                 .Select(p => p.Path).Where(p => !installedImages.Contains(p)).OrderByDescending(p => p).ToList();
-            var page = new CreateEmulatorPage(installedImages, availableImages, definitions?.ToList() ?? [], skins?.ToList() ?? []);
+            var page = new CreateEmulatorPage(BridgeHolder, installedImages, availableImages, definitions?.ToList() ?? [], skins?.ToList() ?? []);
             var formResult = await FormModalService.ShowAsync<EmulatorCreateResult>(page);
             if (formResult == null) return;
 
@@ -537,6 +654,7 @@ else
         finally
         {
             isOperating = false;
+            UpdateToolbarItemStates();
         }
     }
 
@@ -544,6 +662,7 @@ else
     {
         if (IsBusy || !CanVerifyEmulatorState) return;
         isOperating = true;
+        UpdateToolbarItemStates();
         startingEmulators.Add(emulator.Name);
         try
         {
@@ -587,6 +706,7 @@ else
         {
             startingEmulators.Remove(emulator.Name);
             isOperating = false;
+            UpdateToolbarItemStates();
             await RefreshDevices();
         }
     }
@@ -597,6 +717,7 @@ else
         var instances = runningEmulators.Where(e => e.AvdName == emulator.Name).ToList();
         if (instances.Count == 0) return;
         isOperating = true;
+        UpdateToolbarItemStates();
         try
         {
             await OperationModal.RunAsync("Stop Emulator", $"Stopping {emulator.Name}...", async context =>
@@ -610,6 +731,7 @@ else
         finally
         {
             isOperating = false;
+            UpdateToolbarItemStates();
             await RefreshDevices();
         }
     }
@@ -619,6 +741,7 @@ else
         if (IsBusy) return;
         if (!await AlertService.ShowConfirmAsync("Stop Emulator", $"Stop '{name}' ({instance.Serial})?")) return;
         isOperating = true;
+        UpdateToolbarItemStates();
         try
         {
             await OperationModal.RunAsync("Stop Emulator", $"Stopping {name}...",
@@ -627,6 +750,7 @@ else
         finally
         {
             isOperating = false;
+            UpdateToolbarItemStates();
             await RefreshDevices();
         }
     }
@@ -635,6 +759,7 @@ else
     {
         if (IsBusy || !CanVerifyEmulatorState || startingEmulators.Contains(emulator.Name)) return;
         isOperating = true;
+        UpdateToolbarItemStates();
         try
         {
             if (!await AlertService.ShowConfirmAsync("Delete Emulator",
@@ -648,6 +773,7 @@ else
         finally
         {
             isOperating = false;
+            UpdateToolbarItemStates();
         }
     }
 
@@ -686,6 +812,7 @@ else
         var selected = emulators.Where(e => selectedEmulators.Contains(e.Name)).ToList();
         if (selected.Count == 0) return;
         isOperating = true;
+        UpdateToolbarItemStates();
         try
         {
             var operations = selected.Select(e => new OperationItem(e.Name, e.Name, e.Target ?? e.Path,
@@ -705,6 +832,7 @@ else
         finally
         {
             isOperating = false;
+            UpdateToolbarItemStates();
         }
     }
 
@@ -744,6 +872,7 @@ else
 
     private void UpdateToolbarFilters()
     {
+        if (disposeCts.IsCancellationRequested) return;
         var families = EmulatorFamilies.ToArray();
         var targets = EmulatorTargets.ToArray();
         if (filterFamily != "" && !families.Contains(filterFamily)) filterFamily = "";
@@ -785,10 +914,57 @@ else
         StateHasChanged();
     });
 
+    private IReadOnlyList<SherpaMenuItem> GetEmulatorActions(AvdInfo emulator, RunningAndroidEmulator? instance, bool isStarting)
+    {
+        var items = new List<SherpaMenuItem>();
+        if (instance != null)
+        {
+            items.Add(SherpaMenuItem.Action(
+                "Inspect Device",
+                "fa-solid fa-magnifying-glass",
+                () => DeviceInspector.OpenAsync(instance.Serial, emulator.Name, InspectorTab.Files),
+                disabled: isStarting));
+            items.Add(SherpaMenuItem.Action(
+                "Open Logcat",
+                "fa-solid fa-scroll",
+                () => DeviceInspector.OpenAsync(instance.Serial, emulator.Name),
+                disabled: isStarting));
+        }
+        else
+        {
+            items.Add(SherpaMenuItem.Action(
+                "Cold Boot",
+                "fa-solid fa-snowflake",
+                () => StartEmulator(emulator, true),
+                disabled: IsBusy || isStarting || !CanVerifyEmulatorState || !HasSystemImage(emulator)));
+        }
+
+        items.Add(SherpaMenuItem.Divider);
+        items.Add(SherpaMenuItem.Action(
+            "Delete Emulator",
+            "fa-solid fa-trash-can",
+            () => DeleteEmulator(emulator),
+            isDanger: true,
+            disabled: IsBusy || isStarting || !CanVerifyEmulatorState));
+
+        return items;
+    }
+
+    private void OnSdkPathChanged() => _ = InvokeAsync(SdkChangedAsync);
+
     private async Task SdkChangedAsync()
     {
         selectedEmulators.Clear();
-        await Task.WhenAll(RefreshEmulators(true), RefreshDevices());
+        hasLoadedEmulators = false;
+        UpdateToolbarItemStates();
+        try
+        {
+            await Task.WhenAll(RefreshEmulators(true), RefreshDevices());
+        }
+        finally
+        {
+            UpdateToolbarItemStates();
+        }
     }
     private void OnDevicesChanged(IReadOnlyList<DeviceInfo> ignored) => _ = InvokeAsync(RefreshDevices);
 
@@ -798,6 +974,7 @@ else
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
         DeviceWatcher.DevicesChanged -= OnDevicesChanged;
+        SdkSettings.SdkPathChanged -= OnSdkPathChanged;
         disposeCts.Cancel();
     }
 }

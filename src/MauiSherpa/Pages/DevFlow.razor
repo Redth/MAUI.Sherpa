@@ -10,127 +10,156 @@
 @inject IDevFlowDiscoveryService Discovery
 @implements IDisposable
 
-<h1><i class="fas fa-wand-magic-sparkles"></i> MAUI DevFlow Inspector</h1>
+<SherpaPageHeader Title="App Inspector"
+                  Description="Discover running DevFlow agents and inspect their visual tree, network traffic, profiling data, logs, and platform services."
+                  Icon="fa-solid fa-wand-magic-sparkles">
+    <Actions>
+        <span class="sherpa-badge @(brokerConnected == true ? "sherpa-badge-success" : "sherpa-badge-neutral")">
+            <span class="sherpa-dot @(brokerConnected == true ? "sherpa-dot-success" : "sherpa-dot-muted")"></span>
+            @(brokerConnected == true ? "Broker connected" : brokerConnected == false ? "Broker offline" : "Checking broker")
+        </span>
+    </Actions>
+</SherpaPageHeader>
 
-<div class="broker-card">
-    <div class="connection-row">
-        <label>Broker</label>
-        <input type="text" @bind="brokerHost" placeholder="localhost" class="input-field broker-input" />
-        <span class="port-sep">:</span>
-        <input type="number" @bind="brokerPort" placeholder="19223" class="input-field port-input" />
-        <button class="btn btn-primary" @onclick="RefreshAgents" disabled="@isLoading">
-            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-plug")"></i>
+<div class="broker-toolbar sherpa-card">
+    <div class="broker-toolbar-main">
+        <label class="broker-label" for="broker-host">Broker</label>
+        <div class="broker-address">
+            <input id="broker-host" type="text" @bind="brokerHost" placeholder="localhost" class="sherpa-input broker-host" aria-label="Broker host" />
+            <span class="port-sep" aria-hidden="true">:</span>
+            <input type="number" @bind="brokerPort" placeholder="19223" class="sherpa-input broker-port" aria-label="Broker port" />
+        </div>
+        <button class="btn btn-primary btn-sm" @onclick="RefreshAgents" disabled="@isLoading">
+            <i class="fa-solid fa-fw @(isLoading ? "fa-spinner fa-spin" : "fa-plug")" aria-hidden="true"></i>
             @(isLoading ? "Connecting..." : "Connect")
         </button>
-        <label class="auto-refresh-label">
-            <input type="checkbox" @bind="autoRefresh" @bind:after="OnAutoRefreshChanged" />
-            Auto-refresh
+        <label class="auto-refresh-control">
+            <span>Auto-refresh</span>
+            <span class="sherpa-switch">
+                <input type="checkbox" @bind="autoRefresh" @bind:after="OnAutoRefreshChanged" />
+                <span class="sherpa-switch-track"></span>
+            </span>
         </label>
     </div>
-
-    <div class="connection-status">
-        @if (brokerConnected == true)
-        {
-            <span class="status-badge status-connected"><i class="fas fa-circle"></i> Broker connected — @agents.Count agent(s)</span>
-        }
-        else if (brokerConnected == false)
-        {
-            <span class="status-badge status-disconnected"><i class="fas fa-circle"></i> No broker reachable on @brokerHost (tried @brokerPort, 19223, 19323)</span>
-        }
-    </div>
+    @if (brokerConnected == false)
+    {
+        <div class="broker-status-note" role="status">
+            <span class="sherpa-dot sherpa-dot-muted"></span>
+            No broker reachable at @brokerHost. Tried ports @brokerPort, 19223, and 19323.
+        </div>
+    }
 </div>
 
-<div class="agent-grid">
-    @foreach (var agent in agents)
-    {
-        var supported = IsAgentSupported(agent);
-        var outdated = IsAgentOutdated(agent);
-        <div data-screenshot-external class="agent-card @GetPlatformColorClass(agent.Platform) @(!supported ? "agent-unsupported" : "")"
-             @onclick="@(() => { if (supported) OpenInspector(agent); })"
-             title="@(outdated ? $"Agent version {agent.Version} is below minimum {MinSupportedAgentVersion}. Update MAUI DevFlow packages." : !supported ? $"Agent version {agent.Version} is not supported." : "")">
-            <div class="agent-icon">
-                <i class="fas @GetPlatformIcon(agent.Platform)"></i>
-                <i class="fab @GetBrandIcon(agent.Platform) brand-overlay"></i>
-            </div>
-            <div class="agent-info">
-                <div class="agent-name">
-                    @(agent.AppName ?? "Unknown App")
-                    @if (!supported)
-                    {
-                        <span class="agent-outdated-badge"><i class="fas fa-triangle-exclamation"></i> Update required</span>
-                    }
-                    else if (outdated)
-                    {
-                        <span class="agent-outdated-badge"><i class="fas fa-triangle-exclamation"></i> Outdated</span>
-                    }
-                </div>
-                <div class="agent-meta">
-                    <span class="agent-platform">@(agent.Platform ?? "Unknown")</span>
-                    @if (agent.Project != null)
-                    {
-                        <span class="agent-tfm">@GetProjectName(agent.Project)</span>
-                    }
-                </div>
-                <div class="agent-details">
-                    <span class="agent-port"><i class="fas fa-network-wired"></i> Port @agent.Port</span>
-                    @if (agent.ConnectedAt != null)
-                    {
-                        <span class="agent-time"><i class="fas fa-clock"></i> @FormatTimeAgo(agent.ConnectedAt.Value)</span>
-                    }
-                    @if (!string.IsNullOrEmpty(agent.Version))
-                    {
-                        <span class="agent-version"><i class="fas fa-code-branch"></i> @DevFlowVersionSupport.FormatVersionLabel(agent.Version)</span>
-                    }
-                </div>
-            </div>
-            <div class="agent-arrow">
-                @if (supported)
-                {
-                    <i class="fas fa-chevron-right"></i>
-                }
-                else
-                {
-                    <i class="fas fa-ban" style="color: var(--text-tertiary);"></i>
-                }
-            </div>
-        </div>
-    }
+<SherpaSectionHeader Title="Connected Agents" Icon="fa-solid fa-satellite-dish" Count="@agents.Count" />
 
-    @if (agents.Count == 0)
-    {
-        <div class="agent-card hint-card">
-            <div class="agent-icon hint-icon">
-                <i class="fas fa-wand-magic-sparkles"></i>
-            </div>
-            <div class="agent-info">
-                <div class="agent-name">@(brokerConnected == true ? "No agents connected" : "Get started")</div>
-                <div class="hint-text">
-                    Add <code>builder.AddMauiDevFlowAgent();</code> to your MauiProgram.cs, then run your app.
-                </div>
-                <div class="hint-actions">
-                    <a href="#" @onclick="OpenQuickStartGuide" @onclick:preventDefault class="hint-link">
-                        <i class="fas fa-book"></i> Quick Start guide
-                    </a>
-                </div>
+@if (!hasLoaded || (isLoading && agents.Count == 0))
+{
+    <SherpaListSkeleton Rows="3" Label="Discovering DevFlow agents..." />
+}
+else if (hasLoaded && !isLoading && agents.Count == 0)
+{
+    <div class="sherpa-empty-inline">
+        <div class="sherpa-empty-inline-lead">
+            <span class="sherpa-icon-well sherpa-icon-well-sm sherpa-icon-well-accent">
+                <i class="fa-solid fa-wand-magic-sparkles fa-fw" aria-hidden="true"></i>
+            </span>
+            <div class="sherpa-row-stack">
+                <span class="sherpa-empty-inline-title">No agents connected</span>
+                <span class="sherpa-row-sub">Add builder.AddMauiDevFlowAgent() to MauiProgram.cs and run your app</span>
             </div>
         </div>
-    }
+        <button class="btn btn-secondary btn-sm" @onclick="OpenQuickStartGuide">
+            <i class="fa-solid fa-book-open fa-fw" aria-hidden="true"></i> Quick Start
+        </button>
+    </div>
+}
+else
+{
+    <div class="sherpa-list">
+        @foreach (var agent in agents)
+        {
+            var supported = IsAgentSupported(agent);
+            var outdated = IsAgentOutdated(agent);
+            var brandIcon = GetBrandIcon(agent.Platform);
+            <div data-screenshot-external
+                 class="sherpa-list-row @(supported ? "sherpa-list-row-interactive" : "agent-unsupported")"
+                 @onclick="@(() => { if (supported) OpenInspector(agent); })"
+                 title="@(outdated ? $"Agent version {agent.Version} is below minimum {MinSupportedAgentVersion}. Update MAUI DevFlow packages." : !supported ? $"Agent version {agent.Version} is not supported." : "")">
+                <span class="sherpa-icon-well @GetPlatformIconWellClass(agent.Platform)">
+                    <i class="fa-solid fa-fw @GetPlatformIcon(agent.Platform)" aria-hidden="true"></i>
+                    @if (!string.IsNullOrEmpty(brandIcon))
+                    {
+                        <span class="sherpa-brand-badge"><i class="fa-brands fa-fw @brandIcon" aria-hidden="true"></i></span>
+                    }
+                </span>
+                <div class="sherpa-row-stack">
+                    <div class="agent-title sherpa-row-title">
+                        <span>@(agent.AppName ?? "Unknown App")</span>
+                        <span class="sherpa-badge @GetPlatformBadgeClass(agent.Platform)">@(agent.Platform ?? "Unknown")</span>
+                        @if (!supported)
+                        {
+                            <span class="sherpa-badge sherpa-badge-danger">
+                                <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i> Update required
+                            </span>
+                        }
+                        else if (outdated)
+                        {
+                            <span class="sherpa-badge sherpa-badge-warning">
+                                <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i> Outdated
+                            </span>
+                        }
+                    </div>
+                    <div class="sherpa-row-sub mono">
+                        @if (!string.IsNullOrEmpty(agent.Project))
+                        {
+                            <span>@GetProjectName(agent.Project)</span><span class="meta-separator">·</span>
+                        }
+                        <span>Port @agent.Port</span>
+                        @if (agent.ConnectedAt != null)
+                        {
+                            <span class="meta-separator">·</span><span>@FormatTimeAgo(agent.ConnectedAt.Value)</span>
+                        }
+                        @if (!string.IsNullOrEmpty(agent.Version))
+                        {
+                            <span class="meta-separator">·</span><span>@DevFlowVersionSupport.FormatVersionLabel(agent.Version)</span>
+                        }
+                    </div>
+                </div>
+                <div class="sherpa-row-actions">
+                    <button data-screenshot-external
+                            class="btn btn-secondary btn-sm"
+                            disabled="@(!supported)"
+                            @onclick="() => OpenInspector(agent)"
+                            @onclick:stopPropagation="true">
+                        <i class="fa-solid @(supported ? "fa-magnifying-glass" : "fa-ban") fa-fw" aria-hidden="true"></i>
+                        Inspect
+                    </button>
+                    <i class="fa-solid fa-chevron-right fa-fw agent-chevron" aria-hidden="true"></i>
+                </div>
+            </div>
+        }
+    </div>
+}
 
-    <div class="agent-card direct-connect-card" @onclick:stopPropagation>
-        <div class="agent-icon direct-icon">
-            <i class="fas fa-plug"></i>
+<SherpaSectionHeader Title="Direct Connect" Icon="fa-solid fa-plug" />
+
+<div class="direct-connect sherpa-card">
+    <span class="sherpa-icon-well sherpa-icon-well-neutral">
+        <i class="fa-solid fa-plug fa-fw" aria-hidden="true"></i>
+    </span>
+    <div class="direct-connect-copy sherpa-row-stack">
+        <span class="sherpa-row-title">Connect to a known agent</span>
+        <span class="sherpa-row-sub">Use the host and DevFlow agent port when broker discovery is unavailable.</span>
+    </div>
+    <div class="direct-connect-actions">
+        <div class="direct-address">
+            <input type="text" @bind="manualHost" placeholder="localhost" class="sherpa-input direct-host" aria-label="Agent host" />
+            <span class="port-sep" aria-hidden="true">:</span>
+            <input type="number" @bind="manualPort" placeholder="9223" class="sherpa-input direct-port" aria-label="Agent port" />
         </div>
-        <div class="agent-info">
-            <div class="agent-name">Direct Connect</div>
-            <div class="agent-details direct-connect-row">
-                <input type="text" @bind="manualHost" placeholder="localhost" class="input-field broker-input direct-input" />
-                <span class="port-sep">:</span>
-                <input type="number" @bind="manualPort" placeholder="9223" class="input-field port-input direct-port" />
-                <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="ManualConnect">
-                    <i class="fas fa-arrow-right"></i>
-                </button>
-            </div>
-        </div>
+        <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="ManualConnect">
+            <i class="fa-solid fa-arrow-right fa-fw" aria-hidden="true"></i> Connect
+        </button>
     </div>
 </div>
 
@@ -140,6 +169,7 @@
     private string manualHost = "localhost";
     private int manualPort = 9223;
     private bool isLoading;
+    private bool hasLoaded;
     private bool? brokerConnected;
     private bool autoRefresh;
     private List<BrokerAgent> agents = new();
@@ -168,6 +198,7 @@
     private async Task RefreshAgents()
     {
         isLoading = true;
+        ToolbarService.SetItemEnabled("refresh", false);
         StateHasChanged();
 
         try
@@ -184,6 +215,8 @@
         finally
         {
             isLoading = false;
+            hasLoaded = true;
+            ToolbarService.SetItemEnabled("refresh", true);
             StateHasChanged();
         }
     }
@@ -249,22 +282,29 @@
 
     private static string GetPlatformIcon(string? platform) => platform?.ToLowerInvariant() switch
     {
-        "ios" => "fa-mobile-alt",
-        "android" => "fa-mobile-alt",
+        "ios" => "fa-mobile-screen-button",
+        "android" => "fa-mobile-screen-button",
         "maccatalyst" => "fa-laptop",
         "macos" => "fa-laptop",
-        "winui" or "windows" => "fa-desktop",
+        "winui" or "windows" => "fa-display",
         "linux" or "gtk" => "fa-display",
         _ => "fa-microchip"
     };
 
-    private static string GetPlatformColorClass(string? platform) => platform?.ToLowerInvariant() switch
+    private static string GetPlatformIconWellClass(string? platform) => platform?.ToLowerInvariant() switch
     {
-        "ios" or "maccatalyst" or "macos" => "platform-apple",
-        "android" => "platform-android",
-        "winui" or "windows" => "platform-windows",
-        "linux" or "gtk" => "platform-linux",
-        _ => "platform-other"
+        "ios" or "maccatalyst" or "macos" => "sherpa-icon-well-apple",
+        "android" => "sherpa-icon-well-android",
+        "winui" or "windows" => "sherpa-icon-well-accent",
+        _ => "sherpa-icon-well-neutral"
+    };
+
+    private static string GetPlatformBadgeClass(string? platform) => platform?.ToLowerInvariant() switch
+    {
+        "android" => "sherpa-badge-success",
+        "ios" or "maccatalyst" or "macos" => "sherpa-badge-accent",
+        "winui" or "windows" => "sherpa-badge-info",
+        _ => "sherpa-badge-neutral"
     };
 
     private static string GetBrandIcon(string? platform) => platform?.ToLowerInvariant() switch
@@ -305,353 +345,177 @@
 }
 
 <style>
-    .broker-card {
-        background: rgba(59, 130, 246, 0.08);
-        border-radius: 12px;
-        padding: 1rem 1.25rem;
-        margin-bottom: 1rem;
-        margin-top: 0.75rem;
+    .broker-toolbar {
+        padding: 10px 14px;
     }
 
-    :deep(.theme-dark) .broker-card {
-        background: rgba(59, 130, 246, 0.12);
-    }
-
-    .connection-row {
+    .broker-toolbar-main {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: var(--space-2);
         flex-wrap: wrap;
     }
 
-    .connection-row label:first-child {
-        font-weight: 600;
+    .broker-label {
+        margin-inline-end: var(--space-1);
         color: var(--text-secondary);
+        font-size: var(--font-size-sm);
+        font-weight: 600;
     }
 
-    .broker-input {
+    .broker-address,
+    .direct-address {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        overflow: hidden;
+        background: var(--surface-control);
+        border: 1px solid var(--border-control);
+        border-bottom-color: var(--border-control-bottom);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-control);
+        transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+    }
+
+    .broker-address:focus-within,
+    .direct-address:focus-within {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-ring);
+    }
+
+    .broker-address .sherpa-input,
+    .direct-address .sherpa-input {
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    .broker-address .sherpa-input:focus,
+    .broker-address .sherpa-input:focus-visible,
+    .direct-address .sherpa-input:focus,
+    .direct-address .sherpa-input:focus-visible {
+        box-shadow: none;
+    }
+
+    .broker-host {
         width: 160px;
-        padding: 0.35rem 0.6rem;
-        border: 1px solid var(--input-border);
-        border-radius: 6px;
-        background: var(--input-bg);
-        color: var(--text-primary);
-        font-size: 0.85rem;
     }
 
-    .port-input {
-        width: 80px;
-        padding: 0.35rem 0.6rem;
-        border: 1px solid var(--input-border);
-        border-radius: 6px;
-        background: var(--input-bg);
-        color: var(--text-primary);
-        font-size: 0.85rem;
+    .broker-port {
+        width: 82px;
+    }
+
+    .broker-port,
+    .direct-port {
         -moz-appearance: textfield;
     }
 
-    .port-input::-webkit-inner-spin-button,
-    .port-input::-webkit-outer-spin-button {
+    .broker-port::-webkit-inner-spin-button,
+    .broker-port::-webkit-outer-spin-button,
+    .direct-port::-webkit-inner-spin-button,
+    .direct-port::-webkit-outer-spin-button {
         -webkit-appearance: none;
         margin: 0;
     }
 
     .port-sep {
-        color: var(--text-tertiary);
-        font-weight: 600;
-        font-size: 0.9rem;
-    }
-
-    .auto-refresh-label {
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        cursor: pointer;
-    }
-
-    .connection-status {
-        margin-top: 0.5rem;
-    }
-
-    .status-badge {
-        font-size: 0.85rem;
+        align-self: stretch;
         display: inline-flex;
         align-items: center;
-        gap: 0.4rem;
+        padding-inline: 1px;
+        background: var(--surface-control);
+        color: var(--text-muted);
+        font-weight: 600;
+        font-size: var(--font-size-sm);
     }
 
-    .status-connected {
-        color: #22c55e;
-    }
-
-    .status-connected i {
-        font-size: 0.5rem;
-    }
-
-    .status-disconnected {
-        color: #ef4444;
-    }
-
-    .status-disconnected i {
-        font-size: 0.5rem;
-    }
-
-    /* Direct connect card */
-    .direct-connect-card {
-        cursor: default;
-        background: var(--bg-tertiary);
-    }
-
-    .direct-icon {
-        background: rgba(107, 114, 128, 0.12);
-        color: #6b7280;
-    }
-
-    .direct-connect-row {
+    .auto-refresh-control {
         display: flex;
         align-items: center;
-        gap: 0.35rem;
-        margin-top: 0.15rem;
-    }
-
-    .direct-input {
-        width: 100px !important;
-        padding: 0.25rem 0.4rem !important;
-        font-size: 0.8rem !important;
-    }
-
-    .direct-port {
-        width: 60px !important;
-        padding: 0.25rem 0.4rem !important;
-        font-size: 0.8rem !important;
-    }
-
-    .btn-sm {
-        padding: 0.25rem 0.5rem;
-        font-size: 0.8rem;
-    }
-
-    /* Hint card */
-    .hint-card {
-        cursor: default;
-        background: var(--bg-tertiary);
-    }
-
-    .hint-icon {
-        background: rgba(234, 179, 8, 0.12);
-        color: #eab308;
-    }
-
-    .hint-text {
-        font-size: 0.8rem;
+        gap: var(--space-2);
+        margin-inline-start: auto;
         color: var(--text-secondary);
-        line-height: 1.5;
-        margin-top: 0.3rem;
+        cursor: pointer;
+        font-size: var(--font-size-sm);
+        font-weight: 500;
     }
 
-    .hint-text code {
-        font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
-        font-size: 0.78rem;
-        color: var(--accent-color, #8b5cf6);
-        background: var(--bg-primary);
-        padding: 0.1rem 0.35rem;
-        border-radius: 3px;
-    }
-
-    .hint-actions {
-        margin-top: 0.4rem;
-    }
-
-    .hint-link {
-        font-size: 0.8rem;
-        color: var(--accent-color, #8b5cf6);
-        text-decoration: none;
-    }
-
-    .hint-link:hover {
-        text-decoration: underline;
-    }
-
-    .agent-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-        gap: 1rem;
-    }
-
-    .agent-card {
+    .broker-status-note {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
-        padding: 0.75rem 1rem;
-        background: var(--card-bg);
-        border-radius: 22px;
-        cursor: pointer;
-        transition: all 0.2s ease;
+        gap: 7px;
+        margin-top: var(--space-2);
+        padding-top: var(--space-2);
+        border-top: 1px solid var(--border-hairline);
+        color: var(--text-muted);
+        font-size: var(--font-size-xs);
     }
 
-    /* Unsupported (outdated) agent cards */
-    .agent-card.agent-unsupported {
+    .agent-unsupported {
         opacity: 0.5;
         cursor: not-allowed;
     }
 
-    .agent-outdated-badge {
-        font-size: 0.7rem;
-        color: #ef4444;
-        font-weight: 500;
-        margin-left: 0.5rem;
-    }
-
-    .agent-version {
-        color: var(--text-tertiary);
-    }
-
-    .agent-icon {
-        font-size: 1.5rem;
-        width: 42px;
-        height: 42px;
+    .agent-title {
         display: flex;
         align-items: center;
-        justify-content: center;
-        border-radius: 12px;
-        flex-shrink: 0;
-        position: relative;
+        flex-wrap: wrap;
+        gap: 6px;
+        white-space: normal;
     }
 
-    .brand-overlay {
-        position: absolute;
-        bottom: 4px;
-        right: 4px;
-        font-size: 1.1rem;
-        color: #999;
-        opacity: 1;
-        line-height: 1;
+    .agent-chevron {
+        color: var(--text-muted);
+        font-size: var(--font-size-xs);
     }
 
-    :global(.theme-dark) .brand-overlay {
-        color: #888;
-        opacity: 1;
+    .meta-separator {
+        margin-inline: 5px;
+        color: var(--border-strong);
     }
 
-    /* Platform colors */
-    .platform-apple .agent-icon {
-        background: rgba(147, 51, 234, 0.12);
-        color: #9333ea;
-    }
-    .platform-android .agent-icon {
-        background: rgba(34, 197, 94, 0.12);
-        color: #22c55e;
-    }
-    .platform-windows .agent-icon {
-        background: rgba(59, 130, 246, 0.12);
-        color: #3b82f6;
-    }
-    .platform-linux .agent-icon {
-        background: rgba(234, 179, 8, 0.12);
-        color: #eab308;
-    }
-    .platform-other .agent-icon {
-        background: var(--bg-tertiary);
-        color: var(--text-secondary);
-    }
-
-    .platform-apple .agent-platform {
-        background: rgba(147, 51, 234, 0.12);
-        color: #9333ea;
-    }
-    .platform-android .agent-platform {
-        background: rgba(34, 197, 94, 0.12);
-        color: #16a34a;
-    }
-    .platform-windows .agent-platform {
-        background: rgba(59, 130, 246, 0.12);
-        color: #3b82f6;
-    }
-    .platform-linux .agent-platform {
-        background: rgba(234, 179, 8, 0.12);
-        color: #ca8a04;
-    }
-
-    :global(.theme-dark) .platform-apple .agent-platform {
-        color: #c084fc;
-    }
-    :global(.theme-dark) .platform-android .agent-platform {
-        color: #4ade80;
-    }
-    :global(.theme-dark) .platform-windows .agent-platform {
-        color: #60a5fa;
-    }
-    :global(.theme-dark) .platform-linux .agent-platform {
-        color: #facc15;
-    }
-    :global(.theme-dark) .platform-apple .agent-icon {
-        color: #c084fc;
-    }
-    :global(.theme-dark) .platform-android .agent-icon {
-        color: #4ade80;
-    }
-    :global(.theme-dark) .platform-windows .agent-icon {
-        color: #60a5fa;
-    }
-    :global(.theme-dark) .platform-linux .agent-icon {
-        color: #facc15;
-    }
-
-    .agent-info {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .agent-name {
-        font-weight: 600;
-        font-size: 1rem;
-        color: var(--text-primary);
-    }
-
-    .agent-meta {
+    .direct-connect {
         display: flex;
-        gap: 0.5rem;
-        margin-top: 0.25rem;
+        align-items: center;
+        gap: var(--space-3);
+        padding: 10px 14px;
     }
 
-    .agent-platform, .agent-tfm {
-        font-size: 0.75rem;
-        padding: 0.1rem 0.5rem;
-        border-radius: 4px;
-        color: var(--text-secondary);
-        font-weight: 500;
+    .direct-connect-copy {
+        flex: 1 1 260px;
     }
 
-    .agent-tfm {
-        background: var(--bg-tertiary);
-    }
-
-    .agent-project {
-        font-size: 0.8rem;
-        color: var(--text-tertiary);
-        margin-top: 0.25rem;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .agent-details {
+    .direct-connect-actions {
         display: flex;
-        gap: 1rem;
-        margin-top: 0.4rem;
-        font-size: 0.8rem;
-        color: var(--text-tertiary);
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--space-2);
+        flex-wrap: wrap;
     }
 
-    .agent-details i {
-        margin-right: 0.25rem;
+    .direct-host {
+        width: 130px;
     }
 
-    .agent-arrow {
-        color: var(--text-tertiary);
-        font-size: 1rem;
+    .direct-port {
+        width: 74px;
     }
 
+    @@media (max-width: 680px) {
+        .auto-refresh-control {
+            width: 100%;
+            justify-content: flex-end;
+        }
+
+        .direct-connect {
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+
+        .direct-connect-actions {
+            width: 100%;
+            justify-content: flex-start;
+            padding-inline-start: 46px;
+        }
+    }
 </style>

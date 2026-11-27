@@ -8,67 +8,69 @@
 
 <div class="dialog-content">
     <div class="dialog-header">
-        <h2><i class="fab fa-google"></i> @(isEditing ? "Edit" : "Add") Google Identity</h2>
+        <h2><i class="fa-brands fa-google"></i> @(isEditing ? "Edit" : "Add") Google Identity</h2>
     </div>
-    <div class="dialog-body">
-        <div class="form-group">
-            <label>Name</label>
-            <input type="text" @bind="googleIdentityName" @bind:event="oninput" placeholder="My Firebase Project" />
-            <div class="help-text">A friendly name to identify this credential</div>
+    <div class="dialog-body sherpa-form sherpa-scroll">
+        <div class="sherpa-field">
+            <label class="sherpa-field-label">Name</label>
+            <input type="text" class="sherpa-input" @bind="googleIdentityName" @bind:event="oninput" placeholder="My Firebase Project" />
+            <div class="sherpa-field-help">A friendly name to identify this credential</div>
         </div>
-        <div class="form-group">
-            <label>Service Account JSON</label>
-            <div class="help-text" style="margin-bottom: 0.5rem;">
-                Download from <a href="https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk" target="_blank" @onclick='() => OpenUrl("https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk")' @onclick:preventDefault>Firebase Console → Project Settings → Service Accounts</a> → Generate New Private Key
-            </div>
-            <div class="p8-input-toggle">
-                <button class="toggle-btn @(saJsonInputMode == "file" ? "active" : "")" @onclick="@(() => saJsonInputMode = "file")">
-                    <i class="fas fa-folder-open"></i> File
-                </button>
-                <button class="toggle-btn @(saJsonInputMode == "text" ? "active" : "")" @onclick="@(() => saJsonInputMode = "text")">
-                    <i class="fas fa-paste"></i> Paste
-                </button>
-            </div>
+        <div class="sherpa-field">
+            <label class="sherpa-field-label">Service Account JSON</label>
+            <SherpaSegmentedControl TValue="string"
+                                    Value="@saJsonInputMode"
+                                    ValueChanged="@((string? value) => saJsonInputMode = value ?? "file")"
+                                    Options="ServiceAccountInputOptions"
+                                    AriaLabel="Service account input mode"
+                                    Class="sherpa-segmented-full" />
             @if (saJsonInputMode == "file")
             {
-                <div class="file-input-group">
+                <div class="sherpa-input-group">
                     <input type="text" value="@googleIdentitySaJsonPath" placeholder="Path to service account JSON file" readonly />
-                    <button class="btn btn-secondary" @onclick="BrowseServiceAccountJsonFile">
-                        <i class="fas fa-folder-open"></i> Browse...
+                    <button type="button" class="sherpa-input-group-btn" @onclick="BrowseServiceAccountJsonFile">
+                        <i class="fa-solid fa-folder-open" aria-hidden="true"></i> Browse...
                     </button>
                 </div>
             }
             else
             {
-                <textarea @bind="googleIdentitySaJsonContent" @bind:after="ParseServiceAccountJson"
-                          placeholder='{"type": "service_account", "project_id": "...", ...}'
-                          rows="8"
-                          class="p8-textarea"></textarea>
+                <SherpaJsonEditor @bind-Value="googleIdentitySaJsonContent"
+                                  @bind-Value:after="ParseServiceAccountJson"
+                                  FileName="service-account.json"
+                                  Schema="google-service-account"
+                                  Rows="10"
+                                  Placeholder='{"type": "service_account", "project_id": "...", ...}' />
             }
+            <div class="sherpa-field-help">
+                Download from <a href="https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk" target="_blank" @onclick='() => OpenUrl("https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk")' @onclick:preventDefault>Firebase Console → Project Settings → Service Accounts</a> → Generate New Private Key
+            </div>
         </div>
         @if (!string.IsNullOrEmpty(googleIdentitySaJsonContent))
         {
             @if (!string.IsNullOrEmpty(parsedProjectId))
             {
-                <div class="p8-preview">
-                    <span class="p8-loaded"><i class="fas fa-check-circle"></i> Service account loaded — Project: <strong>@parsedProjectId</strong>, Email: <strong>@parsedClientEmail</strong></span>
+                <div class="identity-status">
+                    <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+                    <span>Service account loaded — Project: <strong>@parsedProjectId</strong>, Email: <strong>@parsedClientEmail</strong></span>
                 </div>
             }
             else
             {
-                <div class="p8-preview">
-                    <span class="p8-error"><i class="fas fa-exclamation-triangle"></i> Invalid service account JSON format</span>
+                <div class="sherpa-field-error">
+                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                    Invalid service account JSON format
                 </div>
             }
         }
     </div>
     <div class="dialog-footer">
         <button class="btn btn-secondary" @onclick="Cancel">
-            <i class="fas fa-times"></i> Cancel
+            <i class="fa-solid fa-xmark" aria-hidden="true"></i> Cancel
         </button>
         <button class="btn btn-primary" @onclick="Save"
                 disabled="@(!CanSave)">
-            <i class="fas fa-save"></i> Save
+            <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save
         </button>
     </div>
 </div>
@@ -82,6 +84,11 @@
     private string saJsonInputMode = "file";
     private string parsedProjectId = "";
     private string parsedClientEmail = "";
+    private static readonly IReadOnlyList<SherpaSegmentOption<string>> ServiceAccountInputOptions =
+    [
+        new("file", "File", "fa-solid fa-folder-open"),
+        new("text", "Text", "fa-solid fa-file-lines")
+    ];
 
     private bool CanSave =>
         !string.IsNullOrWhiteSpace(googleIdentityName) &&
@@ -155,39 +162,10 @@
 
 <style>
     .dialog-content { display: flex; flex-direction: column; width: 100%; height: 100%; }
-    .dialog-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--border-color); }
+    .dialog-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--border-subtle); }
     .dialog-header h2 { margin: 0; font-size: 18px; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; }
-    .dialog-body { padding: 24px; flex: 1; overflow-y: auto; }
-    .dialog-footer { padding: 16px 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 12px; }
-
-    .form-group { margin-bottom: 1.25rem; }
-    .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; color: var(--text-secondary); }
-    .form-group input { width: 100%; padding: 0.625rem 0.75rem; border: 1px solid var(--border-color); border-radius: 0.375rem; font-size: 0.875rem; box-sizing: border-box; background: var(--bg-tertiary); color: var(--text-primary); }
-    .form-group input:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
-    .help-text { margin-top: 0.375rem; font-size: 0.75rem; color: var(--text-muted); }
-    .help-text a { color: var(--accent-primary); }
-
-    .file-input-group { display: flex; gap: 0.5rem; }
-    .file-input-group input { flex: 1; }
-
-    .p8-input-toggle { display: flex; gap: 0; margin-bottom: 0.75rem; }
-    .toggle-btn { padding: 0.5rem 1rem; border: 1px solid var(--border-color); background: var(--bg-tertiary); cursor: pointer; font-size: 0.8125rem; color: var(--text-secondary); transition: all 0.15s; }
-    .toggle-btn:first-child { border-radius: 0.375rem 0 0 0.375rem; }
-    .toggle-btn:last-child { border-radius: 0 0.375rem 0.375rem 0; border-left: none; }
-    .toggle-btn.active { background: var(--accent-primary); color: var(--card-bg); border-color: var(--accent-primary); }
-
-    .p8-textarea { width: 100%; padding: 0.625rem 0.75rem; border: 1px solid var(--border-color); border-radius: 0.375rem; font-size: 0.8125rem; font-family: 'Monaco', 'Menlo', monospace; resize: vertical; min-height: 120px; background: var(--bg-tertiary); color: var(--text-primary); box-sizing: border-box; }
-    .p8-textarea:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
-
-    .p8-preview { margin-top: 0.5rem; }
-    .p8-loaded { color: #38a169; font-size: 0.8125rem; }
-    .p8-error { color: var(--status-error-text, #e53e3e); font-size: 0.8125rem; }
-
-    .btn { padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 6px; }
-    .btn i { font-size: 12px; }
-    .btn-primary { background-color: var(--accent-primary); color: white; }
-    .btn-primary:hover:not(:disabled) { background-color: var(--accent-primary-hover); }
-    .btn-secondary { background-color: var(--bg-hover); color: var(--text-secondary); }
-    .btn-secondary:hover:not(:disabled) { background-color: var(--btn-secondary-hover); }
-    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .dialog-body { flex: 1; min-height: 0; }
+    .dialog-footer { padding: 16px 24px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: flex-end; gap: 12px; }
+    .sherpa-field-help a { color: var(--accent); }
+    .identity-status { display: inline-flex; align-items: center; gap: 6px; color: var(--status-success-fg); font-size: var(--font-size-xs); }
 </style>

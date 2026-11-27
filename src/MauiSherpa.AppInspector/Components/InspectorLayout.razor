@@ -1,23 +1,53 @@
 @inherits LayoutComponentBase
 @using MauiSherpa.Core.Interfaces
 @inject IThemeService ThemeService
+@inject IPlatformService PlatformInfo
+@inject IJSRuntime JS
 @implements IDisposable
 
-<div class="main-layout @ThemeClass">
+<div class="main-layout inspector-layout @ThemeClass @PlatformClass">
     @Body
 </div>
 
 @code {
     private string ThemeClass => ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
+    private string PlatformClass => PlatformInfo.IsWindows
+        ? "platform-windows"
+        : PlatformInfo.IsLinux
+            ? "platform-linux"
+            : "platform-macos";
 
     protected override void OnInitialized()
     {
         ThemeService.ThemeChanged += OnThemeChanged;
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await SyncBodyStateAsync();
+    }
+
     private void OnThemeChanged()
     {
-        InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await SyncBodyStateAsync();
+        });
+    }
+
+    private async Task SyncBodyStateAsync()
+    {
+        try
+        {
+            var classes = $"{ThemeClass} {PlatformClass}";
+            var sizePx = 16.0 * ThemeService.FontScale;
+            await JS.InvokeVoidAsync(
+                "eval",
+                $"document.body.className = '{classes}'; document.body.style.backgroundColor = getComputedStyle(document.querySelector('.main-layout')).getPropertyValue('--surface-canvas'); document.documentElement.style.fontSize = '{sizePx:F1}px';");
+        }
+        catch { }
     }
 
     public void Dispose()

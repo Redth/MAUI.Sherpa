@@ -20,19 +20,19 @@
         }
         <div class="description">@ModalService.Description</div>
 
-        <div class="log-section">
-            <div class="log-header">
-                <span><i class="fas fa-list"></i> Activity Log</span>
+        <div class="log-section sherpa-console">
+            <div class="log-header sherpa-console-header">
+                <span><i class="fa-solid fa-fw fa-list" aria-hidden="true"></i> Activity Log</span>
                 <button class="btn-icon" @onclick="CopyLog" title="Copy log">
-                    <i class="fas fa-copy"></i>
+                    <i class="fa-solid fa-fw fa-copy" aria-hidden="true"></i>
                 </button>
             </div>
-            <div class="log-container" @ref="_logContainer">
+            <div class="log-container sherpa-console-body" @ref="_logContainer">
                 @foreach (var entry in ModalService.LogEntries)
                 {
                     <div class="log-entry @GetLogLevelClass(entry.Level)">
                         <span class="log-time">@entry.Timestamp.ToString("HH:mm:ss")</span>
-                        <i class="fas @GetLogLevelIcon(entry.Level)"></i>
+                        <i class="fa-solid fa-fw @GetLogLevelIcon(entry.Level)" aria-hidden="true"></i>
                         <span class="log-message">@entry.Message</span>
                     </div>
                 }
@@ -46,19 +46,19 @@
                 {
                     <div class="status-text">@ModalService.CurrentStatus</div>
                 }
-                <div class="progress-bar-container">
+                <div class="progress-bar-container sherpa-progress-track">
                     @if (ModalService.CurrentProgress.HasValue)
                     {
-                        <div class="progress-bar" style="width: @(ModalService.CurrentProgress)%"></div>
+                        <div class="progress-bar sherpa-progress-fill" style="width: @(ModalService.CurrentProgress)%"></div>
                         <span class="progress-text">@(ModalService.CurrentProgress)%</span>
                     }
                     else
                     {
-                        <div class="progress-bar indeterminate"></div>
+                        <div class="progress-bar sherpa-progress-fill indeterminate"></div>
                     }
                 </div>
                 <div class="elapsed-time">
-                    <i class="fas fa-clock"></i> @ElapsedTime
+                    <i class="fa-solid fa-fw fa-clock" aria-hidden="true"></i> @ElapsedTime
                 </div>
             </div>
         }
@@ -66,11 +66,11 @@
         {
             <div class="result-section">
                 <div class="result-status @GetResultClass()">
-                    <i class="fas @GetResultIcon()"></i>
+                    <i class="fa-solid fa-fw @GetResultIcon()" aria-hidden="true"></i>
                     <span>@GetResultText()</span>
                 </div>
                 <div class="result-details">
-                    <span><i class="fas fa-clock"></i> Duration: @Duration</span>
+                    <span><i class="fa-solid fa-fw fa-clock" aria-hidden="true"></i> Duration: @Duration</span>
                 </div>
             </div>
         }
@@ -90,7 +90,7 @@
                     @if (ModalService.CurrentState == OperationState.Failed)
                     {
                         <button class="btn btn-secondary" @onclick="HandleTryWithCopilot">
-                            <i class="fas fa-robot"></i> Try with Copilot
+                            <i class="fa-solid fa-fw fa-robot" aria-hidden="true"></i> Try with Copilot
                         </button>
                     }
                     <button class="btn btn-primary" @onclick="HandleClose">Close</button>
@@ -112,23 +112,23 @@
         align-items: center;
         justify-content: center;
         padding: 1rem;
-        background: var(--modal-overlay, rgba(0, 0, 0, 0.5));
+        background: var(--modal-overlay);
     }
 
     .operation-modal-host-linux .operation-content {
         width: min(600px, 100%);
         height: min(550px, calc(100vh - 2rem));
-        background: var(--card-bg, #fff);
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: var(--card-radius, 1rem);
-        box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.25);
+        background: var(--surface-popover);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-xl);
+        box-shadow: var(--shadow-popover);
     }
 
     .operation-actions {
         display: flex;
+        flex-shrink: 0;
         justify-content: flex-end;
         gap: 0.75rem;
-        flex-shrink: 0;
     }
 
     .operation-title { margin: 0; font-size: 1.125rem; color: var(--text-primary); }
@@ -138,51 +138,33 @@
         height: 100%;
         display: flex;
         flex-direction: column;
+        min-height: 0;
         padding: 1rem 1.25rem;
-        overflow: auto;
+        overflow: hidden;
         gap: 1rem;
     }
 
     .description {
-        color: var(--text-secondary, #a0aec0);
+        flex-shrink: 0;
+        color: var(--text-secondary);
         font-size: 0.875rem;
     }
 
     .progress-section {
         display: flex;
+        flex-shrink: 0;
         flex-direction: column;
         gap: 0.75rem;
     }
 
     .status-text {
         font-size: 0.875rem;
-        color: #2d3748;
+        color: var(--text-primary);
         font-weight: 500;
     }
 
     .progress-bar-container {
-        height: 0.5rem;
-        background: #e2e8f0;
-        border-radius: 0.5rem;
-        overflow: hidden;
         position: relative;
-    }
-
-    .progress-bar {
-        height: 100%;
-        background: linear-gradient(90deg, #4299e1, #667eea);
-        border-radius: 0.5rem;
-        transition: width 0.3s ease;
-    }
-
-    .progress-bar.indeterminate {
-        width: 30%;
-        animation: indeterminate 1.5s infinite ease-in-out;
-    }
-
-    @@keyframes indeterminate {
-        0% { transform: translateX(-100%); }
-        100% { transform: translateX(400%); }
     }
 
     .progress-text {
@@ -190,19 +172,20 @@
         right: 0;
         top: -20px;
         font-size: 0.75rem;
-        color: #718096;
+        color: var(--text-muted);
     }
 
     .elapsed-time {
-        font-size: 0.8125rem;
-        color: #718096;
         display: flex;
         align-items: center;
         gap: 0.375rem;
+        color: var(--text-muted);
+        font-size: 0.8125rem;
     }
 
     .result-section {
         display: flex;
+        flex-shrink: 0;
         flex-direction: column;
         gap: 0.75rem;
     }
@@ -212,30 +195,34 @@
         align-items: center;
         gap: 0.625rem;
         padding: 0.875rem 1rem;
-        border-radius: var(--card-radius, 1rem);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         font-weight: 600;
     }
 
     .result-status.success {
-        background: #f0fff4;
-        color: #276749;
+        color: var(--status-success-fg);
+        background: var(--status-success-bg);
+        border-color: var(--status-success-border);
     }
 
     .result-status.error {
-        background: #fff5f5;
-        color: #c53030;
+        color: var(--status-error-fg);
+        background: var(--status-error-bg);
+        border-color: var(--status-error-border);
     }
 
     .result-status.cancelled {
-        background: #fffbeb;
-        color: #975a16;
+        color: var(--status-warning-fg);
+        background: var(--status-warning-bg);
+        border-color: var(--status-warning-border);
     }
 
     .result-details {
-        font-size: 0.8125rem;
-        color: #718096;
         display: flex;
         gap: 1rem;
+        color: var(--text-muted);
+        font-size: 0.8125rem;
     }
 
     .result-details span {
@@ -246,40 +233,18 @@
 
     .log-section {
         flex: 1;
-        min-height: 150px;
-        max-height: 250px;
-        display: flex;
-        flex-direction: column;
-        border-radius: var(--card-radius, 1rem);
-        overflow: hidden;
-        background: var(--bg-secondary, #f7fafc);
+        min-height: 0;
     }
 
     .log-header {
         display: flex;
-        justify-content: space-between;
         align-items: center;
-        padding: 0.5rem 0.75rem;
-        background: #ECECEC;
-        border-bottom: 1px solid #e2e8f0;
-        font-size: 0.8125rem;
-        font-weight: 500;
-        color: #4a5568;
     }
 
     .log-header span {
-        display: flex;
+        display: inline-flex;
         align-items: center;
         gap: 0.375rem;
-    }
-
-    .log-container {
-        flex: 1;
-        overflow-y: auto;
-        padding: 0.5rem;
-        font-family: "SF Mono", Menlo, Monaco, monospace;
-        font-size: 0.75rem;
-        background: #1e1e1e;
     }
 
     .log-entry {
@@ -287,14 +252,14 @@
         align-items: flex-start;
         gap: 0.5rem;
         padding: 0.25rem 0.5rem;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-sm);
     }
 
-    .log-entry:hover { background: #2d2d2d; }
+    .log-entry:hover { background: var(--surface-console-row-hover); }
 
     .log-time {
-        color: #718096;
         flex-shrink: 0;
+        color: var(--console-muted);
     }
 
     .log-entry i {
@@ -304,41 +269,18 @@
     }
 
     .log-message {
-        color: #e2e8f0;
+        color: var(--console-text);
         word-break: break-word;
     }
 
-    .log-entry.info i { color: #4299e1; }
-    .log-entry.success i { color: #48bb78; }
-    .log-entry.warning i { color: #ed8936; }
-    .log-entry.error i { color: #fc8181; }
-    .log-entry.debug i { color: #a0aec0; }
-
-    .log-entry.success .log-message { color: #9ae6b4; }
-    .log-entry.warning .log-message { color: #fbd38d; }
-    .log-entry.error .log-message { color: #feb2b2; }
-
-    .btn-copilot { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; }
-    .btn-copilot:hover:not(:disabled) { background: linear-gradient(135deg, #4f46e5, #7c3aed); }
-
-    .btn-icon {
-        background: none;
-        border: none;
-        cursor: pointer;
-        color: #718096;
-        padding: 0.25rem;
-    }
-
-    .btn-icon:hover { color: #e2e8f0; }
-
-    /* Dark mode overrides */
-    .theme-dark .status-text { color: var(--text-primary, #e2e8f0); }
-    .theme-dark .result-status.success { background: rgba(72, 187, 120, 0.15); color: #9ae6b4; }
-    .theme-dark .result-status.error { background: rgba(245, 101, 101, 0.15); color: #feb2b2; }
-    .theme-dark .result-status.cancelled { background: rgba(237, 137, 54, 0.15); color: #fbd38d; }
-    .theme-dark .result-details { color: #a0aec0; }
-    .theme-dark .log-section { background: var(--bg-tertiary, #374151); }
-    .theme-dark .log-header { background: var(--bg-tertiary, #374151); border-bottom-color: var(--border-color, #4a5568); color: var(--text-secondary, #a0aec0); }
+    .log-entry.info i { color: var(--console-info); }
+    .log-entry.success i,
+    .log-entry.success .log-message { color: var(--console-success); }
+    .log-entry.warning i,
+    .log-entry.warning .log-message { color: var(--console-warning); }
+    .log-entry.error i,
+    .log-entry.error .log-message { color: var(--console-error); }
+    .log-entry.debug i { color: var(--console-muted); }
 </style>
 
 @code {
@@ -486,7 +428,7 @@
         {
             var buttons = new List<ProgressButton>();
             if (ModalService.CurrentState == OperationState.Failed)
-                buttons.Add(new ProgressButton("copilot", "Try with Copilot", ProgressButtonStyle.Copilot, "fas fa-robot"));
+                buttons.Add(new ProgressButton("copilot", "Try with Copilot", ProgressButtonStyle.Copilot, "fa-solid fa-fw fa-robot"));
             buttons.Add(new ProgressButton("close", "Close", ProgressButtonStyle.Primary));
             bridge.SetButtons(buttons.ToArray());
         }

@@ -21,44 +21,51 @@
 @inject IJSRuntime JS
 @implements IDisposable
 
-<div class="dotnet-sdk-page-header">
+<div class="dotnet-sdk-page-header sherpa-page-header">
     <div class="dotnet-sdk-page-heading">
-        <h1><i class="fas fa-layer-group"></i> .NET SDK Manager</h1>
-        <p>Track SDK and runtime channels to keep compatible versions installed and up to date. Sherpa uses dotnetup to install, update, and manage these components.</p>
+        <h1 class="sherpa-page-title"><i class="fa-solid fa-layer-group fa-fw"></i> .NET SDK Manager</h1>
+        <p class="sherpa-page-desc">Track SDK and runtime channels to keep compatible versions installed and up to date via dotnetup.</p>
     </div>
     <div class="dotnet-sdk-page-actions">
+        <button type="button"
+                class="dotnetup-indicator sherpa-badge @DotnetUpBadgeClass @DotnetUpIndicatorClass"
+                @onclick="OpenDotnetUpDetails"
+                disabled="@isLoading"
+                title="@DotnetUpIndicatorTitle"
+                aria-label="@DotnetUpIndicatorTitle">
+            @if (!isLoading && !checkingToolUpdate && DotnetUp.IsInstalled)
+            {
+                <span class="sherpa-dot sherpa-dot-success" aria-hidden="true"></span>
+            }
+            else
+            {
+                <i class="@DotnetUpIndicatorIcon" aria-hidden="true"></i>
+            }
+            <span>dotnetup</span>
+            @if (toolUpdateInfo?.UpdateAvailable == true)
+            {
+                <span class="dotnetup-indicator-update" aria-hidden="true">
+                    <i class="fa-solid fa-arrow-up fa-fw"></i>
+                </span>
+            }
+        </button>
+
         @if (!PlatformInfo.HasNativeToolbar)
         {
             <button class="btn btn-primary" @onclick="Refresh" disabled="@isLoading">
                 @if (isLoading)
                 {
-                    <i class="fas fa-spinner fa-spin"></i> <span>Loading...</span>
+                    <i class="fa-solid fa-spinner fa-spin fa-fw"></i> <span>Loading...</span>
                 }
                 else
                 {
-                    <i class="fas fa-sync-alt"></i> <span>Refresh</span>
+                    <i class="fa-solid fa-rotate fa-fw"></i> <span>Refresh</span>
                 }
             </button>
             <button data-screenshot-external class="btn btn-secondary" @onclick="PickProjectFolder" disabled="@isLoading">
-                <i class="fas fa-folder-open"></i> <span>Open project folder</span>
+                <i class="fa-solid fa-folder-open fa-fw"></i> <span>Open project folder</span>
             </button>
         }
-
-        <button type="button"
-                class="dotnetup-indicator @DotnetUpIndicatorClass"
-                @onclick="OpenDotnetUpDetails"
-                disabled="@isLoading"
-                title="@DotnetUpIndicatorTitle"
-                aria-label="@DotnetUpIndicatorTitle">
-            <span>dotnetup</span>
-            <i class="@DotnetUpIndicatorIcon" aria-hidden="true"></i>
-            @if (toolUpdateInfo?.UpdateAvailable == true)
-            {
-                <span class="dotnetup-indicator-update" aria-hidden="true">
-                    <i class="fas fa-arrow-up"></i>
-                </span>
-            }
-        </button>
     </div>
 </div>
 
@@ -150,25 +157,21 @@
     </section>
 
     <section class="page-section">
-        <div class="section-head">
+        <div class="section-head sherpa-section-header">
             <div class="section-head-main">
-                <h2><i class="fas fa-cubes"></i> Installed components @if (list != null) { <span class="count">@list.Installations.Count</span> }</h2>
-                <p class="section-desc">.NET SDKs, runtimes, and ASP.NET Core runtimes dotnetup has installed on this machine.</p>
-                @if (list != null && list.Installations.Count > 0)
-                {
-                    <p class="info-note"><i class="fas fa-lightbulb"></i> Each .NET SDK bundles its own runtime, so a standalone <strong>Runtime</strong> entry only appears when you track a runtime channel separately.</p>
-                }
+                <h2 class="sherpa-section-title"><i class="fa-solid fa-cubes fa-fw"></i> Installed components @if (list != null) { <span class="count sherpa-badge sherpa-badge-neutral">@list.Installations.Count</span> }</h2>
+                <p class="section-desc sherpa-section-caption">SDKs, runtimes, and workloads installed by dotnetup.</p>
             </div>
         </div>
 
         @if (list == null)
         {
-            <div class="empty-state"><i class="fas fa-spinner fa-spin"></i> Loading…</div>
+            <SherpaListSkeleton Rows="3" Label="Loading installed .NET components..." />
         }
         else if (list.Installations.Count == 0)
         {
             <div class="empty-state">
-                <i class="fas fa-box-open"></i>
+                <i class="fa-solid fa-box-open fa-fw"></i>
                 <p>No dotnetup-managed .NET components yet. Add a channel above to install your first SDK.</p>
             </div>
         }
@@ -206,6 +209,7 @@
     private IReadOnlyList<DotnetWorkloadInventory> workloadInventories = [];
     private bool loadingWorkloads;
     private bool workloadBusy;
+    private bool hasInitialized;
 
     private IReadOnlyList<DotnetUpdatePreview>? updatePreviews;
     private bool checkingUpdates;
@@ -333,7 +337,10 @@
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        UpdateToolbar();
         await Refresh();
+        hasInitialized = true;
+        UpdateToolbarItemStates();
     }
 
     private void UpdateToolbar()
@@ -341,6 +348,14 @@
         ToolbarService.SetItems(
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("open-project", "Open Project Folder", "folder"));
+        UpdateToolbarItemStates();
+    }
+
+    private void UpdateToolbarItemStates()
+    {
+        var enabled = hasInitialized && !isLoading && !workloadBusy;
+        ToolbarService.SetItemEnabled("refresh", enabled);
+        ToolbarService.SetItemEnabled("open-project", enabled);
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -363,6 +378,7 @@
     private async Task Refresh()
     {
         isLoading = true;
+        UpdateToolbarItemStates();
         errorMessage = null;
         updatePreviews = null;
         updatesUnresolved = false;
@@ -395,7 +411,7 @@
         {
             checkingToolUpdate = false;
             isLoading = false;
-            UpdateToolbar();
+            UpdateToolbarItemStates();
             StateHasChanged();
         }
 
@@ -505,9 +521,16 @@
         }
     }
 
+    private string DotnetUpBadgeClass => DotnetUpIndicatorClass switch
+    {
+        "installed" or "update-available" => "sherpa-badge-success",
+        "missing" => "sherpa-badge-warning",
+        _ => "sherpa-badge-neutral"
+    };
+
     private string DotnetUpIndicatorIcon =>
         isLoading || checkingToolUpdate
-            ? "fas fa-spinner fa-spin"
+            ? "fa-solid fa-spinner fa-spin fa-fw"
             : DotnetUp.IsInstalled
                 ? "fa-regular fa-circle-check"
                 : "fa-regular fa-circle-xmark";
@@ -765,6 +788,7 @@
         string version)
     {
         workloadBusy = true;
+        UpdateToolbarItemStates();
         await InvokeAsync(StateHasChanged);
         try
         {
@@ -788,6 +812,7 @@
         finally
         {
             workloadBusy = false;
+            UpdateToolbarItemStates();
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -816,6 +841,7 @@
         string failureMessage)
         {
             workloadBusy = true;
+            UpdateToolbarItemStates();
             await InvokeAsync(StateHasChanged);
             try
             {
@@ -836,6 +862,7 @@
             finally
             {
                 workloadBusy = false;
+                UpdateToolbarItemStates();
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -1028,9 +1055,9 @@
         width: min(600px, 100%);
         max-height: calc(100vh - 2rem);
         overflow: hidden;
-        border: 1px solid var(--border-color);
-        border-radius: var(--card-radius, 1rem);
-        background: var(--card-bg);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-xl);
+        background: var(--surface-card);
         box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.25);
     }
 
@@ -1045,7 +1072,7 @@
     }
 
     .channel-picker-header {
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-hairline);
     }
 
     .channel-picker-header h2 {
@@ -1061,36 +1088,17 @@
 
     .channel-picker-footer {
         justify-content: flex-end;
-        border-top: 1px solid var(--border-color);
+        border-top: 1px solid var(--border-hairline);
     }
 
     .dotnet-sdk-page-header {
-        display: flex;
         align-items: center;
-        justify-content: space-between;
         flex-wrap: wrap;
-        gap: 0.75rem 1rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .dotnet-sdk-page-header h1 {
-        margin: 0;
     }
 
     .dotnet-sdk-page-heading {
         min-width: 0;
-        display: flex;
         flex: 1;
-        flex-direction: column;
-        gap: 0.3rem;
-    }
-
-    .dotnet-sdk-page-heading p {
-        max-width: 52rem;
-        margin: 0;
-        color: var(--text-secondary);
-        font-size: 0.85rem;
-        line-height: 1.4;
     }
 
     .dotnet-sdk-page-actions {
@@ -1102,25 +1110,11 @@
     }
 
     .dotnetup-indicator {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-        min-height: 2rem;
-        padding: 0.3rem 0.5rem;
-        border: 0;
-        border-radius: 0.4rem;
-        background: transparent;
-        color: var(--text-secondary);
-        font: inherit;
-        font-size: 0.78rem;
-        font-weight: 500;
         cursor: pointer;
-        transition: background-color 0.15s ease, color 0.15s ease;
     }
 
     .dotnetup-indicator:hover:not(:disabled) {
-        background: var(--bg-tertiary);
-        color: var(--text-primary);
+        filter: brightness(0.98);
     }
 
     .dotnetup-indicator:focus-visible {
@@ -1133,13 +1127,22 @@
         opacity: 0.7;
     }
 
-    .dotnetup-indicator.installed > i,
-    .dotnetup-indicator.update-available > i {
-        color: color-mix(in srgb, var(--status-success-text) 72%, var(--text-secondary));
+    .dotnetup-indicator.installed,
+    .dotnetup-indicator.update-available {
+        color: var(--status-success-fg);
+        background: var(--status-success-bg);
+        border-color: var(--status-success-border);
     }
 
-    .dotnetup-indicator.missing > i {
-        color: color-mix(in srgb, var(--status-warning-text) 72%, var(--text-secondary));
+    .dotnetup-indicator.missing {
+        color: var(--status-warning-fg);
+        background: var(--status-warning-bg);
+        border-color: var(--status-warning-border);
+    }
+
+    .dotnetup-indicator.checking {
+        color: var(--text-secondary);
+        background: var(--surface-well);
     }
 
     .dotnetup-indicator-update {
@@ -1148,14 +1151,14 @@
         justify-content: center;
         width: 1rem;
         height: 1rem;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         background: var(--status-info-bg);
         color: var(--status-info-text);
         font-size: 0.58rem;
     }
 
     .page-section {
-        margin-bottom: 1.75rem;
+        margin-bottom: 24px;
     }
 
     .page-section + .page-section {
@@ -1163,11 +1166,7 @@
     }
 
     .section-head {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 1rem;
-        margin-bottom: 0.75rem;
+        margin-block: 22px 10px;
     }
 
     .section-head-main {
@@ -1178,10 +1177,6 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        margin: 0;
-        color: var(--text-primary);
-        font-size: 1.05rem;
-        font-weight: 600;
     }
 
     .section-head h2 i,
@@ -1190,19 +1185,11 @@
     }
 
     .section-desc {
-        margin: 0.25rem 0 0;
-        color: var(--text-secondary);
-        font-size: 0.85rem;
-        line-height: 1.4;
+        margin-top: 4px;
     }
 
     .count {
-        padding: 0.05rem 0.5rem;
-        border-radius: 999px;
-        background: var(--bg-tertiary);
-        color: var(--text-secondary);
-        font-size: 0.72rem;
-        font-weight: 600;
+        margin-left: 4px;
     }
 
     .info-note {
@@ -1217,8 +1204,9 @@
     }
 
     .installed-version-list {
-        display: grid;
-        gap: 0.75rem;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
     }
 
     @@media (max-width: 700px) {

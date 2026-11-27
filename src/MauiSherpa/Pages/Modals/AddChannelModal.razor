@@ -12,50 +12,50 @@
             You can track several at once (e.g. <strong>Latest</strong> plus an older band like <strong>9.0.1xx</strong>).
         </p>
 
-        <div class="selection-list">
+        <div class="selection-list sherpa-list">
             @foreach (var ch in channelOptions)
             {
                 var tracked = IsTracked(ch.Value);
-                <label class="channel-item @(selectedChannel == ch.Value ? "selected" : "")"
+                <label class="channel-item sherpa-list-row sherpa-list-row-interactive @(selectedChannel == ch.Value ? "selected" : "")"
                        @onclick="@(() => SelectChannel(ch.Value))">
                     <div class="channel-content">
                         <div class="channel-title">
                             @ch.Label
                             @if (tracked)
                             {
-                                <span class="badge badge-secondary"><i class="fas fa-thumbtack"></i> tracking</span>
+                                <span class="badge badge-secondary"><i class="fa-solid fa-thumbtack"></i> tracking</span>
                             }
                         </div>
                         <div class="channel-desc">@ch.Description</div>
                     </div>
                     @if (selectedChannel == ch.Value)
                     {
-                        <i class="fas fa-check selected-mark"></i>
+                        <i class="fa-solid fa-check selected-mark"></i>
                     }
                 </label>
             }
 
-            <label class="channel-item @(selectedChannel == CustomValue ? "selected" : "")"
+            <label class="channel-item sherpa-list-row sherpa-list-row-interactive @(selectedChannel == CustomValue ? "selected" : "")"
                    @onclick="@(() => SelectChannel(CustomValue))">
                 <div class="channel-content">
                     <div class="channel-title">Custom…</div>
                     <div class="channel-desc">Enter an exact version or feature band (e.g. 10.0.203, 9.0.2xx).</div>
                     @if (selectedChannel == CustomValue)
                     {
-                        <input type="text" class="channel-input" placeholder="e.g. 9.0.1xx or 10.0.103"
+                        <input type="text" class="channel-input sherpa-input" placeholder="e.g. 9.0.1xx or 10.0.103"
                                @bind="customChannel" @bind:event="oninput" @bind:after="UpdateBridge"
                                @onclick:stopPropagation="true" />
                     }
                 </div>
                 @if (selectedChannel == CustomValue)
                 {
-                    <i class="fas fa-check selected-mark"></i>
+                    <i class="fa-solid fa-check selected-mark"></i>
                 }
             </label>
         </div>
 
-        <p class="note">
-            <i class="fas fa-circle-info"></i>
+        <p class="note sherpa-banner sherpa-banner-info">
+            <i class="fa-solid fa-circle-info"></i>
             <span>
                 This won't change your default <code>dotnet</code>. How <code>dotnet</code> resolves on your
                 <code>PATH</code> (Terminal vs Isolation mode) is a one-time global choice made by
@@ -84,10 +84,6 @@
         display: flex;
         flex-direction: column;
         gap: 0;
-        border: 1px solid var(--border-color);
-        border-radius: 0.875rem;
-        background: var(--card-bg);
-        overflow: hidden;
     }
 
     .channel-item {
@@ -95,21 +91,18 @@
         align-items: flex-start;
         gap: 0.875rem;
         padding: 0.75rem 1rem;
+        border: 0;
+        background: var(--surface-card);
         cursor: pointer;
-        transition: background 0.15s, box-shadow 0.15s;
-    }
-
-    .channel-item + .channel-item {
-        border-top: 1px solid var(--border-color);
+        transition: background var(--motion-fast) var(--ease-standard);
     }
 
     .channel-item:hover {
-        background: var(--bg-tertiary);
+        background: var(--surface-well);
     }
 
     .channel-item.selected {
-        background: var(--accent-bg, rgba(139, 92, 246, 0.08));
-        box-shadow: inset 0 0 0 1px var(--accent-primary);
+        background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface-card));
     }
 
     .channel-content {
@@ -138,35 +131,17 @@
         margin-top: 0.5rem;
         width: 100%;
         box-sizing: border-box;
-        padding: 0.5rem 0.7rem;
-        border: 1px solid var(--input-border, var(--border-color));
-        border-radius: 0.5rem;
-        background: var(--input-bg);
-        color: var(--text-primary);
-        font-size: 0.875rem;
-        outline: none;
-    }
-
-    .channel-input:focus {
-        border-color: var(--accent-primary, #7c3aed);
     }
 
     .selected-mark {
-        color: var(--accent-primary);
+        color: var(--accent);
         margin-top: 0.2rem;
         flex-shrink: 0;
     }
 
     .add-channel-dialog .note {
         margin: 0;
-        display: flex;
-        gap: 0.5rem;
         font-size: 0.8rem;
-        color: var(--text-secondary);
-        line-height: 1.45;
-        padding: 0.65rem 0.75rem;
-        background: var(--bg-tertiary);
-        border-radius: 0.625rem;
     }
 
     .add-channel-dialog .note i {
@@ -178,8 +153,8 @@
     .add-channel-dialog code {
         font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
         font-size: 0.78rem;
-        background: var(--card-bg);
-        border-radius: 0.3rem;
+        background: var(--surface-card);
+        border-radius: var(--radius-xs);
         padding: 0.05rem 0.3rem;
     }
 
@@ -189,7 +164,7 @@
         align-items: center;
         gap: 0.25rem;
         padding: 2px 0.55rem;
-        border-radius: 0.75rem;
+        border-radius: var(--radius-pill);
         font-size: 0.7rem;
         font-weight: 500;
         white-space: nowrap;

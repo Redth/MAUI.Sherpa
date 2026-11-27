@@ -20,20 +20,24 @@
         }
         <p class="description">@ModalService.Description</p>
 
-        <div class="operations-list">
+        <div class="operations-list @(isExecutionView ? "operations-list-connected" : "") sherpa-scroll" id="multi-op-operations">
             @foreach (var op in ModalService.Operations)
             {
-                var isExpanded = expandedOperations.Contains(op.Id) || 
-                                (ModalService.IsRunning && ModalService.CurrentOperationIndex >= 0 && 
-                                 ModalService.Operations[ModalService.CurrentOperationIndex].Id == op.Id);
+                var isExpanded = IsOperationExpanded(op);
                 var canToggle = !ModalService.IsRunning && op.CanDisable && ModalService.IsConfirming;
                 var hasExpandableContent = op.Log.Any() ||
                     (!string.IsNullOrEmpty(op.ErrorMessage) && op.State == OperationItemState.Failed);
                 var showSecondary = op.SecondaryOptions.Count > 0
                     && ModalService.IsConfirming && !ModalService.IsRunning;
+                var isCompactRow = isExecutionView && !isExpanded && op.State is OperationItemState.Completed or OperationItemState.Pending or OperationItemState.Skipped;
 
-                <div class="operation-card @GetOperationCardClass(op) @(isExpanded ? "expanded" : "")">
-                    <div class="operation-header @(hasExpandableContent ? "clickable" : "")" @onclick="@(() => { if (hasExpandableContent) ToggleExpanded(op.Id); })">
+                <div class="operation-card @GetOperationCardClass(op) @(isExpanded ? "expanded" : "") @(isCompactRow ? "compact" : "")">
+                    <div class="operation-header @(hasExpandableContent || canToggle ? "clickable" : "")"
+                         role="@(hasExpandableContent || canToggle ? "button" : null)"
+                         tabindex="@(hasExpandableContent || canToggle ? 0 : null)"
+                         aria-expanded="@(hasExpandableContent ? isExpanded.ToString().ToLowerInvariant() : null)"
+                         @onclick="@(() => HandleHeaderClick(op, hasExpandableContent, canToggle))"
+                         @onkeydown="@(e => HandleRowKeyDown(e, op, hasExpandableContent, canToggle))">
                         <div class="operation-left">
                             @if (ModalService.IsConfirming && !ModalService.IsRunning)
                             {
@@ -49,36 +53,43 @@
                                     @switch (op.State)
                                     {
                                         case OperationItemState.Pending:
-                                            <i class="fas fa-circle text-muted"></i>
+                                            <i class="fa-regular fa-fw fa-circle text-muted" aria-hidden="true"></i>
                                             break;
                                         case OperationItemState.Running:
-                                            <i class="fas fa-spinner fa-spin text-primary"></i>
+                                            <i class="fa-solid fa-fw fa-spinner fa-spin text-primary" aria-hidden="true"></i>
                                             break;
                                         case OperationItemState.Completed:
-                                            <i class="fas fa-check-circle text-success"></i>
+                                            <i class="fa-solid fa-fw fa-circle-check text-success" aria-hidden="true"></i>
                                             break;
                                         case OperationItemState.Failed:
-                                            <i class="fas fa-times-circle text-error"></i>
+                                            <i class="fa-solid fa-fw fa-circle-xmark text-error" aria-hidden="true"></i>
                                             break;
                                         case OperationItemState.Skipped:
-                                            <i class="fas fa-forward text-muted"></i>
+                                            <i class="fa-solid fa-fw fa-forward text-muted" aria-hidden="true"></i>
                                             break;
                                     }
                                 </span>
                             }
                             <div class="operation-info">
                                 <span class="operation-name">@op.Name</span>
-                                <span class="operation-desc">@op.Description</span>
+                                @if (!isCompactRow && !string.IsNullOrWhiteSpace(op.Description))
+                                {
+                                    <span class="operation-desc">@op.Description</span>
+                                }
                             </div>
                         </div>
                         <div class="operation-right">
+                            @if (isExecutionView)
+                            {
+                                <span class="sherpa-badge @GetStatusBadgeClass(op.State)">@GetStatusLabel(op.State)</span>
+                            }
                             @if (op.Duration.HasValue)
                             {
-                                <span class="duration">@op.Duration.Value.ToString(@"mm\:ss\.f")</span>
+                                <span class="duration mono">@op.Duration.Value.ToString(@"mm\:ss\.f")</span>
                             }
                             @if (hasExpandableContent)
                             {
-                                <i class="fas @(isExpanded ? "fa-chevron-up" : "fa-chevron-down") expand-icon"></i>
+                                <i class="fa-solid fa-fw fa-chevron-right expand-icon @(isExpanded ? "expanded" : "")" aria-hidden="true"></i>
                             }
                         </div>
                     </div>
@@ -109,21 +120,37 @@
 
                     @if (isExpanded && op.Log.Any())
                     {
-                        <div class="operation-log">
-                            @foreach (var entry in op.Log)
-                            {
-                                <div class="log-entry @GetLogLevelClass(entry.Level)">
-                                    <span class="log-time">@entry.Timestamp.ToString("HH:mm:ss")</span>
-                                    <i class="fas @GetLogLevelIcon(entry.Level)"></i>
-                                    <span class="log-message">@entry.Message</span>
-                                </div>
-                            }
+                        <div class="operation-console">
+                            <div class="operation-console-bar">
+                                <span class="operation-console-meta">
+                                    <i class="fa-solid fa-fw fa-terminal" aria-hidden="true"></i>
+                                    <span>@(op.State == OperationItemState.Running ? "Live output" : $"{op.Log.Count} log {(op.Log.Count == 1 ? "line" : "lines")}")</span>
+                                </span>
+                                <button type="button"
+                                        class="btn btn-icon btn-sm operation-copy-btn"
+                                        title="Copy step log"
+                                        aria-label="Copy log for @op.Name"
+                                        @onclick:stopPropagation="true"
+                                        @onclick="@(() => CopyOperationLogAsync(op))">
+                                    <i class="fa-regular fa-copy fa-fw" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                            <div class="operation-log" data-op-log="@op.Id">
+                                @foreach (var entry in op.Log)
+                                {
+                                    <div class="log-entry @GetLogLevelClass(entry.Level)">
+                                        <span class="log-time">@entry.Timestamp.ToString("HH:mm:ss")</span>
+                                        <i class="fa-solid fa-fw @GetLogLevelIcon(entry.Level)" aria-hidden="true"></i>
+                                        <span class="log-message">@entry.Message</span>
+                                    </div>
+                                }
+                            </div>
                         </div>
                     }
                     @if (isExpanded && !string.IsNullOrEmpty(op.ErrorMessage) && op.State == OperationItemState.Failed)
                     {
                         <div class="operation-error">
-                            <i class="fas fa-exclamation-triangle"></i>
+                            <i class="fa-solid fa-fw fa-triangle-exclamation" aria-hidden="true"></i>
                             @op.ErrorMessage
                         </div>
                     }
@@ -135,24 +162,24 @@
         {
             <div class="result-summary @GetOverallResultClass()">
                 <div class="summary-stats">
-                    <span class="stat"><i class="fas fa-check-circle"></i> @CompletedCount completed</span>
+                    <span class="stat"><i class="fa-solid fa-fw fa-check-circle" aria-hidden="true"></i> @CompletedCount completed</span>
                     @if (FailedCount > 0)
                     {
-                        <span class="stat error"><i class="fas fa-times-circle"></i> @FailedCount failed</span>
+                        <span class="stat error"><i class="fa-solid fa-fw fa-times-circle" aria-hidden="true"></i> @FailedCount failed</span>
                     }
                     @if (SkippedCount > 0)
                     {
-                        <span class="stat skipped"><i class="fas fa-forward"></i> @SkippedCount skipped</span>
+                        <span class="stat skipped"><i class="fa-solid fa-fw fa-forward" aria-hidden="true"></i> @SkippedCount skipped</span>
                     }
                 </div>
-                <span class="duration"><i class="fas fa-clock"></i> @ElapsedTime</span>
+                <span class="duration"><i class="fa-solid fa-fw fa-clock" aria-hidden="true"></i> @ElapsedTime</span>
             </div>
         }
         else if (ModalService.IsRunning)
         {
             <div class="progress-summary">
-                <div class="progress-bar-container">
-                    <div class="progress-bar" style="width: @ProgressPercent%"></div>
+                <div class="progress-bar-container sherpa-progress-track">
+                    <div class="progress-bar sherpa-progress-fill" style="width: @ProgressPercent%"></div>
                 </div>
                 <span class="progress-text">@CurrentProgress / @TotalEnabled</span>
             </div>
@@ -196,16 +223,16 @@
         align-items: center;
         justify-content: center;
         padding: 1rem;
-        background: var(--modal-overlay, rgba(0, 0, 0, 0.5));
+        background: var(--modal-overlay);
     }
 
     .multi-op-host-linux .multi-op-content {
         width: min(700px, 100%);
         height: min(500px, calc(100vh - 2rem));
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: var(--card-radius, 1rem);
-        box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.25);
+        background: var(--surface-popover);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-xl);
+        box-shadow: var(--shadow-popover);
     }
 
     .multi-op-title { margin: 0; font-size: 1.125rem; color: var(--text-primary); }
@@ -223,13 +250,15 @@
         height: 100%;
         display: flex;
         flex-direction: column;
+        min-height: 0;
         padding: 1rem 1.25rem;
-        overflow-y: auto;
+        overflow: hidden;
         gap: 1rem;
     }
 
     .description {
-        color: var(--text-secondary, #a0aec0);
+        flex-shrink: 0;
+        color: var(--text-secondary);
         font-size: 0.875rem;
         margin: 0;
     }
@@ -239,12 +268,24 @@
         justify-content: space-between;
         align-items: center;
         padding: 0.75rem 1rem;
-        border-radius: var(--card-radius, 1rem);
-        background: #ECECEC;
+        flex-shrink: 0;
+        color: var(--text-secondary);
+        background: var(--surface-well);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-lg);
     }
 
-    .result-summary.text-success { background: #f0fff4; }
-    .result-summary.text-error { background: #fff5f5; }
+    .result-summary.text-success {
+        color: var(--status-success-fg);
+        background: var(--status-success-bg);
+        border-color: var(--status-success-border);
+    }
+
+    .result-summary.text-error {
+        color: var(--status-error-fg);
+        background: var(--status-error-bg);
+        border-color: var(--status-error-border);
+    }
 
     .summary-stats {
         display: flex;
@@ -256,15 +297,15 @@
         align-items: center;
         gap: 0.375rem;
         font-size: 0.875rem;
-        color: #38a169;
+        color: var(--status-success-fg);
     }
 
-    .summary-stats .stat.error { color: #e53e3e; }
-    .summary-stats .stat.skipped { color: #718096; }
+    .summary-stats .stat.error { color: var(--status-error-fg); }
+    .summary-stats .stat.skipped { color: var(--text-muted); }
 
     .duration {
         font-size: 0.8125rem;
-        color: #718096;
+        color: var(--text-muted);
         display: flex;
         align-items: center;
         gap: 0.375rem;
@@ -272,66 +313,95 @@
 
     .progress-summary {
         display: flex;
+        flex-shrink: 0;
         align-items: center;
         gap: 0.75rem;
     }
 
     .progress-bar-container {
         flex: 1;
-        height: 0.5rem;
-        background: #e2e8f0;
-        border-radius: 0.5rem;
-        overflow: hidden;
-    }
-
-    .progress-bar {
-        height: 100%;
-        background: linear-gradient(90deg, #4299e1, #667eea);
-        border-radius: 0.5rem;
-        transition: width 0.3s ease;
     }
 
     .progress-text {
         font-size: 0.8125rem;
-        color: #718096;
+        color: var(--text-muted);
         white-space: nowrap;
     }
 
     .operations-list {
         display: flex;
+        flex: 1;
         flex-direction: column;
+        min-height: 0;
         gap: 0.5rem;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+
+    .operations-list-connected {
+        gap: 0;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
     }
 
     .operation-card {
-        border-radius: var(--card-radius, 1rem);
+        flex-shrink: 0;
         overflow: hidden;
-        transition: all 0.2s;
-        background: var(--card-bg, #f7fafc);
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        transition: background var(--motion-normal) var(--ease-standard), border-color var(--motion-normal) var(--ease-standard);
     }
 
-    .operation-card.running { background: #ebf8ff; }
-    .operation-card.completed { }
-    .operation-card.failed { }
-    .operation-card.skipped { opacity: 0.6; }
+    .operations-list-connected .operation-card {
+        border: none;
+        border-radius: 0;
+        border-bottom: 1px solid var(--border-hairline);
+        background: transparent;
+    }
+
+    .operations-list-connected .operation-card:last-child {
+        border-bottom: none;
+    }
+
+    .operation-card.running {
+        background: var(--accent-soft);
+        border-color: var(--accent-border);
+    }
+
+    .operations-list-connected .operation-card.running {
+        background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-card));
+    }
+
+    .operation-card.skipped { opacity: 0.65; }
 
     .operation-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
+        gap: 0.75rem;
         padding: 0.75rem 1rem;
         cursor: default;
-        background: var(--card-bg, #f7fafc);
+        background: transparent;
+        transition: background var(--motion-fast) var(--ease-standard);
+    }
+
+    .operation-card.compact .operation-header {
+        padding: 0.5rem 0.875rem;
     }
 
     .operation-header.clickable { cursor: pointer; }
+    .operation-header.clickable:hover { background: var(--surface-card-hover); }
 
-    .operation-card.running .operation-header { background: #ebf8ff; }
+    .operation-card.running .operation-header { background: transparent; }
 
     .operation-left {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
+        gap: 0.625rem;
+        min-width: 0;
+        flex: 1;
     }
 
     .operation-left input[type="checkbox"] {
@@ -341,29 +411,36 @@
     }
 
     .state-icon {
-        width: 1.25rem;
+        width: 1.125rem;
         text-align: center;
+        flex-shrink: 0;
     }
 
-    .state-icon .text-muted { color: #a0aec0; }
-    .state-icon .text-primary { color: #4299e1; }
-    .state-icon .text-success { color: #38a169; }
-    .state-icon .text-error { color: #e53e3e; }
+    .state-icon .text-muted { color: var(--text-muted); }
+    .state-icon .text-primary { color: var(--accent); }
+    .state-icon .text-success { color: var(--status-success-fg); }
+    .state-icon .text-error { color: var(--status-error-fg); }
 
     .operation-info {
         display: flex;
         flex-direction: column;
         gap: 2px;
+        min-width: 0;
     }
 
     .operation-name {
         font-weight: 500;
-        color: #1a202c;
+        color: var(--text-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
+
+    .operation-card.running .operation-name { font-weight: 600; }
 
     .operation-desc {
         font-size: 0.75rem;
-        color: #718096;
+        color: var(--text-muted);
     }
 
     .operation-secondary-list {
@@ -378,7 +455,7 @@
         align-items: center;
         gap: 0.4rem;
         font-size: 0.75rem;
-        color: var(--text-secondary, #718096);
+        color: var(--text-secondary);
         cursor: pointer;
         user-select: none;
     }
@@ -397,7 +474,7 @@
         align-items: center;
         gap: 0.4rem;
         font-size: 0.72rem;
-        color: var(--text-secondary, #718096);
+        color: var(--text-secondary);
         margin: 0 0 0.1rem 0;
     }
 
@@ -408,7 +485,7 @@
         border: none;
         padding: 0;
         font-size: 0.75rem;
-        color: var(--accent-primary, #4299e1);
+        color: var(--accent);
         cursor: pointer;
         text-decoration: none;
     }
@@ -418,21 +495,68 @@
     .operation-right {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
+        gap: 0.5rem;
+        flex-shrink: 0;
     }
 
     .expand-icon {
-        color: #a0aec0;
-        font-size: 0.75rem;
+        color: var(--text-muted);
+        font-size: 0.7rem;
+        transition: transform var(--motion-normal) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+    }
+
+    .expand-icon.expanded {
+        transform: rotate(90deg);
+        color: var(--text-primary);
+    }
+
+    .operation-console {
+        background: var(--surface-console);
+        border-top: 1px solid var(--border-console);
+    }
+
+    .operation-console-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 4px 0.75rem;
+        background: var(--surface-console-header);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--console-muted);
+    }
+
+    .operation-console-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+
+    .operation-copy-btn {
+        background: transparent;
+        border: none;
+        color: var(--console-muted);
+        height: 22px;
+        width: 22px;
+        padding: 0;
+    }
+
+    .operation-copy-btn:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--console-text);
     }
 
     .operation-log {
-        max-height: 150px;
+        max-height: 200px;
         overflow-y: auto;
+        overscroll-behavior: contain;
         padding: 0.5rem 0.75rem;
-        font-family: "SF Mono", Menlo, Monaco, monospace;
-        font-size: 0.6875rem;
-        background: #1e1e1e;
+        color: var(--console-text);
+        background: var(--surface-console);
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        line-height: 1.5;
     }
 
     .log-entry {
@@ -440,14 +564,14 @@
         align-items: flex-start;
         gap: 0.5rem;
         padding: 3px 0.375rem;
-        border-radius: 3px;
+        border-radius: var(--radius-sm);
     }
 
-    .log-entry:hover { background: #2d2d2d; }
+    .log-entry:hover { background: var(--surface-console-row-hover); }
 
     .log-time {
-        color: #718096;
         flex-shrink: 0;
+        color: var(--console-muted);
     }
 
     .log-entry i {
@@ -457,48 +581,33 @@
     }
 
     .log-message {
-        color: #e2e8f0;
+        color: var(--console-text);
         word-break: break-word;
     }
 
-    .log-entry.info i { color: #4299e1; }
-    .log-entry.success i { color: #48bb78; }
-    .log-entry.warning i { color: #ed8936; }
-    .log-entry.error i { color: #fc8181; }
-
-    .log-entry.success .log-message { color: #9ae6b4; }
-    .log-entry.warning .log-message { color: #fbd38d; }
-    .log-entry.error .log-message { color: #feb2b2; }
+    .log-entry.info i { color: var(--console-info); }
+    .log-entry.success i,
+    .log-entry.success .log-message { color: var(--console-success); }
+    .log-entry.warning i,
+    .log-entry.warning .log-message { color: var(--console-warning); }
+    .log-entry.error i,
+    .log-entry.error .log-message { color: var(--console-error); }
 
     .operation-error {
         padding: 0.625rem 1rem;
-        background: #fff5f5;
-        color: #c53030;
-        font-size: 0.8125rem;
         display: flex;
         align-items: center;
         gap: 0.5rem;
+        color: var(--status-error-fg);
+        background: var(--status-error-bg);
+        border-top: 1px solid var(--status-error-border);
+        font-size: 0.8125rem;
     }
-
-    .btn-copilot { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; display: inline-flex; align-items: center; gap: 0.5rem; }
-    .btn-copilot:hover:not(:disabled) { background: linear-gradient(135deg, #4f46e5, #7c3aed); }
-
-    /* Dark mode overrides */
-    .theme-dark .result-summary { background: var(--bg-tertiary, #374151); }
-    .theme-dark .result-summary.text-success { background: rgba(72, 187, 120, 0.15); }
-    .theme-dark .result-summary.text-error { background: rgba(245, 101, 101, 0.15); }
-    .theme-dark .summary-stats .stat { color: #a0aec0; }
-    .theme-dark .summary-stats .stat.success { color: #9ae6b4; }
-    .theme-dark .summary-stats .stat.error { color: #feb2b2; }
-    .theme-dark .operation-card { background: var(--card-bg, #374151); }
-    .theme-dark .operation-card.running { background: rgba(66, 153, 225, 0.1); }
-    .theme-dark .operation-header { background: var(--card-bg, #374151); }
-    .theme-dark .operation-card.running .operation-header { background: rgba(66, 153, 225, 0.15); }
-    .theme-dark .operation-name { color: var(--text-primary, #e2e8f0); }
 </style>
 
 @code {
-    private HashSet<string> expandedOperations = new();
+    private readonly HashSet<string> expandedOperations = new();
+    private readonly HashSet<string> manuallyToggledOperations = new();
     private System.Timers.Timer? _elapsedTimer;
     private DateTime _startTime;
     private DotNetObjectReference<MultiOperationModal>? _dotNetRef;
@@ -506,6 +615,7 @@
     private bool _keyboardInitialized;
     private string ElapsedTime { get; set; } = "00:00";
 
+    private bool isExecutionView => ModalService.IsRunning || HasResult;
     private int EnabledCount => ModalService.Operations.Count(o => o.IsEnabled);
     private int TotalEnabled => ModalService.Operations.Count(o => o.IsEnabled);
     private int CurrentProgress => ModalService.Operations.Count(o => 
@@ -518,6 +628,63 @@
     private int FailedCount => ModalService.Operations.Count(o => o.State == OperationItemState.Failed);
     private int SkippedCount => ModalService.Operations.Count(o => o.State == OperationItemState.Skipped);
     private bool HasResult => !ModalService.IsConfirming && !ModalService.IsRunning;
+
+    private bool IsOperationExpanded(OperationItemStatus op)
+    {
+        if (manuallyToggledOperations.Contains(op.Id))
+            return expandedOperations.Contains(op.Id);
+
+        if (expandedOperations.Contains(op.Id))
+            return true;
+
+        return ModalService.IsRunning &&
+               ModalService.CurrentOperationIndex >= 0 &&
+               ModalService.CurrentOperationIndex < ModalService.Operations.Count &&
+               ModalService.Operations[ModalService.CurrentOperationIndex].Id == op.Id;
+    }
+
+    private static string GetStatusLabel(OperationItemState state) => state switch
+    {
+        OperationItemState.Running => "Running",
+        OperationItemState.Completed => "Completed",
+        OperationItemState.Failed => "Failed",
+        OperationItemState.Skipped => "Skipped",
+        _ => "Queued"
+    };
+
+    private static string GetStatusBadgeClass(OperationItemState state) => state switch
+    {
+        OperationItemState.Running => "sherpa-badge-accent",
+        OperationItemState.Completed => "sherpa-badge-success",
+        OperationItemState.Failed => "sherpa-badge-danger",
+        _ => "sherpa-badge-neutral"
+    };
+
+    private void HandleHeaderClick(OperationItemStatus op, bool hasExpandableContent, bool canToggle)
+    {
+        if (canToggle)
+            HandleToggle(op.Id, !op.IsEnabled);
+        else if (hasExpandableContent)
+            ToggleExpanded(op.Id);
+    }
+
+    private void HandleRowKeyDown(KeyboardEventArgs e, OperationItemStatus op, bool hasExpandableContent, bool canToggle)
+    {
+        if ((hasExpandableContent || canToggle) && e.Key is "Enter" or " ")
+            HandleHeaderClick(op, hasExpandableContent, canToggle);
+    }
+
+    private async Task CopyOperationLogAsync(OperationItemStatus op)
+    {
+        var text = string.Join(
+            Environment.NewLine,
+            op.Log.Select(entry => $"[{entry.Timestamp:HH:mm:ss}] {entry.Message}"));
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        }
+        catch { }
+    }
 
     protected override void OnInitialized()
     {
@@ -547,11 +714,14 @@
             _keyboardInitialized = true;
         }
 
-        if (ModalService.IsRunning || HasResult)
+        if (ModalService.IsRunning)
         {
             try
             {
-                await JS.InvokeVoidAsync("eval", "document.getElementById('multi-op-modal')?.scrollTo({top: document.getElementById('multi-op-modal').scrollHeight, behavior: 'smooth'})");
+                await JS.InvokeVoidAsync("eval", @"
+                    const active = document.querySelector('.operation-card.running .operation-log');
+                    if (active) active.scrollTop = active.scrollHeight;
+                ");
             }
             catch { /* component may be disposed */ }
         }
@@ -571,6 +741,7 @@
         _ = InvokeAsync(() =>
         {
             expandedOperations.Clear();
+            manuallyToggledOperations.Clear();
             UpdateBridgeButtons();
             StateHasChanged();
         });
@@ -580,10 +751,13 @@
     {
         _ = InvokeAsync(() =>
         {
-            if (status.State == OperationItemState.Running)
-                expandedOperations.Add(status.Id);
-            else if (status.State == OperationItemState.Completed && status.Log.Count == 0)
-                expandedOperations.Remove(status.Id);
+            if (!manuallyToggledOperations.Contains(status.Id))
+            {
+                if (status.State is OperationItemState.Running or OperationItemState.Failed)
+                    expandedOperations.Add(status.Id);
+                else if (status.State is OperationItemState.Completed or OperationItemState.Skipped)
+                    expandedOperations.Remove(status.Id);
+            }
             UpdateBridgeButtons();
             StateHasChanged();
         });
@@ -627,7 +801,10 @@
 
     private void ToggleExpanded(string operationId)
     {
-        if (expandedOperations.Contains(operationId))
+        var op = ModalService.Operations.FirstOrDefault(o => o.Id == operationId);
+        var currentlyExpanded = op != null ? IsOperationExpanded(op) : expandedOperations.Contains(operationId);
+        manuallyToggledOperations.Add(operationId);
+        if (currentlyExpanded)
             expandedOperations.Remove(operationId);
         else
             expandedOperations.Add(operationId);
@@ -693,7 +870,7 @@
         {
             var buttons = new List<ProgressButton>();
             if (FailedCount > 0)
-                buttons.Add(new ProgressButton("copilot", "Try with Copilot", ProgressButtonStyle.Copilot, "fas fa-robot"));
+                buttons.Add(new ProgressButton("copilot", "Try with Copilot", ProgressButtonStyle.Copilot, "fa-solid fa-fw fa-robot"));
             buttons.Add(new ProgressButton("close", "Close", ProgressButtonStyle.Primary));
             bridge.SetButtons(buttons.ToArray());
         }

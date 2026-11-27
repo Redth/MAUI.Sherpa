@@ -9,6 +9,7 @@
 @inject IAlertService AlertService
 @inject IDialogService DialogService
 @inject OperationModalService OperationModal
+@inject MultiOperationModalService MultiOpModal
 @inject BlazorToastService ToastService
 @inject IEncryptedSettingsService SettingsService
 @implements IDisposable
@@ -16,9 +17,56 @@
 @inject IPlatformService PlatformInfo
 @inject IFormModalService FormModalService
 @inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
+@inject MauiSherpa.Pages.Forms.HybridFormBridgeHolder BridgeHolder
 @inject ILocalVaultAccessService LocalVaultAccess
 
-<h1><i class="fas fa-fingerprint"></i> Bundle IDs</h1>
+<div class="sherpa-list-header-row">
+    <div class="sherpa-list-header-lead">
+        <h1><i class="fa-solid fa-fingerprint"></i> Bundle IDs</h1>
+        @if (HasActiveFilters)
+        {
+            <span class="sherpa-filter-pill">
+                <i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i>
+                @FilteredBundleIds.Count() of @bundleIds.Count
+            </span>
+        }
+    </div>
+    @if (IdentityState.SelectedIdentity != null && !RequiresLocalVaultAccess)
+    {
+        <div class="sherpa-list-header-actions">
+            @if (!isSelectionMode)
+            {
+                <button class="btn btn-secondary btn-sm" @onclick="BeginSelectionMode" disabled="@(isRefreshing || !FilteredBundleIds.Any())">
+                    <i class="fa-solid fa-check-square fa-fw"></i> Select
+                </button>
+            }
+            else
+            {
+                <div class="sherpa-selection-inline">
+                    <div class="sherpa-selection-pill">
+                        <label>
+                            <input type="checkbox"
+                                   checked="@AllVisibleBundlesSelected"
+                                   disabled="@isRefreshing"
+                                   @onchange="ToggleAllVisibleBundles" />
+                            <span>All</span>
+                        </label>
+                        <span class="sherpa-selection-sep"></span>
+                        <span class="sherpa-selection-count">@selectedBundleIds.Count selected</span>
+                        @if (HiddenSelectionCount > 0)
+                        {
+                            <span class="sherpa-selection-hidden">(@HiddenSelectionCount hidden)</span>
+                        }
+                    </div>
+                    <button class="btn btn-danger btn-sm" @onclick="DeleteSelectedBundlesAsync" disabled="@(isRefreshing || selectedBundleIds.Count == 0)">
+                        <i class="fa-solid fa-trash-can fa-fw"></i> Delete
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="CancelSelectionMode">Done</button>
+                </div>
+            }
+        </div>
+    }
+</div>
 
 <AppleIdentityPicker />
 
@@ -28,10 +76,10 @@
     {
     <div class="toolbar">
         <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isRefreshing">
-            <i class="fas @(isRefreshing ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+            <i class="fa-solid @(isRefreshing ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
         </button>
         <button data-screenshot-external class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isRefreshing">
-            <i class="fas fa-plus"></i> Register Bundle ID
+            <i class="fa-solid fa-plus"></i> Register Bundle ID
         </button>
         <MauiSherpa.Components.BackgroundRefreshIndicator IsRefreshing="@isBackgroundRefreshing" />
         </div>
@@ -42,20 +90,24 @@
         {
         <div class="filter-section">
             <div class="search-box">
-                <span class="search-icon"><i class="fas fa-search"></i></span>
+                <span class="search-icon"><i class="fa-solid fa-search"></i></span>
                 <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search bundle IDs..." />
                 @if (!string.IsNullOrEmpty(searchQuery))
                 {
-                    <button class="clear-btn" @onclick="@(() => searchQuery = "")">×</button>
+                    <button class="clear-btn" @onclick="@(() => searchQuery = "")" aria-label="Clear bundle ID search">
+                        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                    </button>
                 }
             </div>
             <div class="filter-chips">
-                <select @bind="filterPlatform" class="filter-select">
-                    <option value="">All Platforms</option>
-                    <option value="UNIVERSAL">Universal</option>
-                    <option value="IOS">iOS</option>
-                    <option value="MAC_OS">macOS</option>
-                </select>
+                <SherpaSelect TValue="string"
+                              Value="@filterPlatform"
+                              ValueChanged="@(value => filterPlatform = value ?? "")"
+                              Options="PlatformFilterOptions"
+                              LeadingIcon="fa-brands fa-apple"
+                              AriaLabel="Filter by platform"
+                              Compact="true"
+                              Class="filter-select" />
             </div>
             @if (HasActiveFilters)
             {
@@ -69,26 +121,16 @@
             <div class="error-bar">@errorMessage</div>
         }
 
-        <div class="results-info">
-            Showing @FilteredBundleIds.Count() of @bundleIds.Count bundle IDs
-        </div>
-
-        <div class="bundle-list">
+        <div class="bundle-list sherpa-list">
         
-        @if (bundleIds.Count == 0 && isRefreshing)
+        @if (!hasLoaded || (isRefreshing && bundleIds.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner">
-                    <i class="fas fa-fingerprint"></i>
-                </div>
-                <div class="loading-title">Loading Bundle IDs</div>
-                <div class="loading-description">Fetching bundle identifiers from App Store Connect...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading bundle IDs..." />
         }
         else if (!FilteredBundleIds.Any())
         {
             <div class="empty-state">
-                <div class="empty-icon"><i class="fas @(bundleIds.Count == 0 ? "fa-cube" : "fa-search")"></i></div>
+                <div class="empty-icon"><i class="fa-solid @(bundleIds.Count == 0 ? "fa-cube" : "fa-search")"></i></div>
                 <div class="empty-title">@(bundleIds.Count == 0 ? "No Bundle IDs found" : "No matching bundle IDs")</div>
                 <div class="empty-description">@(bundleIds.Count == 0 ? "Register a new bundle ID to get started" : "No bundle IDs match your search or filters. Try adjusting your criteria.")</div>
             </div>
@@ -98,31 +140,46 @@
             @foreach (var bundle in FilteredBundleIds)
             {
                 var capabilities = GetCapabilities(bundle.Id);
-                <div class="bundle-card">
-                    <div class="bundle-details">
-                        <div class="bundle-identifier">
-                            <span>@bundle.Identifier</span>
-                            <button class="btn-copy" @onclick="@(() => CopyToClipboard(bundle.Identifier))" title="Copy to clipboard">
-                                <i class="fas fa-copy"></i>
-                            </button>
-                        </div>
-                        <div class="bundle-name"><span>@bundle.Name</span></div>
-                        <div class="bundle-badges">
-                            <span class="badge badge-platform">@FormatPlatform(bundle.Platform)</span>
+                <div class="bundle-card sherpa-list-row @(selectedBundleIds.Contains(bundle.Id) ? "selected" : "") @(isSelectionMode ? "sherpa-list-row-interactive" : "")"
+                     @onclick="@(() => { if (isSelectionMode) ToggleBundleSelection(bundle.Id, !selectedBundleIds.Contains(bundle.Id)); })">
+                    @if (isSelectionMode)
+                    {
+                        <label class="bundle-select" @onclick:stopPropagation="true">
+                            <input type="checkbox"
+                                   aria-label="@($"Select {bundle.Name}")"
+                                   checked="@selectedBundleIds.Contains(bundle.Id)"
+                                   disabled="@isRefreshing"
+                                   @onclick:stopPropagation="true"
+                                   @onchange="@(e => ToggleBundleSelection(bundle.Id, e.Value is bool selected && selected))" />
+                        </label>
+                    }
+                    <div class="bundle-icon sherpa-icon-well sherpa-icon-well-apple">
+                        <i class="fa-solid fa-fingerprint"></i>
+                        <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
+                    </div>
+                    <div class="bundle-details sherpa-row-stack">
+                        <div class="bundle-name sherpa-row-title">
+                            <span>@bundle.Name</span>
+                            <span class="sherpa-badge sherpa-badge-neutral">@FormatPlatform(bundle.Platform)</span>
                             @if (!string.IsNullOrEmpty(bundle.SeedId))
                             {
-                                <span class="badge badge-seed">
+                                <span class="sherpa-badge sherpa-badge-neutral">
                                     <span class="badge-seed-value @(demoMode ? "demo-blur" : "")">@bundle.SeedId</span>
                                 </span>
                             }
                         </div>
+                        <div class="bundle-identifier sherpa-row-sub mono">
+                            <span>Bundle ID: @bundle.Identifier</span>
+                            <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(bundle.Identifier))" @onclick:stopPropagation="true" title="Copy Bundle ID" aria-label="@($"Copy bundle identifier for {bundle.Name}")">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
                         @if (capabilities.Any())
                         {
                             <div class="bundle-capabilities">
                                 @foreach (var cap in capabilities.Take(5))
                                 {
                                     <span class="capability-badge" title="@CapabilityCategories.GetDisplayName(cap.CapabilityType)">
-                                        <i class="fas @CapabilityCategories.GetIcon(cap.CapabilityType)"></i>
+                                        <i class="fa-solid @CapabilityCategories.GetIcon(cap.CapabilityType)"></i>
                                     </span>
                                 }
                                 @if (capabilities.Count > 5)
@@ -131,15 +188,19 @@
                                 }
                             </div>
                         }
+                        </div>
                     </div>
-                    <div class="bundle-actions">
-                        <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => ShowEditCapabilitiesDialog(bundle))" disabled="@isRefreshing" title="Capabilities">
-                            <i class="fas fa-puzzle-piece"></i>
-                        </button>
-                        <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="@(() => DeleteBundle(bundle))" disabled="@isRefreshing" title="Delete">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
+                    @if (!isSelectionMode)
+                    {
+                        <div class="bundle-actions sherpa-row-actions">
+                            <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => ShowEditCapabilitiesDialog(bundle))" disabled="@isRefreshing" title="Capabilities">
+                                <i class="fa-solid fa-puzzle-piece"></i>
+                            </button>
+                            <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="@(() => DeleteBundle(bundle))" disabled="@isRefreshing" title="Delete">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    }
                 </div>
             }
         }
@@ -149,18 +210,17 @@
 
 
 <style>
-    h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
-
     .toolbar { margin-bottom: 1rem; display: flex; gap: 0.75rem; }
-    .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border-radius: 0.75rem; margin-bottom: 1rem; }
+    .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border: 1px solid var(--status-error-border); border-radius: var(--radius-lg); margin-bottom: 1rem; }
 
     /* Filter Section Styles */
     .filter-section {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        padding: 1rem;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: 10px 14px;
         margin-bottom: 1rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        box-shadow: none;
         display: flex;
         flex-wrap: wrap;
         gap: 0.75rem;
@@ -168,68 +228,48 @@
     }
 
     .search-box {
-        position: relative;
         flex: 1;
         min-width: 200px;
     }
 
     .search-box input {
         width: 100%;
-        padding: 0.625rem 36px 0.625rem 36px;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
+        padding: 0;
+        border: 0;
+        background: transparent;
         box-sizing: border-box;
     }
 
     .search-box input:focus {
         outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+        box-shadow: none;
     }
 
     .search-icon {
-        position: absolute;
-        left: 0.75rem;
-        top: 50%;
-        transform: translateY(-50%);
         font-size: 0.875rem;
         opacity: 0.5;
     }
 
     .clear-btn {
-        position: absolute;
-        right: 0.5rem;
-        top: 50%;
-        transform: translateY(-50%);
-        background: var(--border-color);
-        border: none;
-        border-radius: 50%;
-        width: 1.25rem;
-        height: 1.25rem;
-        font-size: 0.875rem;
-        cursor: pointer;
-        display: flex;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: var(--radius-sm);
+        font-size: 0.875rem;
+        cursor: pointer;
         color: var(--text-muted);
     }
 
-    .clear-btn:hover { background: var(--bg-hover); }
+    .clear-btn:hover { background: var(--surface-card-hover); }
 
     .filter-chips { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
-    .filter-select {
-        padding: 0.5rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.8125rem;
-        background: var(--card-bg);
-        cursor: pointer;
-        min-width: 120px;
-    }
-
-    .filter-select:focus { outline: none; border-color: var(--accent-primary); }
+    .filter-select { min-width: 120px; }
 
     .clear-filters-btn {
         padding: 0.5rem 0.75rem;
@@ -243,56 +283,31 @@
 
     .clear-filters-btn:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
 
-    .results-info { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem; }
-    .btn i { font-size: 0.75rem; }
-    .btn-icon {
-        width: 2rem; height: 2rem; padding: 0;
-        display: inline-flex; align-items: center; justify-content: center;
-        border-radius: 0.375rem; font-size: 0.8125rem;
-    }
-    .btn-icon i { font-size: 0.8125rem; margin: 0; }
-
-    .bundle-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .bundle-list { margin-bottom: 1.25rem; }
 
     .bundle-card {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        padding: 0.875rem;
-        display: flex;
-        justify-content: space-between;
         align-items: center;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
     }
 
-    .bundle-identifier { 
-        font-weight: 600; 
-        font-size: 1rem; 
-        color: var(--text-primary); 
-        font-family: monospace;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-    .bundle-name { color: var(--text-muted); font-size: 0.875rem; margin-top: 0.25rem; }
-    .bundle-badges { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+    .bundle-details { min-width: 0; }
+    .bundle-name { display: flex; align-items: center; gap: 6px; }
+    .bundle-identifier { display: flex; align-items: center; gap: 6px; }
+    .bundle-select { display: flex; align-items: center; align-self: center; cursor: pointer; }
 
     .btn-copy {
-        background: none;
-        border: none;
-        color: #a0aec0;
-        cursor: pointer;
-        padding: 2px 0.375rem;
-        font-size: 0.75rem;
-        border-radius: 0.25rem;
-        transition: all 0.15s;
+        width: 20px;
+        min-width: 20px;
+        height: 20px;
+        min-height: 20px;
         flex-shrink: 0;
     }
-    .btn-copy:hover {
-        color: var(--accent-primary);
-        background: var(--bg-hover);
-    }
 
-    .badge { padding: 2px 0.625rem; border-radius: 0.75rem; font-size: 0.75rem; font-weight: 500; }
-    .badge-platform { background: #bee3f8; color: #2c5282; }
+    .badge { padding: 2px 0.625rem; border-radius: var(--radius-pill); font-size: 0.75rem; font-weight: 500; }
+    .badge-platform { background: var(--status-info-bg); color: var(--status-info-text); }
     .badge-seed { background: var(--bg-hover); color: var(--text-secondary); }
     .badge-seed-value { display: inline-block; }
     .badge-seed-value.demo-blur {
@@ -301,29 +316,26 @@
     }
 
     .empty-state { background: var(--card-bg); border-radius: var(--card-radius); padding: 3.75rem 2.5rem; text-align: center; }
-    .empty-icon { font-size: 48px; margin-bottom: 1rem; color: #a0aec0; }
+    .empty-icon { font-size: 48px; margin-bottom: 1rem; color: var(--text-muted); }
     .empty-icon i { font-size: 48px; }
     .empty-title { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
     .empty-description { color: var(--text-muted); font-size: 0.875rem; }
 
     /* Capability badges in bundle cards */
     .bundle-capabilities {
-        display: flex;
+        display: inline-flex;
         gap: 0.375rem;
-        margin-top: 0.625rem;
         flex-wrap: wrap;
         align-items: center;
     }
     .capability-badge {
-        display: flex;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 28px;
-        height: 28px;
-        background: #f0f4ff;
-        border-radius: 0.375rem;
-        color: #5a67d8;
-        font-size: 0.75rem;
+        width: 20px;
+        height: 20px;
+        color: var(--text-muted);
+        font-size: 0.6875rem;
     }
     .capability-more {
         font-size: 0.75rem;
@@ -337,14 +349,25 @@
 
 @code {
     private List<AppleBundleId> bundleIds = new();
-    private bool isRefreshing = false;
+    private bool isRefreshing = true;
+    private bool hasLoaded;
+    private string? activeIdentityId;
     private bool isBackgroundRefreshing = false;
     private bool demoMode = false;
     private string errorMessage = "";
+    private bool isSelectionMode;
+    private readonly HashSet<string> selectedBundleIds = new(StringComparer.Ordinal);
 
     // Filter state
     private string searchQuery = "";
     private string filterPlatform = "";
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> PlatformFilterOptions =
+    [
+        new("", "All Platforms"),
+        new("UNIVERSAL", "Universal", Icon: "fa-solid fa-globe"),
+        new("IOS", "iOS", Icon: "fa-brands fa-apple"),
+        new("MAC_OS", "macOS", Icon: "fa-brands fa-apple")
+    ];
 
     // Capabilities cache per bundle ID
     private Dictionary<string, List<AppleBundleIdCapability>> capabilitiesCache = new();
@@ -359,6 +382,26 @@
         .Where(b => string.IsNullOrEmpty(filterPlatform) || (b.Platform?.Equals(filterPlatform, StringComparison.OrdinalIgnoreCase) ?? false))
         .OrderBy(b => b.Identifier);
 
+    private bool AllVisibleBundlesSelected
+    {
+        get
+        {
+            var visibleIds = FilteredBundleIds.Select(bundle => bundle.Id).ToList();
+            return visibleIds.Count > 0 && visibleIds.All(selectedBundleIds.Contains);
+        }
+    }
+
+    private int HiddenSelectionCount
+    {
+        get
+        {
+            var visibleIds = FilteredBundleIds
+                .Select(bundle => bundle.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            return selectedBundleIds.Count(id => !visibleIds.Contains(id));
+        }
+    }
+
     private void ClearFilters()
     {
         searchQuery = "";
@@ -371,6 +414,7 @@
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("create", "Register Bundle ID", "plus")
         );
+        UpdateToolbarItemStates();
         ToolbarService.SetSearch("Search bundle IDs...");
         ToolbarService.SetFilters(
             new ToolbarFilter("platform", "Platform", ["All Platforms", "Universal", "iOS", "macOS"])
@@ -381,14 +425,24 @@
 
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
+        LocalVaultAccess.StateChanged += OnLocalVaultStateChanged;
         if (IdentityState.SelectedIdentity != null)
             await RefreshData(forceRefresh: false); // Use cache on initial load
     }
 
     private void OnIdentityChanged()
     {
+        var selectedIdentityId = IdentityState.SelectedIdentity?.Id;
+        if (!string.Equals(activeIdentityId, selectedIdentityId, StringComparison.Ordinal))
+        {
+            activeIdentityId = selectedIdentityId;
+            hasLoaded = false;
+        }
+
         InvokeAsync(async () =>
         {
+            CancelSelectionMode();
+            UpdateToolbarItemStates();
             if (RequiresLocalVaultAccess)
             {
                 StateHasChanged();
@@ -399,6 +453,8 @@
             StateHasChanged();
         });
     }
+
+    private void OnLocalVaultStateChanged() => OnIdentityChanged();
 
     private void OnSearchTextChanged(string text)
     {
@@ -425,6 +481,7 @@
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
+        LocalVaultAccess.StateChanged -= OnLocalVaultStateChanged;
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -433,10 +490,7 @@
         {
             switch (actionId)
             {
-                case "refresh":
-                    ToolbarService.SetItemEnabled("refresh", false);
-                    try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
-                    break;
+                case "refresh": await RefreshData(forceRefresh: true); break;
                 case "create": await ShowCreateDialog(); break;
             }
             StateHasChanged();
@@ -445,11 +499,18 @@
 
     private async Task RefreshData(bool forceRefresh = false)
     {
-        if (IdentityState.SelectedIdentity == null || RequiresLocalVaultAccess)
+        var identityId = IdentityState.SelectedIdentity?.Id;
+        if (string.IsNullOrWhiteSpace(identityId) || RequiresLocalVaultAccess)
+        {
+            UpdateToolbarItemStates();
             return;
+        }
+
+        activeIdentityId = identityId;
 
         // Set loading states
         isRefreshing = true;
+        UpdateToolbarItemStates();
         if (!forceRefresh && bundleIds.Count > 0)
         {
             // Only show background indicator if we already have data
@@ -471,12 +532,13 @@
             // If force refresh, invalidate the cache first
             if (forceRefresh)
             {
-                await Mediator.FlushStores($"apple:bundleids:{IdentityState.SelectedIdentity.Id}");
+                await Mediator.FlushStores($"apple:bundleids:{identityId}");
             }
             
-            var request = new GetBundleIdsRequest(IdentityState.SelectedIdentity.Id);
+            var request = new GetBundleIdsRequest(identityId);
             var (_, result) = await Mediator.Request(request);
             bundleIds = result.ToList();
+            selectedBundleIds.IntersectWith(bundleIds.Select(bundle => bundle.Id));
         }
         catch (Exception ex)
         {
@@ -486,9 +548,24 @@
         {
             isRefreshing = false;
             isBackgroundRefreshing = false;
+            if (string.Equals(IdentityState.SelectedIdentity?.Id, identityId, StringComparison.Ordinal) &&
+                !RequiresLocalVaultAccess)
+            {
+                hasLoaded = true;
+            }
+            UpdateToolbarItemStates();
             if (toast != null) ToastService.Dismiss(toast);
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private void UpdateToolbarItemStates()
+    {
+        var ready = IdentityState.SelectedIdentity != null &&
+            !LocalVaultAccess.GetState().RequiresUserAction &&
+            !isRefreshing;
+        ToolbarService.SetItemEnabled("refresh", ready);
+        ToolbarService.SetItemEnabled("create", ready);
     }
 
     private async Task ShowCreateDialog()
@@ -496,12 +573,88 @@
         if (RequiresLocalVaultAccess)
             return;
 
-        var page = new MauiSherpa.Pages.Forms.CreateBundleIdPage(AppleService);
+        var page = new MauiSherpa.Pages.Forms.CreateBundleIdPage(BridgeHolder, AppleService);
         var result = await FormModalService.ShowAsync<AppleBundleId>(page);
         if (result != null)
         {
             await RefreshData(forceRefresh: true);
         }
+    }
+
+    private void BeginSelectionMode()
+    {
+        selectedBundleIds.Clear();
+        isSelectionMode = true;
+    }
+
+    private void CancelSelectionMode()
+    {
+        selectedBundleIds.Clear();
+        isSelectionMode = false;
+    }
+
+    private void ToggleBundleSelection(string id, bool selected)
+    {
+        if (!isSelectionMode || isRefreshing)
+            return;
+
+        if (selected)
+            selectedBundleIds.Add(id);
+        else
+            selectedBundleIds.Remove(id);
+    }
+
+    private void ToggleAllVisibleBundles(ChangeEventArgs args)
+    {
+        if (!isSelectionMode || isRefreshing)
+            return;
+
+        var visibleIds = FilteredBundleIds.Select(bundle => bundle.Id).ToList();
+        if (args.Value is bool selected && selected)
+            selectedBundleIds.UnionWith(visibleIds);
+        else
+            selectedBundleIds.ExceptWith(visibleIds);
+    }
+
+    private async Task DeleteSelectedBundlesAsync()
+    {
+        var selected = bundleIds
+            .Where(bundle => selectedBundleIds.Contains(bundle.Id))
+            .ToList();
+        if (selected.Count == 0)
+            return;
+
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Delete Bundle IDs",
+            $"Are you sure you want to delete {selected.Count} bundle ID(s)? This cannot be undone.");
+        if (!confirmed)
+            return;
+
+        var operations = selected.Select(bundle => new OperationItem(
+            Id: bundle.Id,
+            Name: bundle.Name,
+            Description: bundle.Identifier,
+            Execute: async ctx =>
+            {
+                ctx.LogInfo($"Deleting {bundle.Identifier}...");
+                await AppleService.DeleteBundleIdAsync(bundle.Id);
+                ctx.LogSuccess("Bundle ID deleted");
+                return true;
+            })).ToList();
+
+        var result = await MultiOpModal.RunAsync(
+            "Delete Bundle IDs",
+            $"Deleting {selected.Count} bundle ID(s)...",
+            operations);
+
+        await Mediator.FlushStores("apple:bundleids");
+        CancelSelectionMode();
+        await RefreshData(forceRefresh: true);
+
+        var summary = result.Failed == 0
+            ? $"Deleted {result.Completed} bundle ID(s)"
+            : $"Deleted {result.Completed} bundle ID(s); {result.Failed} failed";
+        await AlertService.ShowToastAsync(summary);
     }
 
     private async Task DeleteBundle(AppleBundleId bundle)

@@ -19,7 +19,7 @@
 @inject ILauncher AppLauncher
 @implements IDisposable
 
-<h1><i class="fas fa-stethoscope"></i> Environment Doctor</h1>
+<h1><i class="fa-solid fa-stethoscope fa-fw"></i> Environment Doctor</h1>
 
 @if (!PlatformInfo.HasNativeToolbar)
 {
@@ -27,26 +27,15 @@
     <button class="btn btn-primary" @onclick="RunDoctor" disabled="@IsBusy">
         @if (isLoading)
         {
-            <i class="fas fa-spinner fa-spin"></i>
+            <i class="fa-solid fa-spinner fa-spin fa-fw"></i>
             <span>Checking...</span>
         }
         else
         {
-            <i class="fas fa-sync-alt"></i>
+            <i class="fa-solid fa-rotate fa-fw"></i>
             <span>Run Doctor</span>
         }
     </button>
-    @if (report != null && (report.HasErrors || report.HasWarnings))
-    {
-        <button data-screenshot-external class="btn btn-success" @onclick="FixAll" disabled="@IsBusy">
-            <i class="fas fa-wrench"></i>
-            <span>Fix All Issues</span>
-        </button>
-        <button data-screenshot-external class="btn btn-copilot" @onclick="FixWithCopilot" disabled="@IsBusy">
-            <i class="fas fa-robot"></i>
-            <span>Fix with Copilot</span>
-        </button>
-    }
 </div>
 }
 
@@ -58,39 +47,53 @@
 @if (report != null)
 {
     <!-- Summary Banner -->
-    <div class="summary-banner @GetSummaryClass()">
+    <div class="summary-banner sherpa-banner @GetSummaryClass()">
         <div class="summary-icon"><i class="@GetSummaryIconClass()"></i></div>
         <div class="summary-text">
             <strong>@GetSummaryTitle()</strong>
-            <span>@report.OkCount OK, @report.WarningCount warnings, @report.ErrorCount errors</span>
+            <span>@($"{report.OkCount} checks OK · {report.WarningCount} warning{(report.WarningCount == 1 ? "" : "s")} · {report.ErrorCount} error{(report.ErrorCount == 1 ? "" : "s")}")</span>
         </div>
+        @if (report.HasErrors || report.HasWarnings)
+        {
+            <div class="summary-actions">
+                <button data-screenshot-external class="btn btn-primary btn-sm" @onclick="FixAll" disabled="@IsBusy">
+                    <i class="fa-solid fa-wrench fa-fw"></i>
+                    <span>Fix All</span>
+                </button>
+                <button data-screenshot-external class="btn btn-copilot btn-sm" @onclick="FixWithCopilot" disabled="@IsBusy">
+                    <i class="fa-solid fa-wand-magic-sparkles fa-fw"></i>
+                    <span>Fix with Copilot</span>
+                </button>
+            </div>
+        }
     </div>
 
     <!-- Context Section -->
-    <div class="section">
-        <div class="section-header" @onclick="@(() => contextExpanded = !contextExpanded)">
-            <i class="fas @(contextExpanded ? "fa-chevron-down" : "fa-chevron-right") section-icon"></i>
+    <div class="section sherpa-accordion">
+        <button type="button" class="section-header sherpa-accordion-trigger" @onclick="@(() => contextExpanded = !contextExpanded)" aria-expanded="@contextExpanded">
+            <i class="fa-solid fa-chevron-right fa-fw section-chevron @(contextExpanded ? "expanded" : "")" aria-hidden="true"></i>
+            <i class="fa-solid fa-compass fa-fw section-icon" aria-hidden="true"></i>
             <span class="section-title">Context</span>
             @if (report.Context.PinnedSdkVersion != null || report.Context.PinnedWorkloadSetVersion != null)
             {
-                <span class="badge badge-info"><i class="fas fa-thumbtack"></i> Pinned</span>
+                <span class="sherpa-badge sherpa-badge-info"><i class="fa-solid fa-thumbtack fa-fw"></i> Pinned</span>
             }
-        </div>
+        </button>
         @if (contextExpanded)
         {
-            <div class="section-content manifest-section">
-                <div class="context-list">
+            <div class="section-content sherpa-accordion-body">
+                <div class="context-list sherpa-well">
                     <div class="context-item full-width">
                         <span class="context-label">Working Directory</span>
                         <span class="context-value mono path-value">
                             @(report.Context.WorkingDirectory ?? "Not set")
                             @if (!string.IsNullOrEmpty(report.Context.WorkingDirectory))
                             {
-                                <button class="btn-copy" @onclick="@(() => CopyToClipboard(report.Context.WorkingDirectory!))" title="Copy to clipboard">
-                                    <i class="fas fa-copy"></i>
+                                <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(report.Context.WorkingDirectory!))" title="Copy to clipboard" aria-label="Copy working directory">
+                                    <i class="fa-solid fa-copy fa-fw"></i>
                                 </button>
-                                <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(report.Context.WorkingDirectory!))" title="Reveal in Finder">
-                                    <i class="fas fa-external-link-alt"></i>
+                                <button class="btn btn-ghost btn-icon btn-sm btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(report.Context.WorkingDirectory!))" title="Reveal in Finder" aria-label="Reveal working directory">
+                                    <i class="fa-solid fa-arrow-up-right-from-square fa-fw"></i>
                                 </button>
                             }
                         </span>
@@ -100,8 +103,8 @@
                             .NET SDK Path
                             @if (report.Context.UsesDotnetUpManagedSdk)
                             {
-                                <span class="badge badge-info context-label-badge" title="dotnetup manages this install root, so Doctor reports the same SDKs and workloads as the .NET SDK Manager.">
-                                    <i class="fas fa-layer-group"></i> dotnetup
+                                <span class="sherpa-badge sherpa-badge-info context-label-badge" title="dotnetup manages this install root, so Doctor reports the same SDKs and workloads as the .NET SDK Manager.">
+                                    <i class="fa-solid fa-layer-group fa-fw"></i> dotnetup
                                 </span>
                             }
                         </span>
@@ -109,11 +112,11 @@
                             @(report.Context.DotNetSdkPath ?? "Not found")
                             @if (!string.IsNullOrEmpty(report.Context.DotNetSdkPath))
                             {
-                                <button class="btn-copy" @onclick="@(() => CopyToClipboard(report.Context.DotNetSdkPath!))" title="Copy to clipboard">
-                                    <i class="fas fa-copy"></i>
+                                <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(report.Context.DotNetSdkPath!))" title="Copy to clipboard" aria-label="Copy .NET SDK path">
+                                    <i class="fa-solid fa-copy fa-fw"></i>
                                 </button>
-                                <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(report.Context.DotNetSdkPath!))" title="Reveal in Finder">
-                                    <i class="fas fa-external-link-alt"></i>
+                                <button class="btn btn-ghost btn-icon btn-sm btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(report.Context.DotNetSdkPath!))" title="Reveal in Finder" aria-label="Reveal .NET SDK path">
+                                    <i class="fa-solid fa-arrow-up-right-from-square fa-fw"></i>
                                 </button>
                             }
                         </span>
@@ -124,11 +127,11 @@
                             <span class="context-label">global.json</span>
                             <span class="context-value mono path-value">
                                 @report.Context.GlobalJsonPath
-                                <button class="btn-copy" @onclick="@(() => CopyToClipboard(report.Context.GlobalJsonPath!))" title="Copy to clipboard">
-                                    <i class="fas fa-copy"></i>
+                                <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(report.Context.GlobalJsonPath!))" title="Copy to clipboard" aria-label="Copy global.json path">
+                                    <i class="fa-solid fa-copy fa-fw"></i>
                                 </button>
-                                <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(report.Context.GlobalJsonPath!))" title="Reveal in Finder">
-                                    <i class="fas fa-external-link-alt"></i>
+                                <button class="btn btn-ghost btn-icon btn-sm btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(report.Context.GlobalJsonPath!))" title="Reveal in Finder" aria-label="Reveal global.json">
+                                    <i class="fa-solid fa-arrow-up-right-from-square fa-fw"></i>
                                 </button>
                             </span>
                         </div>
@@ -138,11 +141,11 @@
                         <div class="context-item">
                             <span class="context-label">Pinned SDK Version</span>
                             <span class="context-value">
-                                <i class="fas fa-thumbtack"></i> @report.Context.PinnedSdkVersion
+                                <i class="fa-solid fa-thumbtack fa-fw"></i> @report.Context.PinnedSdkVersion
                                 @if (report.Context.ResolvedSdkVersion != null && report.Context.ResolvedSdkVersion != report.Context.PinnedSdkVersion)
                                 {
-                                    <i class="fas fa-arrow-right" style="margin: 0 0.25rem; font-size: 0.75rem; opacity: 0.6;"></i>
-                                    <span class="badge badge-secondary" title="Resolved via rollForward: @(report.Context.RollForwardPolicy ?? "latestPatch")">@report.Context.ResolvedSdkVersion</span>
+                                    <i class="fa-solid fa-arrow-right fa-fw" style="margin: 0 0.25rem; font-size: 0.75rem; opacity: 0.6;"></i>
+                                    <span class="sherpa-badge sherpa-badge-neutral" title="Resolved via rollForward: @(report.Context.RollForwardPolicy ?? "latestPatch")">@report.Context.ResolvedSdkVersion</span>
                                 }
                             </span>
                         </div>
@@ -151,7 +154,7 @@
                     {
                         <div class="context-item">
                             <span class="context-label">Pinned Workload Set</span>
-                            <span class="context-value"><i class="fas fa-thumbtack"></i> @report.Context.PinnedWorkloadSetVersion</span>
+                            <span class="context-value"><i class="fa-solid fa-thumbtack fa-fw"></i> @report.Context.PinnedWorkloadSetVersion</span>
                         </div>
                     }
                     <div class="context-item">
@@ -164,14 +167,15 @@
     </div>
 
     <!-- Installed SDKs Section -->
-    <div class="section">
-        <div class="section-header" @onclick="@(() => sdksExpanded = !sdksExpanded)">
-            <i class="fas @(sdksExpanded ? "fa-chevron-down" : "fa-chevron-right") section-icon"></i>
+    <div class="section sherpa-accordion">
+        <button type="button" class="section-header sherpa-accordion-trigger" @onclick="@(() => sdksExpanded = !sdksExpanded)" aria-expanded="@sdksExpanded">
+            <i class="fa-solid fa-chevron-right fa-fw section-chevron @(sdksExpanded ? "expanded" : "")" aria-hidden="true"></i>
+            <i class="fa-solid fa-layer-group fa-fw section-icon" aria-hidden="true"></i>
             <span class="section-title">.NET SDKs</span>
-            <span class="badge badge-count">@report.InstalledSdks.Count installed</span>
+            <span class="sherpa-badge sherpa-badge-neutral">@report.InstalledSdks.Count installed</span>
             @if (report.Context.IsPreviewSdk)
             {
-                <span class="badge badge-info"><i class="fas fa-flask"></i> Preview</span>
+                <span class="sherpa-badge sherpa-badge-info"><i class="fa-solid fa-flask fa-fw"></i> Preview</span>
             }
             else if (report.AvailableSdkVersions?.Count > 0)
             {
@@ -179,17 +183,17 @@
                 var latestInstalled = report.InstalledSdks.FirstOrDefault()?.Version;
                 if (latestAvailableStable != null && latestInstalled != latestAvailableStable)
                 {
-                    <span class="badge badge-warning"><i class="fas fa-arrow-up"></i> Update available</span>
+                    <span class="sherpa-badge sherpa-badge-warning"><i class="fa-solid fa-arrow-up fa-fw"></i> Update available</span>
                 }
             }
-        </div>
+        </button>
         @if (sdksExpanded)
         {
-            <div class="section-content">
+            <div class="section-content sherpa-accordion-body">
                 @if (report.Context.IsPreviewSdk)
                 {
                     <div class="preview-info-bubble">
-                        <i class="fas fa-info-circle"></i>
+                        <i class="fa-solid fa-circle-info fa-fw"></i>
                         <span>You are using a preview .NET SDK (@report.Context.ActiveSdkVersion)</span>
                     </div>
                 }
@@ -204,16 +208,19 @@
                         @{ var isFirst = true; }
                         @foreach (var sdk in report.InstalledSdks)
                         {
-                            <div class="sdk-item @(isFirst ? "latest" : "")">
-                                <span class="sdk-version">@sdk.Version</span>
-                                <span class="badge badge-secondary">@sdk.FeatureBand</span>
+                            <div class="sdk-item">
+                                <span class="sherpa-dot sherpa-dot-success" aria-hidden="true"></span>
+                                <div class="sdk-copy">
+                                    <div class="sdk-title">.NET SDK <span class="sdk-version">@sdk.Version</span></div>
+                                    <div class="sdk-description">Feature band <span class="mono">@sdk.FeatureBand</span>@(sdk.IsPreview ? " · Preview SDK" : "")</div>
+                                </div>
                                 @if (isFirst)
                                 {
-                                    <span class="badge badge-success">Active</span>
+                                    <span class="sherpa-badge sherpa-badge-success">Active</span>
                                 }
-                                @if (sdk.IsPreview)
+                                else
                                 {
-                                    <span class="badge badge-info">Preview</span>
+                                    <span class="sherpa-badge sherpa-badge-success">Installed</span>
                                 }
                             </div>
                             isFirst = false;
@@ -228,22 +235,21 @@
                         @foreach (var sdk in report.AvailableSdkVersions.Take(5))
                         {
                             var isInstalled = report.InstalledSdks.Any(i => i.Version == sdk.Version);
-                            <div class="sdk-item @(isInstalled ? "installed" : "")">
-                                <span class="sdk-version">@sdk.Version</span>
-                                <span class="badge badge-secondary">@sdk.FeatureBand</span>
+                            <div class="sdk-item">
+                                <span class="sherpa-dot @(isInstalled ? "sherpa-dot-success" : "sherpa-dot-muted")" aria-hidden="true"></span>
+                                <div class="sdk-copy">
+                                    <div class="sdk-title">.NET SDK <span class="sdk-version">@sdk.Version</span></div>
+                                    <div class="sdk-description">Feature band <span class="mono">@sdk.FeatureBand</span>@(sdk.IsPreview ? " · Preview SDK" : "")</div>
+                                </div>
                                 @if (isInstalled)
                                 {
-                                    <span class="badge badge-success">Installed</span>
+                                    <span class="sherpa-badge sherpa-badge-success">Installed</span>
                                 }
                                 else
                                 {
-                                    <a href="@GetSdkDownloadUrl(sdk.Version)" target="_blank" class="download-link" title="Download SDK" @onclick="() => OpenUrl(GetSdkDownloadUrl(sdk.Version))" @onclick:preventDefault>
-                                        <i class="fas fa-download"></i> Download
+                                    <a href="@GetSdkDownloadUrl(sdk.Version)" target="_blank" class="btn btn-secondary btn-sm" title="Download SDK" @onclick="() => OpenUrl(GetSdkDownloadUrl(sdk.Version))" @onclick:preventDefault>
+                                        <i class="fa-solid fa-download fa-fw"></i> Download
                                     </a>
-                                }
-                                @if (sdk.IsPreview)
-                                {
-                                    <span class="badge badge-info">Preview</span>
                                 }
                             </div>
                         }
@@ -254,22 +260,23 @@
     </div>
 
     <!-- Workload Set Section -->
-    <div class="section">
-        <div class="section-header" @onclick="@(() => workloadExpanded = !workloadExpanded)">
-            <i class="fas @(workloadExpanded ? "fa-chevron-down" : "fa-chevron-right") section-icon"></i>
+    <div class="section sherpa-accordion">
+        <button type="button" class="section-header sherpa-accordion-trigger" @onclick="@(() => workloadExpanded = !workloadExpanded)" aria-expanded="@workloadExpanded">
+            <i class="fa-solid fa-chevron-right fa-fw section-chevron @(workloadExpanded ? "expanded" : "")" aria-hidden="true"></i>
+            <i class="fa-solid fa-puzzle-piece fa-fw section-icon" aria-hidden="true"></i>
             <span class="section-title">Workload Set</span>
             @if (report.InstalledWorkloadSetVersion != null)
             {
-                <span class="badge badge-success">@report.InstalledWorkloadSetVersion</span>
+                <span class="sherpa-badge sherpa-badge-success">@report.InstalledWorkloadSetVersion</span>
             }
             else
             {
-                <span class="badge badge-warning">Not installed</span>
+                <span class="sherpa-badge sherpa-badge-warning">Not installed</span>
             }
-        </div>
+        </button>
         @if (workloadExpanded)
         {
-            <div class="section-content">
+            <div class="section-content sherpa-accordion-body">
                 @if (report.InstalledWorkloadSetVersion != null)
                 {
                     <p>Installed version: <strong>@report.InstalledWorkloadSetVersion</strong></p>
@@ -299,15 +306,16 @@
     </div>
 
     <!-- Workload Manifests Section -->
-    <div class="section">
-        <div class="section-header" @onclick="@(() => manifestsExpanded = !manifestsExpanded)">
-            <i class="fas @(manifestsExpanded ? "fa-chevron-down" : "fa-chevron-right") section-icon"></i>
+    <div class="section sherpa-accordion">
+        <button type="button" class="section-header sherpa-accordion-trigger" @onclick="@(() => manifestsExpanded = !manifestsExpanded)" aria-expanded="@manifestsExpanded">
+            <i class="fa-solid fa-chevron-right fa-fw section-chevron @(manifestsExpanded ? "expanded" : "")" aria-hidden="true"></i>
+            <i class="fa-solid fa-file-code fa-fw section-icon" aria-hidden="true"></i>
             <span class="section-title">Workload Manifests</span>
-            <span class="badge badge-count">@report.Manifests.Count</span>
-        </div>
+            <span class="sherpa-badge sherpa-badge-neutral">@report.Manifests.Count</span>
+        </button>
         @if (manifestsExpanded)
         {
-            <div class="section-content manifest-section">
+            <div class="section-content sherpa-accordion-body manifest-section">
                 @if (report.Manifests.Count == 0)
                 {
                     <div class="empty-message">No workload manifests installed</div>
@@ -320,7 +328,7 @@
                             <div class="manifest-item">
                                 <div class="manifest-name">@manifest.ManifestId</div>
                                 <div class="manifest-details">
-                                    <span class="badge badge-secondary">v@(manifest.Version)</span>
+                                    <span class="sherpa-badge sherpa-badge-neutral mono">v@(manifest.Version)</span>
                                     <span class="manifest-counts">@manifest.WorkloadCount workloads, @manifest.PackCount packs</span>
                                 </div>
                                 @if (!string.IsNullOrEmpty(manifest.Description))
@@ -336,57 +344,61 @@
     </div>
 
     <!-- Dependencies Section -->
-    <div class="section">
-        <div class="section-header" @onclick="@(() => depsExpanded = !depsExpanded)">
-            <i class="fas @(depsExpanded ? "fa-chevron-down" : "fa-chevron-right") section-icon"></i>
+    <div class="section sherpa-accordion">
+        <button type="button" class="section-header sherpa-accordion-trigger" @onclick="@(() => depsExpanded = !depsExpanded)" aria-expanded="@depsExpanded">
+            <i class="fa-solid fa-chevron-right fa-fw section-chevron @(depsExpanded ? "expanded" : "")" aria-hidden="true"></i>
+            <i class="fa-solid fa-list-check fa-fw section-icon" aria-hidden="true"></i>
             <span class="section-title">Dependencies</span>
             @if (report.HasErrors)
             {
-                <span class="badge badge-error"><i class="fas fa-times-circle"></i> @report.ErrorCount errors</span>
+                <span class="sherpa-badge sherpa-badge-danger"><i class="fa-solid fa-circle-xmark fa-fw"></i> @report.ErrorCount errors</span>
             }
             @if (report.HasWarnings)
             {
-                <span class="badge badge-warning"><i class="fas fa-exclamation-triangle"></i> @report.WarningCount warnings</span>
+                <span class="sherpa-badge sherpa-badge-warning"><i class="fa-solid fa-triangle-exclamation fa-fw"></i> @report.WarningCount warnings</span>
             }
             @if (!report.HasErrors && !report.HasWarnings)
             {
-                <span class="badge badge-success"><i class="fas fa-check-circle"></i> All OK</span>
+                <span class="sherpa-badge sherpa-badge-success"><i class="fa-solid fa-circle-check fa-fw"></i> All OK</span>
             }
-        </div>
+        </button>
         @if (depsExpanded)
         {
-            <div class="section-content">
+            <div class="section-content sherpa-accordion-body">
                 @foreach (var group in report.Dependencies.GroupBy(d => d.Category))
                 {
                     <div class="dep-group">
                         <div class="dep-group-title">@GetCategoryName(group.Key)</div>
                         @foreach (var dep in group)
                         {
-                            <div class="dep-item @GetDepStatusClass(dep.Status)">
-                                <span class="dep-icon"><i class="@GetStatusIconClass(dep.Status)"></i></span>
+                            <div class="dep-item">
+                                <span class="sherpa-dot @GetStatusDotClass(dep.Status)" aria-hidden="true"></span>
                                 <div class="dep-details">
-                                    <span class="dep-name">@dep.Name</span>
-                                    @if (dep.InstalledVersion != null)
-                                    {
-                                        <span class="dep-version">@dep.InstalledVersion</span>
-                                    }
+                                    <span class="dep-name">
+                                        @dep.Name
+                                        @if (dep.InstalledVersion != null)
+                                        {
+                                            <span class="dep-version">@dep.InstalledVersion</span>
+                                        }
+                                    </span>
                                     @if (!string.IsNullOrEmpty(dep.Message))
                                     {
                                         <span class="dep-message">@dep.Message</span>
                                     }
                                 </div>
+                                <span class="sherpa-badge @GetStatusBadgeClass(dep.Status)">@GetStatusBadgeLabel(dep.Status)</span>
                                 @if (IsMissingJdk(dep))
                                 {
-                                    <button class="btn btn-sm btn-fix"
+                                    <button class="btn btn-sm btn-warning"
                                             @onclick="DownloadMicrosoftOpenJdk"
                                             disabled="@IsBusy">
-                                        <i class="fas fa-download"></i>
+                                        <i class="fa-solid fa-download fa-fw"></i>
                                         Download Microsoft OpenJDK
                                     </button>
                                 }
                                 else if (dep.IsFixable)
                                 {
-                                    <button class="btn btn-sm btn-fix" @onclick="@(() => FixDependency(dep))" disabled="@IsBusy">
+                                    <button class="btn btn-sm btn-warning" @onclick="@(() => FixDependency(dep))" disabled="@IsBusy">
                                         @GetDependencyActionLabel(dep)
                                     </button>
                                 }
@@ -405,11 +417,15 @@
 else if (isLoading)
 {
     <div class="loading-state">
-        <div class="loading-spinner">
-            <i class="fas fa-stethoscope fa-3x"></i>
+        <div class="loading-status">
+            <i class="fa-solid fa-spinner fa-spin fa-fw" aria-hidden="true"></i>
+            <span>@(string.IsNullOrEmpty(progressMessage) ? "Checking workload set..." : progressMessage)</span>
         </div>
-        <div class="loading-title">Analyzing Environment</div>
-        <div class="loading-description">@(string.IsNullOrEmpty(progressMessage) ? "Starting analysis..." : progressMessage)</div>
+        <div class="skeleton-list" aria-hidden="true">
+            <div class="skeleton-row"><span class="skeleton-dot"></span><span class="skeleton-copy wide"></span><span class="skeleton-pill"></span></div>
+            <div class="skeleton-row"><span class="skeleton-dot"></span><span class="skeleton-copy"></span><span class="skeleton-pill"></span></div>
+            <div class="skeleton-row"><span class="skeleton-dot"></span><span class="skeleton-copy medium"></span><span class="skeleton-pill"></span></div>
+        </div>
     </div>
 }
 else
@@ -425,148 +441,99 @@ else
 }
 
 <style>
-    h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
-
     .toolbar { margin-bottom: 1.25rem; display: flex; gap: 0.75rem; }
-    .btn-copilot { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; }
-    .btn-copilot:hover:not(:disabled) { background: linear-gradient(135deg, #4f46e5, #7c3aed); }
-    .btn-fix { background-color: var(--accent-warning); color: white; }
-    .btn-fix:hover:not(:disabled) { background-color: var(--accent-warning-hover); }
     
-    .text-success { color: #38a169; }
-    .text-warning { color: #d69e2e; }
-    .text-error { color: #e53e3e; }
-    .text-muted { color: #a0aec0; }
+    .text-success { color: var(--status-success-fg); }
+    .text-warning { color: var(--status-warning-fg); }
+    .text-error { color: var(--status-danger-fg); }
+    .text-muted { color: var(--text-muted); }
 
-    .progress-bar { background: var(--progress-bar-bg); color: var(--progress-bar-text); padding: 0.75rem 1rem; border-radius: 0.75rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+    .progress-bar { background: var(--surface-well); color: var(--text-secondary); padding: 0.75rem 1rem; border: 1px solid var(--border-hairline); border-radius: var(--radius-lg); margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
 
-    .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border-radius: 0.75rem; margin-bottom: 1rem; }
+    .error-bar { background: var(--status-error-bg); color: var(--status-error-fg); border: 1px solid var(--status-error-border); padding: 0.75rem 1rem; border-radius: var(--radius-lg); margin-bottom: 1rem; }
 
     .summary-banner {
-        padding: 1.25rem;
-        border-radius: var(--card-radius, 1rem);
-        margin-bottom: 1.25rem;
         display: flex;
         align-items: center;
-        gap: 1rem;
+        gap: var(--space-3);
+        margin-bottom: var(--space-3);
+        padding: var(--space-3) var(--space-4);
     }
-    .summary-banner.success { background: var(--status-success-bg); color: var(--status-success-text); }
-    .summary-banner.warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
-    .summary-banner.error { background: var(--status-error-bg); color: var(--status-error-text); }
-    .summary-icon { font-size: 2rem; }
-    .summary-text { display: flex; flex-direction: column; gap: 0.25rem; }
-    .summary-text strong { font-size: 1.125rem; }
+    .summary-banner.sherpa-banner-success { background: var(--status-success-bg); color: var(--status-success-fg); border-color: var(--status-success-border); }
+    .summary-banner.sherpa-banner-warning { background: var(--status-warning-bg); color: var(--status-warning-fg); border-color: var(--status-warning-border); }
+    .summary-banner.sherpa-banner-danger { background: var(--status-danger-bg); color: var(--status-danger-fg); border-color: var(--status-danger-border); }
+    .summary-icon { flex: 0 0 auto; font-size: 16px; }
+    .summary-text { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 1px; }
+    .summary-text strong { color: inherit; font-size: var(--font-size-md); }
+    .summary-text span { overflow: hidden; color: inherit; font-size: var(--font-size-xs); opacity: 0.86; text-overflow: ellipsis; white-space: nowrap; }
+    .summary-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
 
     .section {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        margin-bottom: 0.75rem;
-        overflow: hidden;
+        margin-bottom: var(--space-2);
     }
 
     .section-header {
-        padding: 1rem 1.25rem;
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        cursor: pointer;
-        user-select: none;
-        border-bottom: 1px solid transparent;
+        gap: var(--space-2);
+        padding: 10px 14px;
     }
-    .section-header:hover { background: var(--bg-tertiary); }
-    .section-icon { font-size: 0.75rem; color: var(--text-muted); width: 1rem; }
-    .section-title { font-weight: 600; font-size: 1rem; color: var(--text-primary); flex: 1; }
+    .section-chevron {
+        color: var(--text-muted);
+        font-size: var(--font-size-xs);
+        transition: transform var(--motion-normal) var(--ease-standard);
+    }
+    .section-chevron.expanded { transform: rotate(90deg); }
+    .section-icon { color: var(--text-muted); font-size: var(--font-size-sm); }
+    .section-title { flex: 1; color: var(--text-primary); font-size: var(--font-size-md); font-weight: 600; }
 
-    .section-content { padding: 1rem 1.25rem; border-top: 1px solid var(--border-color); }
+    .section-content { padding: var(--space-3) 14px; }
     
     .subsection-title { font-size: 0.8125rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
 
-    .badge { padding: 2px 0.625rem; border-radius: 0.75rem; font-size: 0.75rem; font-weight: 500; }
-    .badge-success { background: var(--status-success-bg); color: var(--status-success-text); }
-    .badge-warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
-    .badge-error { background: var(--status-error-bg); color: var(--status-error-text); }
-    .badge-info { background: var(--status-info-bg); color: var(--status-info-text); }
-    .badge-secondary { background: var(--border-color); color: var(--text-secondary); }
-    .badge-count { background: var(--border-color); color: var(--text-secondary); }
-
-    .context-list { display: flex; flex-direction: column; }
-    .context-item { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.625rem 1.25rem; border-bottom: 1px solid var(--border-color); }
-    .context-item:last-child { border-bottom: none; }
+    .context-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px 16px;
+        padding: 12px 14px;
+    }
+    .context-item { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
     .context-item.full-width { grid-column: 1 / -1; }
-    .context-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 0.5rem; }
-    .context-label-badge { text-transform: none; letter-spacing: 0; font-family: monospace; }
-    .context-value { font-size: 0.875rem; color: var(--text-primary); }
-    .context-value.path-value { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; border-radius: 0.375rem; }
-    .mono { font-family: monospace; font-size: 0.8125rem; word-break: break-all; }
+    .context-label { display: flex; align-items: center; gap: var(--space-1); color: var(--text-muted); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; line-height: 1.35; }
+    .context-label-badge { font-family: var(--font-mono); letter-spacing: 0; }
+    .context-value { min-width: 0; color: var(--text-primary); font-size: var(--font-size-md); }
+    .context-value.path-value { display: flex; align-items: center; gap: 2px; padding: 0; border: 0; background: transparent; }
+    .context-value.path-value > :first-child { min-width: 0; }
+    .mono { font-family: var(--font-mono); font-size: var(--font-size-sm); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .context-value .btn-copy,
+    .context-value .btn-reveal { width: var(--control-height-sm); min-width: var(--control-height-sm); height: var(--control-height-sm); padding: 0; }
 
-    .btn-reveal {
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        cursor: pointer;
-        padding: 2px 0.375rem;
-        font-size: 0.75rem;
-        border-radius: 0.25rem;
-        transition: all 0.15s;
-        flex-shrink: 0;
-    }
-    .btn-reveal:hover {
-        color: var(--accent-primary);
-        background: var(--bg-hover);
-    }
-
-    .btn-copy {
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        cursor: pointer;
-        padding: 2px 0.375rem;
-        font-size: 0.75rem;
-        border-radius: 0.25rem;
-        transition: all 0.15s;
-        flex-shrink: 0;
-    }
-    .btn-copy:hover {
-        color: var(--accent-primary);
-        background: var(--bg-hover);
-    }
-
-    .sdk-list { display: flex; flex-direction: column; gap: 0.5rem; }
-    .sdk-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.75rem; background: var(--bg-tertiary); border-radius: 0.75rem; }
-    .sdk-item.installed { background: var(--status-success-bg); color: var(--status-success-text); }
-    .sdk-item.latest { background: var(--status-success-bg); color: var(--status-success-text); }
-    .sdk-version { font-weight: 600; font-family: monospace; }
-    
-    .download-link {
-        padding: 2px 0.5rem;
-        background: var(--accent-primary-hover);
-        color: white;
-        border-radius: 0.25rem;
-        font-size: 0.6875rem;
-        text-decoration: none;
-        transition: background 0.2s;
-    }
-    .download-link:hover { background: var(--accent-primary); }
+    .sdk-list { overflow: hidden; background: var(--surface-well); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); }
+    .sdk-item { position: relative; display: flex; align-items: center; gap: var(--space-3); padding: 9px 12px; }
+    .sdk-item + .sdk-item::before { position: absolute; top: 0; right: 12px; left: 31px; height: 1px; background: var(--border-hairline); content: ""; }
+    .sdk-copy { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 1px; }
+    .sdk-title { color: var(--text-primary); font-size: var(--font-size-sm); font-weight: 600; }
+    .sdk-version { margin-left: var(--space-1); color: var(--text-secondary); font-family: var(--font-mono); font-weight: 500; }
+    .sdk-description { overflow: hidden; color: var(--text-muted); font-size: var(--font-size-xs); text-overflow: ellipsis; white-space: nowrap; }
 
     .available-versions { margin-top: 0.75rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
     .available-versions .label { font-size: 0.8125rem; color: var(--text-muted); }
     .version-tag { 
         padding: 0.25rem 0.625rem; 
-        background: var(--bg-tertiary); 
-        border-radius: 0.25rem; 
+        background: var(--surface-card);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-xs);
         font-size: 0.75rem; 
         font-family: monospace;
         cursor: pointer;
         transition: all 0.2s;
         color: var(--text-secondary);
     }
-    .version-tag:hover { background: var(--bg-hover); }
-    .version-tag.current { background: var(--status-success-bg); color: var(--status-success-text); cursor: default; }
+    .version-tag:hover { background: var(--surface-control); }
+    .version-tag.current { background: var(--status-success-bg); color: var(--status-success-fg); cursor: default; }
     .version-tag.disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
 
     .manifest-list { display: flex; flex-direction: column; }
     .manifest-section { padding: 0; }
-    .manifest-item { padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border-color); background: transparent; }
+    .manifest-item { padding: 10px 14px; border-bottom: 1px solid var(--border-hairline); background: transparent; }
     .manifest-item:last-child { border-bottom: none; }
     .manifest-name { font-weight: 600; color: var(--text-primary); margin-bottom: 0.25rem; }
     .manifest-details { display: flex; align-items: center; gap: 0.75rem; }
@@ -574,30 +541,25 @@ else
     .manifest-desc { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.5rem; }
     .manifest-section .empty-message { padding: 1.25rem; }
 
-    .dep-group { margin-bottom: 1rem; }
-    .dep-group:last-child { margin-bottom: 0; }
-    .dep-group-title { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+    .dep-group { overflow: hidden; border: 1px solid var(--border-hairline); background: var(--surface-well); }
+    .dep-group:first-child { border-radius: var(--radius-md) var(--radius-md) 0 0; }
+    .dep-group:last-child { border-radius: 0 0 var(--radius-md) var(--radius-md); }
+    .dep-group + .dep-group { border-top: 0; }
+    .dep-group-title { padding: 7px 12px; color: var(--text-muted); background: color-mix(in srgb, var(--surface-card) 55%, transparent); border-bottom: 1px solid var(--border-hairline); font-size: var(--font-size-xs); font-weight: 600; }
 
     .dep-item {
+        position: relative;
         display: flex;
         align-items: center;
-        gap: 0.75rem;
-        padding: 0.75rem;
-        border-radius: 0.375rem;
-        margin-bottom: 0.5rem;
+        gap: var(--space-3);
+        min-width: 0;
+        padding: 9px 12px;
     }
-    .dep-item:last-child { margin-bottom: 0; }
-    .dep-item.status-ok { background: var(--status-success-bg); color: var(--status-success-text); }
-    .dep-item.status-info { background: var(--status-info-bg); color: var(--status-info-text); }
-    .dep-item.status-warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
-    .dep-item.status-error { background: var(--status-error-bg); color: var(--status-error-text); }
-    .dep-item.status-unknown { background: var(--bg-tertiary); }
-
-    .dep-icon { font-size: 1.25rem; }
-    .dep-details { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-    .dep-name { font-weight: 600; }
-    .dep-version { font-size: 0.8125rem; font-family: monospace; }
-    .dep-message { font-size: 0.8125rem; }
+    .dep-item + .dep-item::before { position: absolute; top: 0; right: 12px; left: 31px; height: 1px; background: var(--border-hairline); content: ""; }
+    .dep-details { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 1px; }
+    .dep-name { color: var(--text-primary); font-size: var(--font-size-sm); font-weight: 600; }
+    .dep-version { margin-left: var(--space-1); color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--font-size-xs); font-weight: 500; }
+    .dep-message { overflow: hidden; color: var(--text-muted); font-size: var(--font-size-xs); text-overflow: ellipsis; white-space: nowrap; }
 
     .preview-info-bubble {
         display: flex;
@@ -605,35 +567,50 @@ else
         gap: 0.5rem;
         padding: 0.625rem 0.875rem;
         background: var(--status-info-bg);
-        color: var(--status-info-text);
-        border-radius: 0.375rem;
+        color: var(--status-info-fg);
+        border: 1px solid var(--status-info-border);
+        border-radius: var(--radius-md);
         font-size: 0.875rem;
         margin-bottom: 0.75rem;
     }
 
     .timestamp { text-align: right; font-size: 0.75rem; color: var(--text-muted); margin-top: 1.25rem; }
 
-    .loading-state { 
-        background: var(--card-bg); 
-        border-radius: var(--card-radius); 
-        padding: 3.75rem 2.5rem; 
-        text-align: center; 
+    .loading-state {
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: var(--space-4);
         user-select: none;
     }
-    .loading-spinner { 
-        color: var(--accent-primary); 
-        margin-bottom: 1.25rem;
-        animation: pulse 1.5s ease-in-out infinite;
+    .loading-status {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-bottom: var(--space-3);
+        color: var(--text-secondary);
+        font-size: var(--font-size-sm);
     }
-    .loading-title { font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
-    .loading-description { color: var(--text-muted); font-size: 0.875rem; }
+    .loading-status i { color: var(--accent); }
+    .skeleton-list { overflow: hidden; background: var(--surface-well); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); }
+    .skeleton-row { position: relative; display: flex; align-items: center; gap: var(--space-3); padding: 10px 12px; }
+    .skeleton-row + .skeleton-row::before { position: absolute; top: 0; right: 12px; left: 31px; height: 1px; background: var(--border-hairline); content: ""; }
+    .skeleton-dot { flex: 0 0 7px; width: 7px; height: 7px; background: var(--border-strong); border-radius: 50%; }
+    .skeleton-copy { width: 38%; height: 9px; background: var(--border-subtle); border-radius: var(--radius-xs); }
+    .skeleton-copy.wide { width: 56%; }
+    .skeleton-copy.medium { width: 46%; }
+    .skeleton-pill { width: 44px; height: 18px; margin-left: auto; background: var(--border-subtle); border-radius: var(--radius-pill); }
 
-    @@keyframes pulse {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.6; transform: scale(0.95); }
+    @@media (max-width: 680px) {
+        .summary-banner { align-items: flex-start; flex-wrap: wrap; }
+        .summary-actions { width: 100%; justify-content: flex-end; }
+        .context-list { grid-template-columns: 1fr; }
+        .context-item.full-width { grid-column: auto; }
+        .dep-item { align-items: flex-start; flex-wrap: wrap; }
+        .dep-details { min-width: calc(100% - 24px); }
     }
 
-    .empty-state { background: var(--card-bg); border-radius: var(--card-radius); padding: 3.75rem 2.5rem; text-align: center; }
+    .empty-state { background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 3.75rem 2.5rem; text-align: center; }
     .empty-icon { font-size: 64px; margin-bottom: 1rem; }
     .empty-title { font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
     .empty-description { color: var(--text-muted); font-size: 0.875rem; line-height: 1.6; }
@@ -656,8 +633,8 @@ else
     }
 
     .copilot-modal {
-        background: var(--card-bg);
-        border-radius: 0.75rem;
+        background: var(--surface-card);
+        border-radius: var(--radius-xl);
         width: 90%;
         max-width: 800px;
         max-height: 80vh;
@@ -668,7 +645,7 @@ else
 
     .modal-header {
         padding: 1.25rem 1.5rem;
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-hairline);
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -684,7 +661,7 @@ else
     }
 
     .modal-header h2 i {
-        color: #6366f1;
+        color: var(--accent);
     }
 
     .btn-close {
@@ -717,15 +694,16 @@ else
         gap: 0.625rem;
         padding: 0.625rem 0.875rem;
         background: var(--status-info-bg);
-        color: var(--status-info-text);
-        border-radius: 0.375rem;
+        color: var(--status-info-fg);
+        border-radius: var(--radius-md);
         font-size: 0.875rem;
     }
 
     .copilot-output {
         flex: 1;
-        background: #1E1E1E;
-        border-radius: 0.5rem;
+        background: var(--surface-well);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-md);
         padding: 1rem;
         font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
         font-size: 0.8125rem;
@@ -734,19 +712,19 @@ else
     }
 
     .output-line {
-        color: #e2e8f0;
+        color: var(--text-primary);
         white-space: pre-wrap;
         word-break: break-word;
     }
 
-    .output-line.assistant { color: #a5b4fc; }
-    .output-line.tool { color: #fbbf24; }
-    .output-line.error { color: #f87171; }
-    .output-line.system { color: #9ca3af; font-style: italic; }
+    .output-line.assistant { color: var(--accent); }
+    .output-line.tool { color: var(--status-warning-fg); }
+    .output-line.error { color: var(--status-danger-fg); }
+    .output-line.system { color: var(--text-muted); font-style: italic; }
 
     .modal-footer {
         padding: 1rem 1.5rem;
-        border-top: 1px solid var(--border-color);
+        border-top: 1px solid var(--border-hairline);
         display: flex;
         justify-content: flex-end;
         gap: 0.75rem;
@@ -1194,17 +1172,17 @@ else
     private string GetSummaryClass()
     {
         if (report == null) return "";
-        if (report.HasErrors) return "error";
-        if (report.HasWarnings) return "warning";
-        return "success";
+        if (report.HasErrors) return "sherpa-banner-danger";
+        if (report.HasWarnings) return "sherpa-banner-warning";
+        return "sherpa-banner-success";
     }
 
     private string GetSummaryIconClass()
     {
         if (report == null) return "";
-        if (report.HasErrors) return "fas fa-times-circle text-error";
-        if (report.HasWarnings) return "fas fa-exclamation-triangle text-warning";
-        return "fas fa-check-circle text-success";
+        if (report.HasErrors) return "fa-solid fa-circle-xmark text-error";
+        if (report.HasWarnings) return "fa-solid fa-triangle-exclamation text-warning";
+        return "fa-solid fa-circle-check text-success";
     }
 
     private string GetSummaryTitle()
@@ -1217,11 +1195,11 @@ else
 
     private string GetStatusIconClass(DependencyStatusType status) => status switch
     {
-        DependencyStatusType.Ok => "fas fa-check-circle text-success",
-        DependencyStatusType.Info => "fas fa-info-circle",
-        DependencyStatusType.Warning => "fas fa-exclamation-triangle text-warning",
-        DependencyStatusType.Error => "fas fa-times-circle text-error",
-        _ => "fas fa-question-circle text-muted"
+        DependencyStatusType.Ok => "fa-solid fa-circle-check text-success",
+        DependencyStatusType.Info => "fa-solid fa-circle-info",
+        DependencyStatusType.Warning => "fa-solid fa-triangle-exclamation text-warning",
+        DependencyStatusType.Error => "fa-solid fa-circle-xmark text-error",
+        _ => "fa-solid fa-circle-question text-muted"
     };
 
     private string GetDepStatusClass(DependencyStatusType status) => status switch
@@ -1231,6 +1209,32 @@ else
         DependencyStatusType.Warning => "status-warning",
         DependencyStatusType.Error => "status-error",
         _ => "status-unknown"
+    };
+
+    private static string GetStatusDotClass(DependencyStatusType status) => status switch
+    {
+        DependencyStatusType.Ok => "sherpa-dot-success",
+        DependencyStatusType.Warning => "sherpa-dot-warning",
+        DependencyStatusType.Error => "sherpa-dot-danger",
+        _ => "sherpa-dot-muted"
+    };
+
+    private static string GetStatusBadgeClass(DependencyStatusType status) => status switch
+    {
+        DependencyStatusType.Ok => "sherpa-badge-success",
+        DependencyStatusType.Warning => "sherpa-badge-warning",
+        DependencyStatusType.Error => "sherpa-badge-danger",
+        DependencyStatusType.Info => "sherpa-badge-info",
+        _ => "sherpa-badge-neutral"
+    };
+
+    private static string GetStatusBadgeLabel(DependencyStatusType status) => status switch
+    {
+        DependencyStatusType.Ok => "OK",
+        DependencyStatusType.Warning => "Warning",
+        DependencyStatusType.Error => "Error",
+        DependencyStatusType.Info => "Info",
+        _ => "Unknown"
     };
 
     private static bool IsMissingJdk(DependencyStatus dependency) =>

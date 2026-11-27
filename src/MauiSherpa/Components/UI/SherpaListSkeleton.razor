@@ -1,0 +1,42 @@
+<div class="sherpa-list" role="status" aria-busy="true" aria-label="@(Label ?? "Loading...")">
+    @for (var i = 0; i < Math.Max(1, Rows); i++)
+    {
+        var titleWidth = (i % 3) switch
+        {
+            0 => "52%",
+            1 => "42%",
+            _ => "58%"
+        };
+        var subWidth = (i % 3) switch
+        {
+            0 => "34%",
+            1 => "48%",
+            _ => "38%"
+        };
+        var pillWidth = (i % 2) == 0 ? "64px" : "52px";
+
+        <div class="sherpa-list-row">
+            <div class="sherpa-row-lead">
+                @if (ShowIconWell)
+                {
+                    <div class="sherpa-skeleton" style="width: 34px; height: 34px; border-radius: var(--radius-md); flex-shrink: 0;"></div>
+                }
+                <div class="sherpa-row-stack" style="gap: 6px;">
+                    <div class="sherpa-skeleton" style="height: 12px; width: @titleWidth;"></div>
+                    <div class="sherpa-skeleton" style="height: 10px; width: @subWidth;"></div>
+                </div>
+            </div>
+            @if (ShowTrailingPill)
+            {
+                <div class="sherpa-skeleton" style="height: 22px; width: @pillWidth; border-radius: var(--radius-pill); flex-shrink: 0;"></div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int Rows { get; set; } = 4;
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public bool ShowIconWell { get; set; } = true;
+    [Parameter] public bool ShowTrailingPill { get; set; } = true;
+}

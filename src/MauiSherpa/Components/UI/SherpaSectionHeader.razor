@@ -1,0 +1,55 @@
+<header class="@RootCssClass">
+    <div>
+        <h2 class="sherpa-section-title">
+            @if (!string.IsNullOrWhiteSpace(Icon))
+            {
+                <i class="@EnsureFixedWidth(Icon)" aria-hidden="true"></i>
+            }
+            @Title
+            @if (Count is not null)
+            {
+                <span class="sherpa-badge sherpa-badge-neutral">@Count</span>
+            }
+        </h2>
+        @if (!string.IsNullOrWhiteSpace(Caption))
+        {
+            <p class="sherpa-section-caption">@Caption</p>
+        }
+    </div>
+    @if (Actions is not null)
+    {
+        <div class="sherpa-row-actions">@Actions</div>
+    }
+</header>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Caption { get; set; }
+
+    [Parameter]
+    public string? Icon { get; set; }
+
+    [Parameter]
+    public int? Count { get; set; }
+
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    private string RootCssClass =>
+        string.Join(
+            " ",
+            new[] { "sherpa-section-header", Class }
+                .Where(cssClass => !string.IsNullOrWhiteSpace(cssClass)));
+
+    private static string EnsureFixedWidth(string icon) =>
+        icon.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Contains("fa-fw", StringComparer.Ordinal)
+                ? icon
+                : $"{icon} fa-fw";
+}

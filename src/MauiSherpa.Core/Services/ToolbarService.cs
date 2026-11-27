@@ -17,7 +17,8 @@ public class ToolbarService : IToolbarService
     internal ToolbarService(Screenshots.ScreenshotMode screenshotMode) => this.screenshotMode = screenshotMode;
 
     private bool IsScreenshotActionAllowed(string actionId) =>
-        !screenshotMode.IsEnabled || actionId is "refresh" or "select" or "cancel-selection" or "up-folder";
+        !screenshotMode.IsEnabled || actionId is "refresh" or "select" or "cancel-selection" or "up-folder" or "push-projects"
+        || actionId.StartsWith("push-project:", StringComparison.Ordinal);
 
     private ToolbarAction[] _items = [];
     private ToolbarFilter[] _filters = [];
@@ -73,7 +74,7 @@ public class ToolbarService : IToolbarService
     public void InvokeToolbarItemClicked(string actionId)
     {
         // Native controls can outlive the page state that made them visible.
-        if (!AllActions.Any(item => item.Id == actionId) || !IsItemEnabled(actionId))
+        if (!AllActions.Any(item => item.Id == actionId && !item.IsSeparator) || !IsItemEnabled(actionId))
             return;
 
         ToolbarItemClicked?.Invoke(actionId);

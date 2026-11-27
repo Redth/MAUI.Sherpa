@@ -17,18 +17,12 @@
 @inject IPlatformService PlatformInfo
 @implements IDisposable
 
-<h1><i class="fas fa-cube"></i> Android SDK &amp; JDK</h1>
+<h1><i class="fa-solid fa-cube"></i> Android SDK &amp; JDK</h1>
 <MauiSherpa.Components.AndroidSdkContext @ref="sdkContext" ShowHeader="false" Changed="SdkChangedAsync" />
 
 @if (!hasInitialized)
 {
-    <div class="loading-state">
-        <div class="loading-spinner">
-            <i class="fas fa-cube"></i>
-        </div>
-        <div class="loading-title">Checking Android tooling</div>
-        <div class="loading-description">Looking for Java and the Android SDK...</div>
-    </div>
+    <SherpaListSkeleton Rows="5" Label="Loading Android SDK packages..." />
 }
 else
 {
@@ -43,10 +37,10 @@ else
 {
 <div class="toolbar">
     <button class="btn btn-primary" @onclick="RefreshData" disabled="@ViewModel.IsLoading">
-        <i class="fas fa-sync-alt"></i> @(ViewModel.IsLoading ? "Loading..." : "Refresh")
+        <i class="fa-solid fa-sync-alt"></i> @(ViewModel.IsLoading ? "Loading..." : "Refresh")
     </button>
     <button data-screenshot-external class="btn btn-success" @onclick="UpdatePackages" disabled="@ViewModel.IsLoading">
-        <i class="fas fa-arrow-up"></i> Update Packages
+        <i class="fa-solid fa-arrow-up"></i> Update Packages
         @if (GetUpdatablePackages().Any())
         {
             <span class="toolbar-update-count">@GetUpdatablePackages().Count()</span>
@@ -55,51 +49,47 @@ else
 </div>
 }
 
-@if (IsReady)
+@if (IsReady && hasInitialized)
 {
-    <div class="tabs">
-        <button class="tab @(activeTab == "all" ? "active" : "")" @onclick="@(() => activeTab = "all")">
-            All (@FilteredAllPackages.Count())
-        </button>
-        <button class="tab @(activeTab == "installed" ? "active" : "")" @onclick="@(() => activeTab = "installed")">
-            Installed (@FilteredInstalledPackages.Count())
-            @if (GetUpdatablePackages().Any())
-            {
-                <span class="tab-badge">@GetUpdatablePackages().Count()</span>
-            }
-        </button>
-        <button class="tab @(activeTab == "available" ? "active" : "")" @onclick="@(() => activeTab = "available")">
-            Available (@FilteredAvailablePackages.Count())
-        </button>
-    </div>
+    <SherpaTabs Items="AndroidPackageTabs"
+                ActiveKey="@activeTab"
+                ActiveKeyChanged="@(key => activeTab = key)"
+                Variant="SherpaTabVariant.Standard"
+                AriaLabel="Android SDK package views" />
 
     <!-- Filter Section -->
     @if (!PlatformInfo.HasNativeToolbar)
     {
     <div class="filter-section">
         <div class="search-box">
-            <span class="search-icon"><i class="fas fa-search"></i></span>
+            <span class="search-icon"><i class="fa-solid fa-search"></i></span>
             <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search packages..." />
             @if (!string.IsNullOrEmpty(searchQuery))
             {
-                <button class="clear-btn" @onclick="@(() => searchQuery = "")">×</button>
+                <button class="clear-btn" @onclick="@(() => searchQuery = "")" aria-label="Clear package search">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
             }
         </div>
         <div class="filter-chips">
-            <select @bind="filterCategory" class="filter-select">
-                <option value="">All Categories</option>
-                @foreach (var cat in GetAllCategories())
-                {
-                    <option value="@cat">@cat</option>
-                }
-            </select>
+            <SherpaSelect TValue="string"
+                          Value="@filterCategory"
+                          ValueChanged="@(value => filterCategory = value ?? "")"
+                          Options="CategoryFilterOptions"
+                          LeadingIcon="fa-solid fa-layer-group"
+                          AriaLabel="Filter by package category"
+                          Compact="true"
+                          Class="filter-select" />
             @if (activeTab == "installed")
             {
-                <select @bind="filterUpdates" class="filter-select">
-                    <option value="">All Packages</option>
-                    <option value="updates">Has Updates</option>
-                    <option value="current">Up to Date</option>
-                </select>
+                <SherpaSelect TValue="string"
+                              Value="@filterUpdates"
+                              ValueChanged="@(value => filterUpdates = value ?? "")"
+                              Options="UpdateFilterOptions"
+                              LeadingIcon="fa-solid fa-circle-arrow-up"
+                              AriaLabel="Filter by update status"
+                              Compact="true"
+                              Class="filter-select" />
             }
         </div>
         @if (HasActiveFilters)
@@ -111,11 +101,15 @@ else
 
     @if (activeTab == "installed")
     {
-        <div class="package-groups">
-            @if (!FilteredInstalledPackages.Any())
+        <div class="package-groups sherpa-list">
+            @if (ViewModel.IsLoading && !FilteredInstalledPackages.Any())
+            {
+                <SherpaListSkeleton Rows="5" Label="Loading Android SDK packages..." />
+            }
+            else if (!FilteredInstalledPackages.Any())
             {
                 <div class="empty-state">
-                    <div class="empty-icon"><i class="fas fa-search"></i></div>
+                    <div class="empty-icon"><i class="fa-solid fa-search"></i></div>
                     <div class="empty-title">@(ViewModel.InstalledPackages.Count == 0 ? "No packages installed" : "No matching packages")</div>
                     <div class="empty-description">@(ViewModel.InstalledPackages.Count == 0 ? "Install packages from the Available tab" : "No installed packages match your search or filters. Try adjusting your criteria.")</div>
                 </div>
@@ -125,19 +119,21 @@ else
                 @foreach (var group in GetPackageGroups(FilteredInstalledPackages))
                 {
                     var groupUpdates = group.Count(p => HasUpdate(p));
+                    var isExpanded = IsGroupExpanded(group.Key);
                     <div class="package-group">
-                        <div class="group-header" @onclick="@(() => ToggleGroup(group.Key))">
-                            <span class="group-chevron">@(IsGroupExpanded(group.Key) ? "▼" : "▶")</span>
+                        <button type="button" class="group-header" @onclick="@(() => ToggleGroup(group.Key))" aria-expanded="@isExpanded">
+                            <i class="fa-solid fa-chevron-right fa-fw group-chevron @(isExpanded ? "expanded" : "")" aria-hidden="true"></i>
+                            <i class="fa-solid @GetPackageGroupIcon(group.Key) fa-fw group-icon" aria-hidden="true"></i>
                             <span class="group-name">@group.Key</span>
                             @if (groupUpdates > 0)
                             {
-                                <span class="section-update-flag" title="@groupUpdates update@(groupUpdates > 1 ? "s" : "") available">
-                                    <i class="fas fa-circle-arrow-up"></i> @groupUpdates update@(groupUpdates > 1 ? "s" : "")
+                                <span class="sherpa-badge sherpa-badge-warning" title="@groupUpdates update@(groupUpdates > 1 ? "s" : "") available">
+                                    <i class="fa-solid fa-arrow-up fa-fw"></i> @($"{groupUpdates} update{(groupUpdates > 1 ? "s" : "")}")
                                 </span>
                             }
-                            <span class="group-count">@group.Count()</span>
-                        </div>
-                        @if (IsGroupExpanded(group.Key))
+                            <span class="sherpa-badge sherpa-badge-neutral">@group.Count()</span>
+                        </button>
+                        @if (isExpanded)
                         {
                             <div class="group-content">
                                 @foreach (var package in OrderPackagesByNewestVersion(group))
@@ -148,28 +144,25 @@ else
                                         <div class="package-info">
                                             <div class="package-name-row">
                                                 <span class="package-path">@GetPackageShortName(package.Path)</span>
+                                                <span class="sherpa-badge sherpa-badge-success">Installed</span>
                                                 @if (hasUpdate)
                                                 {
-                                                    <span class="item-update-flag" title="Newer version available">
-                                                        <i class="fas fa-circle-arrow-up"></i> Update available
+                                                    <span class="sherpa-badge sherpa-badge-warning" title="@($"Update available: v{package.Version} → v{availableUpdate!.Version}")">
+                                                        <i class="fa-solid fa-arrow-up fa-fw"></i> @availableUpdate!.Version
                                                     </span>
                                                 }
                                             </div>
                                             <span class="package-description">@package.Description</span>
-                                            <div class="version-row">
-                                                @if (!string.IsNullOrEmpty(package.Version))
-                                                {
-                                                    <span class="package-version">v@(package.Version)</span>
-                                                }
-                                                @if (hasUpdate)
-                                                {
-                                                    <span class="update-version">→ v@(availableUpdate!.Version)</span>
-                                                }
-                                            </div>
                                         </div>
                                         <div class="package-actions">
-                                            <button data-screenshot-external class="btn btn-danger btn-sm" @onclick="@(() => UninstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
-                                                <i class="fas fa-trash"></i> Uninstall
+                                            @if (hasUpdate)
+                                            {
+                                                <button data-screenshot-external class="btn btn-primary btn-sm" @onclick="@(() => InstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
+                                                    <i class="fa-solid fa-arrow-up fa-fw"></i> Update
+                                                </button>
+                                            }
+                                            <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="@(() => UninstallPackage(package.Path))" disabled="@ViewModel.IsLoading" title="Uninstall package" aria-label="Uninstall @GetPackageShortName(package.Path)">
+                                                <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
                                             </button>
                                         </div>
                                     </div>
@@ -184,11 +177,15 @@ else
 
     @if (activeTab == "all")
     {
-        <div class="package-groups">
-            @if (!FilteredAllPackages.Any())
+        <div class="package-groups sherpa-list">
+            @if (ViewModel.IsLoading && !FilteredAllPackages.Any())
+            {
+                <SherpaListSkeleton Rows="5" Label="Loading Android SDK packages..." />
+            }
+            else if (!FilteredAllPackages.Any())
             {
                 <div class="empty-state">
-                    <div class="empty-icon"><i class="fas fa-search"></i></div>
+                    <div class="empty-icon"><i class="fa-solid fa-search"></i></div>
                     <div class="empty-title">No matching packages</div>
                     <div class="empty-description">No packages match your search or filters. Try adjusting your criteria.</div>
                 </div>
@@ -198,19 +195,23 @@ else
                 @foreach (var group in GetUnifiedPackageGroups(FilteredAllPackages))
                 {
                     var groupHasStableUpdates = group.Any(p => p.HasUpdate);
+                    var groupKey = "all_" + group.Key;
+                    var isExpanded = IsGroupExpanded(groupKey);
+                    var updateCount = group.Count(p => p.HasUpdate);
                     <div class="package-group">
-                        <div class="group-header" @onclick="@(() => ToggleGroup("all_" + group.Key))">
-                            <span class="group-chevron">@(IsGroupExpanded("all_" + group.Key) ? "▼" : "▶")</span>
+                        <button type="button" class="group-header" @onclick="@(() => ToggleGroup(groupKey))" aria-expanded="@isExpanded">
+                            <i class="fa-solid fa-chevron-right fa-fw group-chevron @(isExpanded ? "expanded" : "")" aria-hidden="true"></i>
+                            <i class="fa-solid @GetPackageGroupIcon(group.Key) fa-fw group-icon" aria-hidden="true"></i>
                             <span class="group-name">@group.Key</span>
                             @if (groupHasStableUpdates)
                             {
-                                <span class="section-update-flag" title="Updates available in this section">
-                                    <i class="fas fa-circle-arrow-up"></i> Updates available
+                                <span class="sherpa-badge sherpa-badge-warning" title="Updates available in this section">
+                                    <i class="fa-solid fa-arrow-up fa-fw"></i> @($"{updateCount} update{(updateCount == 1 ? "" : "s")}")
                                 </span>
                             }
-                            <span class="group-count">@group.Count()</span>
-                        </div>
-                        @if (IsGroupExpanded("all_" + group.Key))
+                            <span class="sherpa-badge sherpa-badge-neutral">@group.Count()</span>
+                        </button>
+                        @if (isExpanded)
                         {
                             <div class="group-content">
                                 @foreach (var package in OrderUnifiedPackagesByNewestVersion(group))
@@ -226,46 +227,39 @@ else
                                                 <span class="package-path">@GetPackageShortName(package.Path)</span>
                                                 @if (hasUpdate)
                                                 {
-                                                    <span class="item-update-flag" title="Newer version available">
-                                                        <i class="fas fa-circle-arrow-up"></i> Update available
+                                                    <span class="sherpa-badge sherpa-badge-success">Installed</span>
+                                                    <span class="sherpa-badge sherpa-badge-warning" title="@($"Update available: v{installedVersion} → v{availableVersion}")">
+                                                        <i class="fa-solid fa-arrow-up fa-fw"></i> @availableVersion
                                                     </span>
                                                 }
                                                 else if (isInstalled)
                                                 {
-                                                    <span class="installed-indicator">Installed</span>
+                                                    <span class="sherpa-badge sherpa-badge-success">Installed</span>
                                                 }
                                                 else
                                                 {
-                                                    <span class="available-indicator">Available</span>
+                                                    <span class="sherpa-badge sherpa-badge-neutral">Available</span>
                                                 }
                                             </div>
                                             <span class="package-description">@package.Description</span>
-                                            <div class="version-row">
-                                                @if (package.InstalledPackage != null && !string.IsNullOrEmpty(installedVersion))
-                                                {
-                                                    <span class="package-version">Installed v@(installedVersion)</span>
-                                                }
-                                                @if (hasUpdate && !string.IsNullOrEmpty(availableVersion))
-                                                {
-                                                    <span class="update-version">→ v@(availableVersion)</span>
-                                                }
-                                                else if (!isInstalled && package.AvailablePackage != null && !string.IsNullOrEmpty(availableVersion))
-                                                {
-                                                    <span class="package-version">Available v@(availableVersion)</span>
-                                                }
-                                            </div>
                                         </div>
                                         <div class="package-actions">
                                             @if (isInstalled)
                                             {
-                                                <button data-screenshot-external class="btn btn-danger btn-sm" @onclick="@(() => UninstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
-                                                    <i class="fas fa-trash"></i> Uninstall
+                                                @if (hasUpdate)
+                                                {
+                                                    <button data-screenshot-external class="btn btn-primary btn-sm" @onclick="@(() => InstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
+                                                        <i class="fa-solid fa-arrow-up fa-fw"></i> Update
+                                                    </button>
+                                                }
+                                                <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="@(() => UninstallPackage(package.Path))" disabled="@ViewModel.IsLoading" title="Uninstall package" aria-label="Uninstall @GetPackageShortName(package.Path)">
+                                                    <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
                                                 </button>
                                             }
                                             else
                                             {
                                                 <button data-screenshot-external class="btn btn-primary btn-sm" @onclick="@(() => InstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
-                                                    <i class="fas fa-download"></i> Install
+                                                    <i class="fa-solid fa-download"></i> Install
                                                 </button>
                                             }
                                         </div>
@@ -281,11 +275,15 @@ else
 
     @if (activeTab == "available")
     {
-        <div class="package-groups">
-            @if (!FilteredAvailablePackages.Any())
+        <div class="package-groups sherpa-list">
+            @if (ViewModel.IsLoading && !FilteredAvailablePackages.Any())
+            {
+                <SherpaListSkeleton Rows="5" Label="Loading Android SDK packages..." />
+            }
+            else if (!FilteredAvailablePackages.Any())
             {
                 <div class="empty-state">
-                    <div class="empty-icon"><i class="fas fa-search"></i></div>
+                    <div class="empty-icon"><i class="fa-solid fa-search"></i></div>
                     <div class="empty-title">No matching packages</div>
                     <div class="empty-description">No available packages match your search or filters. Try adjusting your criteria.</div>
                 </div>
@@ -295,19 +293,23 @@ else
                 @foreach (var group in GetPackageGroups(FilteredAvailablePackages))
                 {
                     var groupHasUpdates = group.Any(p => GetInstalledVersion(p.Path) != null);
+                    var groupKey = "avail_" + group.Key;
+                    var isExpanded = IsGroupExpanded(groupKey);
+                    var updateCount = group.Count(p => GetInstalledVersion(p.Path) != null);
                     <div class="package-group">
-                        <div class="group-header" @onclick="@(() => ToggleGroup("avail_" + group.Key))">
-                            <span class="group-chevron">@(IsGroupExpanded("avail_" + group.Key) ? "▼" : "▶")</span>
+                        <button type="button" class="group-header" @onclick="@(() => ToggleGroup(groupKey))" aria-expanded="@isExpanded">
+                            <i class="fa-solid fa-chevron-right fa-fw group-chevron @(isExpanded ? "expanded" : "")" aria-hidden="true"></i>
+                            <i class="fa-solid @GetPackageGroupIcon(group.Key) fa-fw group-icon" aria-hidden="true"></i>
                             <span class="group-name">@group.Key</span>
                             @if (groupHasUpdates)
                             {
-                                <span class="section-update-flag" title="Updates available in this section">
-                                    <i class="fas fa-circle-arrow-up"></i> Updates available
+                                <span class="sherpa-badge sherpa-badge-warning" title="Updates available in this section">
+                                    <i class="fa-solid fa-arrow-up fa-fw"></i> @($"{updateCount} update{(updateCount == 1 ? "" : "s")}")
                                 </span>
                             }
-                            <span class="group-count">@group.Count()</span>
-                        </div>
-                        @if (IsGroupExpanded("avail_" + group.Key))
+                            <span class="sherpa-badge sherpa-badge-neutral">@group.Count()</span>
+                        </button>
+                        @if (isExpanded)
                         {
                             <div class="group-content">
                                 @foreach (var package in OrderPackagesByNewestVersion(group))
@@ -320,32 +322,29 @@ else
                                                 <span class="package-path">@GetPackageShortName(package.Path)</span>
                                                 @if (isUpdate)
                                                 {
-                                                    <span class="item-update-flag" title="Newer version available">
-                                                        <i class="fas fa-circle-arrow-up"></i> Update available
+                                                    <span class="sherpa-badge sherpa-badge-success">Installed</span>
+                                                    <span class="sherpa-badge sherpa-badge-warning" title="@($"Update available: v{installedVersion} → v{package.Version}")">
+                                                        <i class="fa-solid fa-arrow-up fa-fw"></i> @package.Version
                                                     </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="sherpa-badge sherpa-badge-neutral">Available</span>
                                                 }
                                             </div>
                                             <span class="package-description">@package.Description</span>
-                                            <div class="version-row">
-                                                @if (isUpdate)
-                                                {
-                                                    <span class="package-version">Installed v@(installedVersion)</span>
-                                                    @if (!string.IsNullOrEmpty(package.Version))
-                                                    {
-                                                        <span class="update-version">→ v@(package.Version)</span>
-                                                    }
-                                                }
-                                                else if (!string.IsNullOrEmpty(package.Version))
-                                                {
-                                                    <span class="package-version">v@(package.Version)</span>
-                                                }
-                                            </div>
                                         </div>
                                         <div class="package-actions">
-                                            @if (!isUpdate)
+                                            @if (isUpdate)
                                             {
                                                 <button data-screenshot-external class="btn btn-primary btn-sm" @onclick="@(() => InstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
-                                                    <i class="fas fa-download"></i> Install
+                                                    <i class="fa-solid fa-arrow-up fa-fw"></i> Update
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="@(() => InstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
+                                                    <i class="fa-solid fa-download"></i> Install
                                                 </button>
                                             }
                                         </div>
@@ -361,12 +360,6 @@ else
 }
 
 <style>
-    h1 {
-        margin-bottom: 1.25rem;
-        font-size: 1.75rem;
-        color: var(--text-primary);
-    }
-
     .btn-link-settings {
         color: var(--text-muted);
         padding: 0.25rem 0.5rem;
@@ -402,14 +395,15 @@ else
 
     /* Filter Section Styles */
     .filter-section {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        padding: 1rem;
-        margin-bottom: 1rem;
         display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem;
         align-items: center;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        margin-bottom: var(--space-3);
+        padding: var(--space-3);
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
     }
 
     .filter-section .search-box {
@@ -421,22 +415,20 @@ else
 
     .filter-section .search-box input {
         width: 100%;
-        padding: 0.625rem 36px 0.625rem 36px;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
+        padding: 0 26px;
+        border: 0;
+        font-size: var(--font-size-md);
         box-sizing: border-box;
     }
 
     .filter-section .search-box input:focus {
         outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+        box-shadow: none;
     }
 
     .search-icon {
         position: absolute;
-        left: 0.75rem;
+        left: var(--space-3);
         top: 50%;
         transform: translateY(-50%);
         font-size: 0.875rem;
@@ -445,14 +437,14 @@ else
 
     .clear-btn {
         position: absolute;
-        right: 0.5rem;
+        right: var(--space-2);
         top: 50%;
         transform: translateY(-50%);
-        background: var(--border-color);
+        background: transparent;
         border: none;
-        border-radius: 50%;
-        width: 1.25rem;
-        height: 1.25rem;
+        border-radius: var(--radius-sm);
+        width: 20px;
+        height: 20px;
         font-size: 0.875rem;
         cursor: pointer;
         display: flex;
@@ -465,24 +457,15 @@ else
 
     .filter-chips { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
-    .filter-select {
-        padding: 0.5rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.8125rem;
-        background: var(--card-bg);
-        cursor: pointer;
-        min-width: 140px;
-    }
-
-    .filter-select:focus { outline: none; border-color: var(--accent-primary); }
+    .filter-select { min-width: 140px; }
 
     .clear-filters-btn {
-        padding: 0.5rem 0.75rem;
+        min-height: var(--control-height-sm);
+        padding: 0 var(--space-2);
         background: none;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.8125rem;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        font-size: var(--font-size-xs);
         color: var(--text-muted);
         cursor: pointer;
     }
@@ -492,36 +475,6 @@ else
     .results-info { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem; }
 
     .btn i { font-size: 0.75rem; }
-
-    .tabs {
-        display: flex;
-        gap: 0.25rem;
-        margin-bottom: 1rem;
-        border-bottom: 2px solid var(--border-color);
-        padding-bottom: 0;
-    }
-
-    .tab {
-        padding: 0.75rem 1.25rem;
-        background: transparent;
-        border: none;
-        cursor: pointer;
-        color: var(--text-muted);
-        font-size: 0.875rem;
-        border-bottom: 2px solid transparent;
-        margin-bottom: -2px;
-        transition: all 0.2s ease;
-    }
-
-    .tab:hover {
-        color: var(--accent-primary);
-    }
-
-    .tab.active {
-        color: var(--accent-primary);
-        border-bottom-color: var(--accent-primary);
-        font-weight: 600;
-    }
 
     .search-box {
         margin-bottom: 1rem;
@@ -541,61 +494,41 @@ else
         box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
     }
 
-    .package-groups {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
+    .package-groups { background: var(--surface-card); }
 
-    .package-group {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        overflow: hidden;
-    }
+    .package-group { position: relative; }
+    .package-group + .package-group { border-top: 1px solid var(--border-hairline); }
 
     .group-header {
         display: flex;
         align-items: center;
-        padding: 0.875rem 1.25rem;
+        gap: var(--space-2);
+        width: 100%;
+        padding: 10px 14px;
+        color: var(--text-primary);
+        background: transparent;
+        border: 0;
         cursor: pointer;
-        transition: background 0.2s ease;
+        font: inherit;
+        text-align: left;
+        transition: background var(--motion-fast) var(--ease-standard);
         user-select: none;
     }
+    .group-header:hover { background: var(--surface-card-hover); }
 
     .group-chevron {
-        width: 1.25rem;
         color: var(--text-muted);
-        font-size: 0.75rem;
+        font-size: var(--font-size-xs);
+        transition: transform var(--motion-normal) var(--ease-standard);
     }
+    .group-chevron.expanded { transform: rotate(90deg); }
+    .group-icon { color: var(--text-muted); font-size: var(--font-size-sm); }
 
     .group-name {
         flex: 1;
         font-weight: 600;
         color: var(--text-primary);
-        font-size: 0.9375rem;
-    }
-
-    .group-count {
-        background: var(--border-color);
-        color: var(--text-secondary);
-        padding: 2px 0.625rem;
-        border-radius: 0.75rem;
-        font-size: 0.75rem;
-        font-weight: 500;
-    }
-
-    .section-update-flag {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.3rem;
-        color: var(--accent-warning);
-        font-size: 0.6875rem;
-        font-weight: 600;
-        margin-right: 0.625rem;
-    }
-
-    .section-update-flag i {
-        font-size: 0.625rem;
+        font-size: var(--font-size-md);
     }
 
     .toolbar-update-count {
@@ -614,106 +547,66 @@ else
     }
 
     .group-content {
-        border-top: 1px solid var(--border-color);
+        background: var(--surface-well);
+        border-top: 1px solid var(--border-hairline);
     }
 
     .package-item {
+        position: relative;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 0.75rem 1.25rem 0.75rem 44px;
-        border-bottom: 1px solid var(--border-color);
+        gap: var(--space-3);
+        min-width: 0;
+        padding: 9px 14px 9px 40px;
     }
 
-    .package-item:last-child {
-        border-bottom: none;
-    }
-
-    .package-item.has-update {
-        border-left: 3px solid var(--accent-warning);
-    }
-
-    .package-item.is-installed {
-        background: var(--bg-secondary);
+    .package-item + .package-item::before {
+        position: absolute;
+        top: 0;
+        right: 14px;
+        left: 40px;
+        height: 1px;
+        background: var(--border-hairline);
+        content: "";
     }
 
     .package-info {
         display: flex;
+        flex: 1;
         flex-direction: column;
+        min-width: 0;
         gap: 2px;
     }
 
     .package-name-row {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        flex-wrap: wrap;
+        gap: 6px;
     }
 
     .package-path {
-        font-weight: 500;
         color: var(--text-primary);
-        font-family: monospace;
-        font-size: 0.8125rem;
+        font-family: var(--font-mono);
+        font-size: var(--font-size-sm);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
     }
 
     .package-description {
+        overflow: hidden;
         color: var(--text-muted);
-        font-size: 0.75rem;
-    }
-
-    .package-version {
-        color: var(--text-muted);
-        font-size: 0.6875rem;
-    }
-
-    .version-row {
-        display: flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-
-    .update-version {
-        color: var(--accent-success);
-        font-size: 0.6875rem;
-        font-weight: 500;
-    }
-
-    .item-update-flag {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.3rem;
-        color: var(--accent-warning);
-        font-size: 0.625rem;
-        font-weight: 600;
-    }
-
-    .item-update-flag i {
-        font-size: 0.5625rem;
-    }
-
-    .installed-indicator {
-        background: var(--status-success-bg);
-        color: var(--status-success-text);
-        padding: 0.18rem 0.45rem;
-        border-radius: 999px;
-        font-size: 0.625rem;
-        font-weight: 600;
-        border: 1px solid var(--border-color);
-    }
-
-    .available-indicator {
-        background: var(--status-info-bg);
-        color: var(--status-info-text);
-        padding: 0.18rem 0.45rem;
-        border-radius: 999px;
-        font-size: 0.625rem;
-        font-weight: 600;
-        border: 1px solid var(--border-color);
+        font-size: var(--font-size-xs);
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .package-actions {
         display: flex;
-        gap: 0.5rem;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 6px;
     }
 
     .update-badge {
@@ -724,16 +617,6 @@ else
         font-size: 0.8125rem;
         font-weight: 500;
         margin-left: 0.75rem;
-    }
-
-    .tab-badge {
-        background: var(--status-warning-bg);
-        color: var(--status-warning-text);
-        padding: 1px 0.375rem;
-        border-radius: 0.625rem;
-        font-size: 0.6875rem;
-        font-weight: 600;
-        margin-left: 0.375rem;
     }
 
     .device-list {
@@ -793,22 +676,29 @@ else
     }
 
     .empty-state {
-        padding: 3.75rem 2.5rem;
+        padding: var(--space-8) var(--space-5);
         text-align: center;
         color: var(--text-muted);
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
+        background: var(--surface-card);
     }
-    .empty-icon { font-size: 48px; margin-bottom: 1rem; color: var(--text-secondary); }
-    .empty-icon i { font-size: 48px; }
-    .empty-title { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
-    .empty-description { color: var(--text-secondary); font-size: 0.9rem; }
+    .empty-icon { margin-bottom: var(--space-2); color: var(--text-muted); font-size: 24px; }
+    .empty-icon i { font-size: 24px; }
+    .empty-title { margin-bottom: var(--space-1); color: var(--text-primary); font-size: var(--font-size-md); font-weight: 600; }
+    .empty-description { color: var(--text-secondary); font-size: var(--font-size-sm); }
+
+    @@media (max-width: 640px) {
+        .group-header { flex-wrap: wrap; }
+        .group-name { min-width: calc(100% - 56px); }
+        .package-item { align-items: flex-start; flex-direction: column; }
+        .package-actions { align-self: flex-end; }
+    }
 </style>
 
 @code {
     private string activeTab = "all";
     private HashSet<string> expandedGroups = new();
     private bool hasInitialized = false;
+    private bool isUpdatingPackages;
     private string? detectedJdkPath;
 
     // Filter state
@@ -817,6 +707,33 @@ else
     private string filterUpdates = "";
     private bool HasJdkConfigured => !string.IsNullOrWhiteSpace(detectedJdkPath);
     private bool IsReady => ViewModel.IsSdkInstalled && HasJdkConfigured;
+
+    private IReadOnlyList<SherpaTabItem> AndroidPackageTabs =>
+    [
+        new("all", "All", "fa-solid fa-cubes", FilteredAllPackages.Count()),
+        new(
+            "installed",
+            "Installed",
+            "fa-solid fa-circle-check",
+            FilteredInstalledPackages.Count(),
+            GetUpdatablePackages().Any(),
+            AttentionTitle: "Package updates available"),
+        new("available", "Available", "fa-solid fa-cloud-arrow-down", FilteredAvailablePackages.Count())
+    ];
+
+    private IReadOnlyList<SherpaSelectOption<string>> CategoryFilterOptions =>
+    [
+        new("", "All Categories"),
+        .. GetAllCategories().Select(category =>
+            new SherpaSelectOption<string>(category, category))
+    ];
+
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> UpdateFilterOptions =
+    [
+        new("", "All Packages"),
+        new("updates", "Has Updates", Icon: "fa-solid fa-circle-arrow-up"),
+        new("current", "Up to Date", Icon: "fa-solid fa-circle-check")
+    ];
 
     private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || 
                                       !string.IsNullOrEmpty(filterCategory) || 
@@ -938,10 +855,10 @@ else
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.SetItems(
-            MauiSherpa.Components.AndroidSdkContext.Menu,
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("update-all", "Update Packages", "arrow.triangle.2.circlepath")
         );
+        UpdateToolbarStates();
         ToolbarService.SetSearch("Search packages...");
         ToolbarService.SetFilters(
             new ToolbarFilter("category", "Category", ["All Categories", ..GetAllCategories()]),
@@ -951,6 +868,7 @@ else
         ToolbarService.SearchTextChanged += OnSearchTextChanged;
         ToolbarService.FilterChanged += OnFilterChanged;
         JdkSettings.JdkPathChanged += OnJdkPathChanged;
+        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
 
         try
         {
@@ -960,19 +878,36 @@ else
         catch (Exception ex) { await AlertService.ShowAlertAsync("Android SDK Unavailable", ex.Message); }
         await RefreshSetupStateAsync();
         hasInitialized = true;
+        UpdateToolbarStates();
     }
 
-    private void UpdateToolbarState()
+    private bool isDisposed;
+
+    private void UpdateToolbarStates()
     {
-        ToolbarService.SetItemEnabled("refresh", IsReady);
-        ToolbarService.SetItemEnabled("update-all", IsReady);
+        if (isDisposed) return;
+        var canUseSdk = hasInitialized && IsReady && !ViewModel.IsLoading;
+        ToolbarService.SetItemEnabled("refresh", canUseSdk);
+        ToolbarService.SetItemEnabled("update-all",
+            canUseSdk && !isUpdatingPackages && GetUpdatablePackages().Any());
     }
 
     private async Task RefreshSetupStateAsync()
     {
         await JdkSettings.InitializeAsync();
         detectedJdkPath = await JdkSettings.GetEffectiveJdkPathAsync();
-        UpdateToolbarState();
+        UpdateToolbarStates();
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(AndroidSdkViewModel.IsLoading)
+            or nameof(AndroidSdkViewModel.IsSdkInstalled)
+            or nameof(AndroidSdkViewModel.InstalledPackages)
+            or nameof(AndroidSdkViewModel.AvailablePackages))
+        {
+            _ = InvokeAsync(UpdateToolbarStates);
+        }
     }
 
     private void OnSearchTextChanged(string text)
@@ -1006,7 +941,7 @@ else
             {
                 case "refresh":
                     ToolbarService.SetItemEnabled("refresh", false);
-                    try { await RefreshData(); } finally { UpdateToolbarState(); }
+                    try { await RefreshData(); } finally { UpdateToolbarStates(); }
                     break;
                 case "update-all" when IsReady:
                     await UpdatePackages();
@@ -1018,10 +953,12 @@ else
 
     public void Dispose()
     {
+        isDisposed = true;
         JdkSettings.JdkPathChanged -= OnJdkPathChanged;
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
+        ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
     }
 
     private IEnumerable<IGrouping<string, SdkPackageInfo>> GetPackageGroups(IEnumerable<SdkPackageInfo> packages)
@@ -1077,6 +1014,16 @@ else
     {
         var parts = path.Split(';');
         return parts.Length > 1 ? string.Join(";", parts.Skip(1)) : path;
+    }
+
+    private static string GetPackageGroupIcon(string groupName)
+    {
+        var name = groupName.ToLowerInvariant();
+        if (name.Contains("tool")) return "fa-wrench";
+        if (name.Contains("platform")) return "fa-layer-group";
+        if (name.Contains("system-image") || name.Contains("system image")) return "fa-microchip";
+        if (name.Contains("emulator")) return "fa-mobile-screen-button";
+        return "fa-cube";
     }
 
     private IEnumerable<SdkPackageInfo> OrderPackagesByNewestVersion(IEnumerable<SdkPackageInfo> packages)
@@ -1180,6 +1127,7 @@ else
     {
         await ViewModel.RefreshPackagesAsync(forceRefresh: true);
         await RefreshSetupStateAsync();
+        if (isDisposed) return;
 
         // Update category filter with dynamic values from loaded packages
         ToolbarService.SetFilters(
@@ -1370,14 +1318,24 @@ else
             description += " Side-by-side tools (build-tools, NDK, CMake) install alongside existing versions — tick the older versions you want removed.";
         }
 
-        var result = await MultiOpModal.RunAsync(
-            "Update SDK Packages",
-            description,
-            operations);
-
-        if (result.Completed > 0)
+        isUpdatingPackages = true;
+        UpdateToolbarStates();
+        try
         {
-            await ViewModel.RefreshPackagesAsync(forceRefresh: true);
+            var result = await MultiOpModal.RunAsync(
+                "Update SDK Packages",
+                description,
+                operations);
+
+            if (result.Completed > 0)
+            {
+                await ViewModel.RefreshPackagesAsync(forceRefresh: true);
+            }
+        }
+        finally
+        {
+            isUpdatingPackages = false;
+            UpdateToolbarStates();
         }
     }
 

@@ -8,9 +8,11 @@
 @inject IAppleConnectService AppleService
 @inject IAppleIdentityStateService IdentityState
 @inject IAlertService AlertService
+@inject IDialogService DialogService
 @inject BlazorToastService ToastService
 @inject IEncryptedSettingsService SettingsService
 @inject IFormModalService FormModalService
+@inject HybridFormBridgeHolder BridgeHolder
 @implements IDisposable
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
@@ -23,7 +25,56 @@
 @inject ICloudSecretsService CloudSecretsService
 @inject ISecretSyncCoordinator SecretSyncCoordinator
 
-<h1><i class="fas fa-mobile-alt"></i> Registered Devices</h1>
+<div class="sherpa-list-header-row">
+    <div class="sherpa-list-header-lead">
+        <h1><i class="fa-solid fa-mobile-screen-button"></i> Registered Devices</h1>
+        @if (HasActiveFilters)
+        {
+            <span class="sherpa-filter-pill">
+                <i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i>
+                @FilteredDevices.Count() of @devices.Count
+            </span>
+        }
+    </div>
+    @if (IdentityState.SelectedIdentity != null && !LocalVaultAccess.GetState().RequiresUserAction)
+    {
+        <div class="sherpa-list-header-actions">
+            @if (!isSelectionMode)
+            {
+                <button class="btn btn-secondary btn-sm" @onclick="BeginSelectionMode" disabled="@(isLoading || !FilteredDevices.Any())">
+                    <i class="fa-solid fa-check-square fa-fw"></i> Select
+                </button>
+            }
+            else
+            {
+                <div class="sherpa-selection-inline">
+                    <div class="sherpa-selection-pill">
+                        <label>
+                            <input type="checkbox"
+                                   checked="@AllVisibleDevicesSelected"
+                                   disabled="@isLoading"
+                                   @onchange="ToggleAllVisibleDevices" />
+                            <span>All</span>
+                        </label>
+                        <span class="sherpa-selection-sep"></span>
+                        <span class="sherpa-selection-count">@selectedDeviceIds.Count selected</span>
+                        @if (HiddenSelectionCount > 0)
+                        {
+                            <span class="sherpa-selection-hidden">(@HiddenSelectionCount hidden)</span>
+                        }
+                    </div>
+                    <button class="btn btn-success btn-sm" @onclick="EnableSelectedDevicesAsync" disabled="@(isLoading || !CanEnableSelectedDevices)">
+                        <i class="fa-solid fa-check fa-fw"></i> Enable
+                    </button>
+                    <button class="btn btn-warning btn-sm" @onclick="DisableSelectedDevicesAsync" disabled="@(isLoading || !CanDisableSelectedDevices)">
+                        <i class="fa-solid fa-ban fa-fw"></i> Disable
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="CancelSelectionMode">Done</button>
+                </div>
+            }
+        </div>
+    }
+</div>
 
 <AppleIdentityPicker />
 
@@ -33,10 +84,10 @@
     {
     <div class="toolbar">
         <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
-            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+            <i class="fa-solid @(isLoading ? "fa-spinner fa-spin" : "fa-arrows-rotate")"></i> Refresh
         </button>
         <button class="btn btn-success" @onclick="ShowRegisterDialog" disabled="@isLoading">
-            <i class="fas fa-plus"></i> Register Device
+            <i class="fa-solid fa-plus"></i> Register Device
         </button>
     </div>
     }
@@ -46,24 +97,32 @@
     {
     <div class="filter-section">
         <div class="search-box">
-            <span class="search-icon"><i class="fas fa-search"></i></span>
+            <span class="search-icon"><i class="fa-solid fa-search"></i></span>
             <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search devices..." />
             @if (!string.IsNullOrEmpty(searchQuery))
             {
-                <button class="clear-btn" @onclick="@(() => searchQuery = "")">×</button>
+                <button class="clear-btn" @onclick="@(() => searchQuery = "")" aria-label="Clear device search">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
             }
         </div>
         <div class="filter-chips">
-            <select @bind="filterPlatform" class="filter-select">
-                <option value="">All Platforms</option>
-                <option value="IOS">iOS</option>
-                <option value="MAC_OS">macOS</option>
-            </select>
-            <select @bind="filterStatus" class="filter-select">
-                <option value="">All Status</option>
-                <option value="ENABLED">Enabled</option>
-                <option value="DISABLED">Disabled</option>
-            </select>
+            <SherpaSelect TValue="string"
+                          Value="@filterPlatform"
+                          ValueChanged="@(value => filterPlatform = value ?? "")"
+                          Options="PlatformFilterOptions"
+                          LeadingIcon="fa-brands fa-apple"
+                          AriaLabel="Filter by platform"
+                          Compact="true"
+                          Class="filter-select" />
+            <SherpaSelect TValue="string"
+                          Value="@filterStatus"
+                          ValueChanged="@(value => filterStatus = value ?? "")"
+                          Options="StatusFilterOptions"
+                          LeadingIcon="fa-solid fa-circle-dot"
+                          AriaLabel="Filter by device status"
+                          Compact="true"
+                          Class="filter-select" />
         </div>
         @if (HasActiveFilters)
         {
@@ -77,25 +136,15 @@
         <div class="error-bar">@errorMessage</div>
     }
 
-    <div class="results-info">
-        Showing @FilteredDevices.Count() of @devices.Count devices
-    </div>
-
-    <div class="device-list">
-        @if (isLoading && devices.Count == 0)
+    <div class="device-list sherpa-list">
+        @if (!hasLoaded || (isLoading && devices.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner">
-                    <i class="fab fa-apple"></i>
-                </div>
-                <div class="loading-title">Loading Devices</div>
-                <div class="loading-description">Fetching registered devices from App Store Connect...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading Apple devices..." />
         }
         else if (!FilteredDevices.Any())
         {
             <div class="empty-state">
-                <div class="empty-icon"><i class="fas @(devices.Count == 0 ? "fa-mobile-alt" : "fa-search")"></i></div>
+                <div class="empty-icon"><i class="fa-solid @(devices.Count == 0 ? "fa-mobile-screen-button" : "fa-search")"></i></div>
                 <div class="empty-title">@(devices.Count == 0 ? "No devices registered" : "No matching devices")</div>
                 <div class="empty-description">@(devices.Count == 0 ? "Register a device UDID to use it for development" : "No devices match your search or filters. Try adjusting your criteria.")</div>
             </div>
@@ -105,41 +154,63 @@
             @foreach (var device in FilteredDevices)
             {
                 var isEnabled = device.Status == "ENABLED";
-                <div class="device-card @(isEnabled ? "" : "disabled")">
-                    <div class="device-icon">
-                        <i class="fas @GetDeviceIcon(device.DeviceClass)"></i>
-                        <i class="fab fa-apple brand-overlay"></i>
+                <div class="device-card sherpa-list-row @(isEnabled ? "" : "disabled") @(selectedDeviceIds.Contains(device.Id) ? "selected" : "") @(isSelectionMode ? "sherpa-list-row-interactive" : "")"
+                     @onclick="@(() => { if (isSelectionMode) ToggleDeviceSelection(device.Id, !selectedDeviceIds.Contains(device.Id)); })">
+                    @if (isSelectionMode)
+                    {
+                        <label class="device-select" @onclick:stopPropagation="true">
+                            <input type="checkbox"
+                                   aria-label="@($"Select {device.Name}")"
+                                   checked="@selectedDeviceIds.Contains(device.Id)"
+                                   disabled="@isLoading"
+                                   @onclick:stopPropagation="true"
+                                   @onchange="@(e => ToggleDeviceSelection(device.Id, e.Value is bool selected && selected))" />
+                        </label>
+                    }
+                    <div class="device-icon sherpa-icon-well sherpa-icon-well-apple">
+                        <i class="fa-solid @GetDeviceIcon(device.DeviceClass)"></i>
+                        <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
                     </div>
-                    <div class="device-details">
-                        <div class="device-name"><span>@device.Name</span></div>
-                        <div class="device-udid"><span class="@(demoMode ? "demo-blur" : "")">@device.Udid</span></div>
-                        <div class="device-badges">
-                            <span class="badge badge-platform">@device.Platform</span>
-                            <span class="badge badge-class">@device.DeviceClass</span>
-                            <span class="badge @(isEnabled ? "badge-enabled" : "badge-disabled")">@device.Status</span>
+                    <div class="device-details sherpa-row-stack">
+                        <div class="device-name sherpa-row-title">
+                            <span>@device.Name</span>
+                            <span class="sherpa-badge sherpa-badge-neutral">@device.Platform</span>
+                            <span class="sherpa-badge sherpa-badge-neutral">@device.DeviceClass</span>
+                            <span class="sherpa-badge @(isEnabled ? "sherpa-badge-success" : "sherpa-badge-danger")">
+                                <span class="sherpa-dot @(isEnabled ? "sherpa-dot-success" : "sherpa-dot-danger")"></span> @device.Status
+                            </span>
                             @if (!string.IsNullOrEmpty(device.Model))
                             {
-                                <span class="badge badge-model">@device.Model</span>
+                                <span class="sherpa-badge sherpa-badge-neutral">@device.Model</span>
                             }
                         </div>
+                        <div class="device-udid sherpa-row-sub mono">
+                            <span class="@(demoMode ? "demo-blur" : "")">@device.Udid</span>
+                            <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(device.Udid))" @onclick:stopPropagation="true" title="Copy UDID" aria-label="@($"Copy UDID for {device.Name}")">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
+                        </div>
                     </div>
-                    <div class="device-actions">
-                        @if (isEnabled)
-                        {
-                            <button class="btn btn-secondary btn-icon" @onclick="@(() => AddDeviceToProfilesAsync(device))" disabled="@isLoading" title="Add to Provisioning Profiles">
-                                <i class="fas fa-id-card"></i>
-                            </button>
-                            <button class="btn btn-warning btn-icon" @onclick="@(() => ToggleDevice(device, false))" disabled="@isLoading" title="Disable">
-                                <i class="fas fa-ban"></i>
-                            </button>
-                        }
-                        else
-                        {
-                            <button class="btn btn-success btn-icon" @onclick="@(() => ToggleDevice(device, true))" disabled="@isLoading" title="Enable">
-                                <i class="fas fa-check"></i>
-                            </button>
-                        }
-                    </div>
+                    @if (!isSelectionMode)
+                    {
+                        <div class="device-actions sherpa-row-actions">
+                            @if (isEnabled)
+                            {
+                                <button class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => AddDeviceToProfilesAsync(device))" disabled="@isLoading" title="Add to Provisioning Profiles">
+                                    <i class="fa-solid fa-id-card"></i>
+                                </button>
+                                <button class="btn btn-warning btn-icon btn-sm" @onclick="@(() => ToggleDevice(device, false))" disabled="@isLoading" title="Disable">
+                                    <i class="fa-solid fa-ban"></i>
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-success btn-icon btn-sm" @onclick="@(() => ToggleDevice(device, true))" disabled="@isLoading" title="Enable">
+                                    <i class="fa-solid fa-check"></i>
+                                </button>
+                            }
+                        </div>
+                    }
                 </div>
             }
         }
@@ -147,16 +218,15 @@
 }
 
 <style>
-    h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
-
     .toolbar { margin-bottom: 1rem; display: flex; gap: 0.75rem; }
-    .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border-radius: 0.75rem; margin-bottom: 1rem; }
+    .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border: 1px solid var(--status-error-border); border-radius: var(--radius-lg); margin-bottom: 1rem; }
 
     /* Filter Section Styles */
     .filter-section {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        padding: 1rem;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: 10px 14px;
         margin-bottom: 1rem;
         display: flex;
         flex-wrap: wrap;
@@ -165,68 +235,48 @@
     }
 
     .search-box {
-        position: relative;
         flex: 1;
         min-width: 200px;
     }
 
     .search-box input {
         width: 100%;
-        padding: 0.625rem 36px 0.625rem 36px;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
+        padding: 0;
+        border: 0;
+        background: transparent;
         box-sizing: border-box;
     }
 
     .search-box input:focus {
         outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+        box-shadow: none;
     }
 
     .search-icon {
-        position: absolute;
-        left: 0.75rem;
-        top: 50%;
-        transform: translateY(-50%);
         font-size: 0.875rem;
         opacity: 0.5;
     }
 
     .clear-btn {
-        position: absolute;
-        right: 0.5rem;
-        top: 50%;
-        transform: translateY(-50%);
-        background: var(--border-color);
-        border: none;
-        border-radius: 50%;
-        width: 1.25rem;
-        height: 1.25rem;
-        font-size: 0.875rem;
-        cursor: pointer;
-        display: flex;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: var(--radius-sm);
+        font-size: 0.875rem;
+        cursor: pointer;
         color: var(--text-muted);
     }
 
-    .clear-btn:hover { background: var(--bg-hover); }
+    .clear-btn:hover { background: var(--surface-card-hover); }
 
     .filter-chips { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
-    .filter-select {
-        padding: 0.5rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.8125rem;
-        background: var(--card-bg);
-        cursor: pointer;
-        min-width: 120px;
-    }
-
-    .filter-select:focus { outline: none; border-color: var(--accent-primary); }
+    .filter-select { min-width: 120px; }
 
     .clear-filters-btn {
         padding: 0.5rem 0.75rem;
@@ -240,78 +290,39 @@
 
     .clear-filters-btn:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
 
-    .results-info { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem; }
-    .btn i { font-size: 0.75rem; }
-    .btn-icon {
-        width: 2rem;
-        height: 2rem;
-        padding: 0;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 0.375rem;
-        font-size: 0.8125rem;
-    }
-    .btn-icon i { font-size: 0.8125rem; margin: 0; }
-
-    .device-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .device-list { margin-bottom: 1.25rem; }
 
     .device-card {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        padding: 0.875rem;
-        display: flex;
         align-items: center;
-        gap: 1rem;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
     }
 
     .device-card.disabled { opacity: 0.6; }
 
-    .device-icon {
-        width: 42px;
-        height: 42px;
-        border-radius: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.25rem;
-        background: rgba(147, 51, 234, 0.12);
-        color: #9333ea;
-        position: relative;
+    .device-details { min-width: 0; }
+    .device-name { display: flex; align-items: center; gap: 6px; }
+    .device-udid { display: flex; align-items: center; gap: 6px; }
+    .device-select { display: flex; align-items: center; align-self: center; cursor: pointer; }
+    .btn-copy {
+        width: 20px;
+        min-width: 20px;
+        height: 20px;
+        min-height: 20px;
         flex-shrink: 0;
     }
 
-    :global(.theme-dark) .device-icon {
-        color: #c084fc;
-    }
-
-    .device-icon .brand-overlay {
-        position: absolute;
-        bottom: 3px;
-        right: 3px;
-        font-size: 0.7rem;
-        color: #999;
-        line-height: 1;
-    }
-
-    :global(.theme-dark) .device-icon .brand-overlay {
-        color: #888;
-    }
-    .device-details { flex: 1; }
-    .device-actions { display: flex; gap: 0.5rem; }
-    .device-name { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
-    .device-udid { font-family: monospace; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
-    .device-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
-
-    .badge { padding: 2px 0.625rem; border-radius: 0.75rem; font-size: 0.75rem; font-weight: 500; }
-    .badge-platform { background: #bee3f8; color: #2c5282; }
+    .badge { padding: 2px 0.625rem; border-radius: var(--radius-pill); font-size: 0.75rem; font-weight: 500; }
+    .badge-platform { background: var(--status-info-bg); color: var(--status-info-text); }
     .badge-class { background: var(--bg-hover); color: var(--text-secondary); }
-    .badge-model { background: #faf5ff; color: #6b46c1; }
+    .badge-model { background: var(--accent-soft); color: var(--accent); }
     .badge-enabled { background: var(--status-success-bg); color: var(--status-success-text); }
     .badge-disabled { background: var(--status-error-bg); color: var(--status-error-text); }
 
     .empty-state { background: var(--card-bg); border-radius: var(--card-radius); padding: 3.75rem 2.5rem; text-align: center; }
-    .empty-icon { font-size: 48px; margin-bottom: 1rem; color: #a0aec0; }
+    .empty-icon { font-size: 48px; margin-bottom: 1rem; color: var(--text-muted); }
     .empty-icon i { font-size: 48px; }
     .empty-title { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
     .empty-description { color: var(--text-muted); font-size: 0.875rem; }
@@ -320,14 +331,30 @@
 
 @code {
     private List<AppleDevice> devices = new();
-    private bool isLoading = false;
+    private bool isLoading = true;
+    private bool hasLoaded;
+    private string? activeIdentityId;
     private bool demoMode = false;
     private string errorMessage = "";
+    private bool isSelectionMode;
+    private readonly HashSet<string> selectedDeviceIds = new(StringComparer.Ordinal);
 
     // Filter state
     private string searchQuery = "";
     private string filterPlatform = "";
     private string filterStatus = "";
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> PlatformFilterOptions =
+    [
+        new("", "All Platforms"),
+        new("IOS", "iOS", Icon: "fa-brands fa-apple"),
+        new("MAC_OS", "macOS", Icon: "fa-brands fa-apple")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> StatusFilterOptions =
+    [
+        new("", "All Status"),
+        new("ENABLED", "Enabled", DotCssClass: "sherpa-dot-success"),
+        new("DISABLED", "Disabled", DotCssClass: "sherpa-dot-danger")
+    ];
 
     private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || 
                                       !string.IsNullOrEmpty(filterPlatform) ||
@@ -343,11 +370,45 @@
         .OrderByDescending(d => d.Status == "ENABLED") // Enabled first
         .ThenBy(d => d.Name);
 
+    private bool AllVisibleDevicesSelected
+    {
+        get
+        {
+            var visibleIds = FilteredDevices.Select(device => device.Id).ToList();
+            return visibleIds.Count > 0 && visibleIds.All(selectedDeviceIds.Contains);
+        }
+    }
+
+    private int HiddenSelectionCount
+    {
+        get
+        {
+            var visibleIds = FilteredDevices
+                .Select(device => device.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            return selectedDeviceIds.Count(id => !visibleIds.Contains(id));
+        }
+    }
+
+    private bool CanEnableSelectedDevices => devices.Any(device =>
+        selectedDeviceIds.Contains(device.Id) &&
+        !string.Equals(device.Status, "ENABLED", StringComparison.OrdinalIgnoreCase));
+
+    private bool CanDisableSelectedDevices => devices.Any(device =>
+        selectedDeviceIds.Contains(device.Id) &&
+        string.Equals(device.Status, "ENABLED", StringComparison.OrdinalIgnoreCase));
+
     private void ClearFilters()
     {
         searchQuery = "";
         filterPlatform = "";
         filterStatus = "";
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await DialogService.CopyToClipboardAsync(text);
+        await AlertService.ShowToastAsync("Copied to clipboard");
     }
 
     protected override async Task OnInitializedAsync()
@@ -356,6 +417,7 @@
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("create", "Register Device", "plus")
         );
+        UpdateToolbarItemStates();
         ToolbarService.SetSearch("Search devices...");
         ToolbarService.SetFilters(
             new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"]),
@@ -367,18 +429,30 @@
 
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
+        LocalVaultAccess.StateChanged += OnLocalVaultStateChanged;
         if (IdentityState.SelectedIdentity != null)
             await RefreshData(forceRefresh: false); // Use cache on initial load
     }
 
     private void OnIdentityChanged()
     {
+        var selectedIdentityId = IdentityState.SelectedIdentity?.Id;
+        if (!string.Equals(activeIdentityId, selectedIdentityId, StringComparison.Ordinal))
+        {
+            activeIdentityId = selectedIdentityId;
+            hasLoaded = false;
+        }
+
         InvokeAsync(async () =>
         {
+            CancelSelectionMode();
+            UpdateToolbarItemStates();
             await RefreshData(forceRefresh: false); // Use cache when identity changes (different identity = different cache key)
             StateHasChanged();
         });
     }
+
+    private void OnLocalVaultStateChanged() => OnIdentityChanged();
 
     private void OnSearchTextChanged(string text)
     {
@@ -408,6 +482,7 @@
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
+        LocalVaultAccess.StateChanged -= OnLocalVaultStateChanged;
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -416,10 +491,7 @@
         {
             switch (actionId)
             {
-                case "refresh":
-                    ToolbarService.SetItemEnabled("refresh", false);
-                    try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
-                    break;
+                case "refresh": await RefreshData(forceRefresh: true); break;
                 case "create": await ShowRegisterDialog(); break;
             }
             StateHasChanged();
@@ -438,12 +510,17 @@
 
     private async Task RefreshData(bool forceRefresh = false)
     {
-        if (IdentityState.SelectedIdentity == null || LocalVaultAccess.GetState().RequiresUserAction)
+        var identityId = IdentityState.SelectedIdentity?.Id;
+        if (string.IsNullOrWhiteSpace(identityId) || LocalVaultAccess.GetState().RequiresUserAction)
+        {
+            UpdateToolbarItemStates();
             return;
+        }
 
-        if (IdentityState.SelectedIdentity == null) return;
+        activeIdentityId = identityId;
 
         isLoading = true;
+        UpdateToolbarItemStates();
         errorMessage = "";
         
         ToastMessage? toast = null;
@@ -457,12 +534,13 @@
             // If force refresh, invalidate the cache first
             if (forceRefresh)
             {
-                await Mediator.FlushStores($"apple:devices:{IdentityState.SelectedIdentity.Id}");
+                await Mediator.FlushStores($"apple:devices:{identityId}");
             }
             
-            var request = new GetAppleDevicesRequest(IdentityState.SelectedIdentity.Id);
+            var request = new GetAppleDevicesRequest(identityId);
             var (_, result) = await Mediator.Request(request);
             devices = result.ToList();
+            selectedDeviceIds.IntersectWith(devices.Select(device => device.Id));
         }
         catch (Exception ex)
         {
@@ -471,14 +549,30 @@
         finally
         {
             isLoading = false;
+            if (string.Equals(IdentityState.SelectedIdentity?.Id, identityId, StringComparison.Ordinal) &&
+                !LocalVaultAccess.GetState().RequiresUserAction)
+            {
+                hasLoaded = true;
+            }
+            UpdateToolbarItemStates();
             if (toast != null) ToastService.Dismiss(toast);
             await InvokeAsync(StateHasChanged);
         }
     }
 
+    private void UpdateToolbarItemStates()
+    {
+        var ready = IdentityState.SelectedIdentity != null &&
+            !LocalVaultAccess.GetState().RequiresUserAction &&
+            !isLoading;
+        ToolbarService.SetItemEnabled("refresh", ready);
+        ToolbarService.SetItemEnabled("create", ready);
+    }
+
     private async Task ShowRegisterDialog()
     {
-        var result = await FormModalService.ShowAsync<RegisterDeviceFormResult>(new RegisterDevicePage(AppleService));
+        var result = await FormModalService.ShowAsync<RegisterDeviceFormResult>(
+            new RegisterDevicePage(BridgeHolder, AppleService));
         if (result == null) return;
 
         await AlertService.ShowToastAsync($"Device '{result.Device.Name}' registered!");
@@ -704,9 +798,87 @@
         public void Report(string value) => report(value);
     }
 
+    private void BeginSelectionMode()
+    {
+        selectedDeviceIds.Clear();
+        isSelectionMode = true;
+    }
+
+    private void CancelSelectionMode()
+    {
+        selectedDeviceIds.Clear();
+        isSelectionMode = false;
+    }
+
+    private void ToggleDeviceSelection(string id, bool selected)
+    {
+        if (!isSelectionMode || isLoading)
+            return;
+
+        if (selected)
+            selectedDeviceIds.Add(id);
+        else
+            selectedDeviceIds.Remove(id);
+    }
+
+    private void ToggleAllVisibleDevices(ChangeEventArgs args)
+    {
+        if (!isSelectionMode || isLoading)
+            return;
+
+        var visibleIds = FilteredDevices.Select(device => device.Id).ToList();
+        if (args.Value is bool selected && selected)
+            selectedDeviceIds.UnionWith(visibleIds);
+        else
+            selectedDeviceIds.ExceptWith(visibleIds);
+    }
+
+    private Task EnableSelectedDevicesAsync() => UpdateSelectedDeviceStatusAsync(enable: true);
+
+    private Task DisableSelectedDevicesAsync() => UpdateSelectedDeviceStatusAsync(enable: false);
+
+    private async Task UpdateSelectedDeviceStatusAsync(bool enable)
+    {
+        var selected = devices
+            .Where(device => selectedDeviceIds.Contains(device.Id))
+            .Where(device => string.Equals(device.Status, "ENABLED", StringComparison.OrdinalIgnoreCase) != enable)
+            .ToList();
+        if (selected.Count == 0)
+            return;
+
+        var action = enable ? "Enable" : "Disable";
+        var actionInProgress = enable ? "Enabling" : "Disabling";
+        var operations = selected.Select(device => new OperationItem(
+            Id: device.Id,
+            Name: device.Name,
+            Description: device.Udid,
+            Execute: async ctx =>
+            {
+                ctx.LogInfo($"{action} {device.Name}...");
+                await AppleService.UpdateDeviceStatusAsync(device.Id, enable);
+                ctx.LogSuccess($"Device {(enable ? "enabled" : "disabled")}");
+                return true;
+            })).ToList();
+
+        var result = await MultiOpModal.RunAsync(
+            $"{action} Devices",
+            $"{actionInProgress} {selected.Count} device(s)...",
+            operations);
+
+        await Mediator.FlushStores("apple:devices");
+        CancelSelectionMode();
+        await RefreshData(forceRefresh: true);
+
+        var summary = result.Failed == 0
+            ? $"{action}d {result.Completed} device(s)"
+            : $"{action}d {result.Completed} device(s); {result.Failed} failed";
+        await AlertService.ShowToastAsync(summary);
+    }
+
     private async Task ToggleDevice(AppleDevice device, bool enable)
     {
         isLoading = true;
+        UpdateToolbarItemStates();
         try
         {
             await AppleService.UpdateDeviceStatusAsync(device.Id, enable);
@@ -720,6 +892,7 @@
         finally
         {
             isLoading = false;
+            UpdateToolbarItemStates();
         }
     }
 

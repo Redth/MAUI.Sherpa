@@ -42,9 +42,7 @@ public class GoogleSecretManagerProvider : ICloudSecretsProvider
         if (_client != null)
             return _client;
 
-#pragma warning disable CS0618 // Using deprecated method - will update when CredentialFactory is stable
-        var credential = GoogleCredential.FromJson(CredentialsJson);
-#pragma warning restore CS0618
+        var credential = CredentialFactory.FromJson<ServiceAccountCredential>(CredentialsJson).ToGoogleCredential();
         var builder = new SecretManagerServiceClientBuilder
         {
             Credential = credential

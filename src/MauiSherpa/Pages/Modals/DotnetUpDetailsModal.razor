@@ -1,259 +1,271 @@
 @page "/modal/dotnetup-details"
+@using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Pages.Forms
 @using MauiSherpa.Workloads.Models
 @inject ModalParameterService ModalParams
+@inject IFileSystemService FileSystem
+@inject IAlertService AlertService
+@inject IJSRuntime JS
 
 @if (session is null)
 {
-    <div class="dotnetup-details-state">
-        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
-        <span>dotnetup details are unavailable.</span>
+    <div class="sherpa-form">
+        <div class="sherpa-banner sherpa-banner-warning">
+            <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i>
+            <span>dotnetup details are unavailable.</span>
+        </div>
     </div>
 }
 else
 {
-    <div class="dotnetup-details">
-        <div class="dotnetup-details-summary @(session.IsInstalled ? "installed" : "missing")">
-            <i class="fa-regular @(session.IsInstalled ? "fa-circle-check" : "fa-circle-xmark")"
-               aria-hidden="true"></i>
-            <div>
-                <strong>@StatusTitle</strong>
-                <span>@StatusDescription</span>
+    <div class="sherpa-form tool-details">
+        <div class="sherpa-banner @BannerClass tool-banner">
+            <div class="tool-banner-copy">
+                <i class="fa-solid @BannerIcon fa-fw" aria-hidden="true"></i>
+                <div>
+                    <strong>@StatusTitle</strong>
+                    <span>@StatusDescription</span>
+                </div>
+            </div>
+            <div class="tool-banner-actions">
+                @if (!session.IsInstalled)
+                {
+                    <button type="button"
+                            class="btn btn-primary btn-sm"
+                            @onclick="() => SelectAction(DotnetUpDetailsAction.Install)">
+                        <i class="fa-solid fa-download fa-fw" aria-hidden="true"></i>
+                        <span>Install</span>
+                    </button>
+                }
+                else
+                {
+                    @if (UpdateAvailable)
+                    {
+                        <button type="button"
+                                class="btn btn-primary btn-sm"
+                                @onclick="() => SelectAction(DotnetUpDetailsAction.Update)">
+                            <i class="fa-solid fa-arrow-up fa-fw" aria-hidden="true"></i>
+                            <span>Update</span>
+                        </button>
+                    }
+                    <button type="button"
+                            class="btn btn-secondary btn-sm"
+                            @onclick="() => SelectAction(DotnetUpDetailsAction.Reinstall)">
+                        <i class="fa-solid fa-rotate fa-fw" aria-hidden="true"></i>
+                        <span>Reinstall</span>
+                    </button>
+                }
             </div>
         </div>
 
-        <dl class="dotnetup-details-facts">
-            <div class="dotnetup-details-fact">
-                <dt>Installed version</dt>
-                <dd class="mono">@ValueOrFallback(session.ToolInfo?.Version)</dd>
+        <div class="sherpa-card tool-card">
+            <div class="tool-facts-grid">
+                <div class="tool-fact">
+                    <span class="sherpa-meta-label">Installed version</span>
+                    <span class="sherpa-meta-value mono">@ValueOrFallback(session.ToolInfo?.Version)</span>
+                </div>
+                @if (UpdateAvailable)
+                {
+                    <div class="tool-fact">
+                        <span class="sherpa-meta-label">Available version</span>
+                        <span class="tool-fact-inline">
+                            <span class="sherpa-badge sherpa-badge-accent mono">@session.ToolUpdateInfo!.AvailableVersion</span>
+                        </span>
+                    </div>
+                }
+                <div class="tool-fact">
+                    <span class="sherpa-meta-label">RID</span>
+                    <span class="sherpa-meta-value mono">@ValueOrFallback(session.ToolInfo?.Rid)</span>
+                </div>
+                <div class="tool-fact">
+                    <span class="sherpa-meta-label">Architecture</span>
+                    <span class="sherpa-meta-value">@ValueOrFallback(session.ToolInfo?.Architecture)</span>
+                </div>
             </div>
-            @if (UpdateAvailable)
+
+            @if (!string.IsNullOrWhiteSpace(session.ExecutablePath) || !string.IsNullOrWhiteSpace(session.ToolDirectory))
             {
-                <div class="dotnetup-details-fact">
-                    <dt>Available version</dt>
-                    <dd class="mono update-version">@session.ToolUpdateInfo!.AvailableVersion</dd>
+                <div class="tool-paths">
+                    @if (!string.IsNullOrWhiteSpace(session.ExecutablePath))
+                    {
+                        <div class="tool-path-row">
+                            <div class="sherpa-row-stack">
+                                <span class="sherpa-meta-label">Binary path</span>
+                                <span class="sherpa-meta-value mono text-selectable tool-path-text" title="@session.ExecutablePath">@session.ExecutablePath</span>
+                            </div>
+                            <div class="sherpa-row-actions">
+                                <button type="button" class="btn btn-ghost btn-icon btn-sm" title="Copy binary path" aria-label="Copy binary path" @onclick="() => CopyAsync(session.ExecutablePath!)">
+                                    <i class="fa-regular fa-copy fa-fw" aria-hidden="true"></i>
+                                </button>
+                                <button type="button" class="btn btn-ghost btn-icon btn-sm" title="Reveal in file manager" aria-label="Reveal binary in file manager" @onclick="() => FileSystem.RevealInFileManager(session.ExecutablePath!)">
+                                    <i class="fa-solid fa-arrow-up-right-from-square fa-fw" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(session.ToolDirectory))
+                    {
+                        <div class="tool-path-row">
+                            <div class="sherpa-row-stack">
+                                <span class="sherpa-meta-label">Tool directory</span>
+                                <span class="sherpa-meta-value mono text-selectable tool-path-text" title="@session.ToolDirectory">@session.ToolDirectory</span>
+                            </div>
+                            <div class="sherpa-row-actions">
+                                <button type="button" class="btn btn-ghost btn-icon btn-sm" title="Copy tool directory" aria-label="Copy tool directory" @onclick="() => CopyAsync(session.ToolDirectory!)">
+                                    <i class="fa-regular fa-copy fa-fw" aria-hidden="true"></i>
+                                </button>
+                                <button type="button" class="btn btn-ghost btn-icon btn-sm" title="Reveal in file manager" aria-label="Reveal tool directory in file manager" @onclick="() => FileSystem.RevealInFileManager(session.ToolDirectory!)">
+                                    <i class="fa-solid fa-arrow-up-right-from-square fa-fw" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                        </div>
+                    }
                 </div>
             }
-            <div class="dotnetup-details-fact">
-                <dt>RID</dt>
-                <dd class="mono">@ValueOrFallback(session.ToolInfo?.Rid)</dd>
-            </div>
-            <div class="dotnetup-details-fact">
-                <dt>Architecture</dt>
-                <dd>@ValueOrFallback(session.ToolInfo?.Architecture)</dd>
-            </div>
-            @if (!string.IsNullOrWhiteSpace(session.ExecutablePath))
-            {
-                <div class="dotnetup-details-fact full-width">
-                    <dt>Binary path</dt>
-                    <dd class="mono path-value" title="@session.ExecutablePath">@session.ExecutablePath</dd>
-                </div>
-            }
-            @if (!string.IsNullOrWhiteSpace(session.ToolDirectory))
-            {
-                <div class="dotnetup-details-fact full-width">
-                    <dt>Tool directory</dt>
-                    <dd class="mono path-value" title="@session.ToolDirectory">@session.ToolDirectory</dd>
-                </div>
-            }
-        </dl>
+        </div>
 
         @if (ManagedRoots.Count > 0)
         {
-            <section class="dotnetup-details-roots">
-                <h2>Managed roots</h2>
-                <div class="dotnetup-details-root-list">
+            <section class="sherpa-form-section">
+                <div class="sherpa-form-section-title">
+                    <span><i class="fa-solid fa-folder-tree fa-fw" aria-hidden="true"></i> Managed roots</span>
+                    <span class="sherpa-badge sherpa-badge-neutral">@ManagedRoots.Count</span>
+                </div>
+                <div class="sherpa-list">
                     @foreach (var root in ManagedRoots)
                     {
-                        <code title="@root">@root</code>
+                        <div class="sherpa-list-row">
+                            <span class="sherpa-icon-well sherpa-icon-well-sm sherpa-icon-well-neutral">
+                                <i class="fa-solid fa-folder fa-fw" aria-hidden="true"></i>
+                            </span>
+                            <div class="sherpa-row-stack">
+                                <span class="sherpa-meta-value mono text-selectable tool-path-text" title="@root">@root</span>
+                            </div>
+                            <div class="sherpa-row-actions">
+                                <button type="button" class="btn btn-ghost btn-icon btn-sm" title="Copy path" aria-label="Copy managed root path" @onclick="() => CopyAsync(root)">
+                                    <i class="fa-regular fa-copy fa-fw" aria-hidden="true"></i>
+                                </button>
+                                <button type="button" class="btn btn-ghost btn-icon btn-sm" title="Reveal in file manager" aria-label="Reveal managed root in file manager" @onclick="() => FileSystem.RevealInFileManager(root)">
+                                    <i class="fa-solid fa-arrow-up-right-from-square fa-fw" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                        </div>
                     }
                 </div>
             </section>
         }
-
-        <div class="dotnetup-details-actions">
-            @if (!session.IsInstalled)
-            {
-                <button type="button"
-                        class="btn btn-primary"
-                        @onclick="() => SelectAction(DotnetUpDetailsAction.Install)">
-                    <i class="fas fa-download" aria-hidden="true"></i>
-                    <span>Install dotnetup</span>
-                </button>
-            }
-            else
-            {
-                @if (UpdateAvailable)
-                {
-                    <button type="button"
-                            class="btn btn-primary"
-                            @onclick="() => SelectAction(DotnetUpDetailsAction.Update)">
-                        <i class="fas fa-arrow-up" aria-hidden="true"></i>
-                        <span>Update</span>
-                    </button>
-                }
-                <button type="button"
-                        class="btn btn-secondary"
-                        @onclick="() => SelectAction(DotnetUpDetailsAction.Reinstall)">
-                    <i class="fas fa-rotate" aria-hidden="true"></i>
-                    <span>Reinstall</span>
-                </button>
-            }
-        </div>
     </div>
 }
 
 <style>
-    .dotnetup-details {
-        display: flex;
-        flex-direction: column;
-        gap: 1rem;
-        padding: 1.1rem 1.25rem;
-        color: var(--text-primary);
+    .tool-banner {
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
     }
 
-    .dotnetup-details-summary,
-    .dotnetup-details-state {
+    .tool-banner-copy {
         display: flex;
         align-items: flex-start;
-        gap: 0.7rem;
+        gap: 10px;
+        flex: 1 1 240px;
+        min-width: 0;
     }
 
-    .dotnetup-details-summary {
-        padding: 0.75rem 0.85rem;
-        border: 1px solid var(--border-color);
-        border-radius: var(--card-radius);
-        background: var(--card-bg);
+    .tool-banner-copy > i {
+        margin-top: 2px;
+        font-size: 15px;
     }
 
-    .dotnetup-details-summary > i {
-        margin-top: 0.08rem;
-        font-size: 1.05rem;
-    }
-
-    .dotnetup-details-summary.installed > i {
-        color: color-mix(in srgb, var(--status-success-text) 72%, var(--text-secondary));
-    }
-
-    .dotnetup-details-summary.missing > i,
-    .dotnetup-details-state {
-        color: var(--status-warning-text);
-    }
-
-    .dotnetup-details-summary > div {
+    .tool-banner-copy > div {
         display: flex;
         flex-direction: column;
-        gap: 0.2rem;
+        gap: 2px;
+        min-width: 0;
     }
 
-    .dotnetup-details-summary strong {
-        font-size: 0.94rem;
+    .tool-banner-copy strong {
+        font-size: var(--font-size-md);
+        font-weight: 650;
     }
 
-    .dotnetup-details-summary span {
-        color: var(--text-secondary);
-        font-size: 0.82rem;
+    .tool-banner-copy span {
+        font-size: var(--font-size-xs);
+        opacity: 0.9;
         line-height: 1.4;
     }
 
-    .dotnetup-details-facts {
+    .tool-banner-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+    }
+
+    .tool-card {
+        overflow: hidden;
+    }
+
+    .tool-facts-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0;
-        margin: 0;
-        border-top: 1px solid var(--border-color);
-        border-bottom: 1px solid var(--border-color);
+        gap: 12px 16px;
+        padding: 12px 14px;
     }
 
-    .dotnetup-details-fact {
-        min-width: 0;
-        padding: 0.65rem 0.75rem;
-        background: color-mix(in srgb, var(--bg-tertiary) 35%, var(--card-bg));
-    }
-
-    .dotnetup-details-fact:nth-child(even) {
-        border-left: 1px solid var(--border-color);
-    }
-
-    .dotnetup-details-fact:nth-child(n + 3),
-    .dotnetup-details-fact.full-width {
-        border-top: 1px solid var(--border-color);
-    }
-
-    .dotnetup-details-fact.full-width {
-        grid-column: 1 / -1;
-        border-left: 0;
-    }
-
-    .dotnetup-details-fact dt {
-        margin-bottom: 0.22rem;
-        color: var(--text-secondary);
-        font-size: 0.68rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-    }
-
-    .dotnetup-details-fact dd {
-        margin: 0;
-        font-size: 0.82rem;
-    }
-
-    .update-version {
-        color: var(--status-info-text);
-        font-weight: 600;
-    }
-
-    .path-value {
-        overflow-wrap: anywhere;
-        color: var(--text-secondary);
-    }
-
-    .dotnetup-details-roots h2 {
-        margin: 0 0 0.45rem;
-        font-size: 0.82rem;
-        font-weight: 600;
-    }
-
-    .dotnetup-details-root-list {
+    .tool-fact {
         display: flex;
         flex-direction: column;
-        gap: 0.35rem;
+        gap: 3px;
+        min-width: 0;
     }
 
-    .dotnetup-details-root-list code {
-        padding: 0.4rem 0.55rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.35rem;
-        background: var(--bg-tertiary);
-        color: var(--text-secondary);
-        overflow-wrap: anywhere;
-        user-select: text;
+    .tool-fact-inline {
+        display: inline-flex;
+        align-items: center;
     }
 
-    .dotnetup-details-actions {
+    .tool-paths {
+        border-top: 1px solid var(--border-hairline);
+        background: var(--surface-well);
+    }
+
+    .tool-path-row {
+        position: relative;
         display: flex;
-        justify-content: flex-end;
-        flex-wrap: wrap;
-        gap: 0.55rem;
-        padding-top: 0.15rem;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 14px;
     }
 
-    .dotnetup-details-state {
-        padding: 1.25rem;
+    .tool-path-row > .sherpa-row-stack {
+        flex: 1 1 0%;
+        min-width: 0;
     }
 
-    @@media (max-width: 600px) {
-        .dotnetup-details-facts {
+    .tool-path-row + .tool-path-row::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 14px;
+        right: 14px;
+        height: 1px;
+        background: var(--border-hairline);
+    }
+
+    .tool-path-text {
+        display: block;
+        width: 100%;
+        overflow-wrap: anywhere;
+        font-size: var(--font-size-xs);
+        line-height: 1.4;
+    }
+
+    @@media (max-width: 560px) {
+        .tool-facts-grid {
             grid-template-columns: 1fr;
-        }
-
-        .dotnetup-details-fact:nth-child(even) {
-            border-left: 0;
-        }
-
-        .dotnetup-details-fact + .dotnetup-details-fact {
-            border-top: 1px solid var(--border-color);
         }
     }
 </style>
@@ -265,8 +277,16 @@ else
         session?.IsInstalled == true &&
         session.ToolUpdateInfo?.UpdateAvailable == true;
 
+    private string BannerClass => session?.IsInstalled != true
+        ? "sherpa-banner-warning"
+        : UpdateAvailable ? "sherpa-banner-info" : "sherpa-banner-success";
+
+    private string BannerIcon => session?.IsInstalled != true
+        ? "fa-triangle-exclamation"
+        : UpdateAvailable ? "fa-circle-arrow-up" : "fa-circle-check";
+
     private string StatusTitle => session?.IsInstalled == true
-        ? UpdateAvailable ? "Update available" : "Ready"
+        ? UpdateAvailable ? "Update available" : "dotnetup is ready"
         : "Not installed";
 
     private string StatusDescription
@@ -277,9 +297,9 @@ else
                 return "Install dotnetup to manage .NET SDKs and runtimes from Sherpa.";
 
             if (UpdateAvailable)
-                return $"Version {session.ToolUpdateInfo!.AvailableVersion} is available. You currently have {session.ToolInfo?.Version ?? session.ToolUpdateInfo.InstalledVersion}.";
+                return $"Version {session.ToolUpdateInfo!.AvailableVersion} is available (currently {session.ToolInfo?.Version ?? session.ToolUpdateInfo.InstalledVersion}).";
 
-            return "dotnetup is available for SDK, runtime, and tracked-channel operations.";
+            return "Ready for SDK, runtime, and tracked-channel operations.";
         }
     }
 
@@ -296,6 +316,16 @@ else
 
     private void SelectAction(DotnetUpDetailsAction action) =>
         session?.RequestAction(action);
+
+    private async Task CopyAsync(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            await AlertService.ShowToastAsync("Copied to clipboard");
+        }
+        catch { }
+    }
 
     private static string ValueOrFallback(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "Unknown" : value;

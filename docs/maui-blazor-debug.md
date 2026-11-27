@@ -12,6 +12,20 @@ description: |
 
 Debug .NET MAUI Blazor Hybrid apps by connecting browser developer tools to the BlazorWebView.
 
+## Initial backgrounds in Sherpa
+
+Use `ThemedBlazorWebView` for hybrid content, with `isModal: true` for dialogs.
+It binds the native container and browser's blank-page background to the effective
+app theme before Blazor renders, and updates them when the theme changes. Keep
+the unthemed `html`/`body` background in `wwwroot/index.html` transparent so it
+does not cover that initial color. Splash overlays use the same window background
+resource and theme-aware text colors.
+
+Wrap secondary hybrid hosts in `HybridLoadingView` after adding their root
+component. It shows a native, theme-aware spinner until that specific WebView's
+Blazor content has painted, then fades the content in. Main windows retain their
+existing splash/loading overlays.
+
 ## Prerequisites
 
 Ensure the app has developer tools enabled in `MauiProgram.cs`:

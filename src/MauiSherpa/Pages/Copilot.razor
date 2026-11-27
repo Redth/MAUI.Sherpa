@@ -19,129 +19,152 @@
 {
     <div class="copilot-header">
         <div class="copilot-header__left">
-            <img src="_content/MauiSherpa/ghcp_icon_white.png" alt="" class="copilot-header__icon" onerror="this.style.display='none'" />
+            <span class="copilot-header__well" aria-hidden="true">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+            </span>
             <span class="copilot-header__title">Copilot</span>
-            <span class="copilot-header__dot @(CopilotService.IsConnected ? "connected" : "")"></span>
-            <span class="copilot-header__status">@(CopilotService.IsConnected ? "Connected" : "Disconnected")</span>
+            <span class="sherpa-badge @(CopilotService.IsConnected ? "sherpa-badge-success" : isConnecting ? "sherpa-badge-accent" : "sherpa-badge-neutral")">
+                @if (isConnecting)
+                {
+                    <i class="fa-solid fa-spinner fa-spin fa-fw" aria-hidden="true"></i>
+                    <span>Connecting</span>
+                }
+                else
+                {
+                    <span class="sherpa-dot @(CopilotService.IsConnected ? "sherpa-dot-success" : "sherpa-dot-danger")" aria-hidden="true"></span>
+                    <span>@(CopilotService.IsConnected ? "Connected" : "Disconnected")</span>
+                }
+            </span>
             @if (availability?.Login != null)
             {
-                <span class="copilot-header__badge">@@@(availability.Login)</span>
+                <span class="sherpa-badge sherpa-badge-accent">@@@(availability.Login)</span>
             }
             @if (availability?.Version != null)
             {
-                <span class="copilot-header__version">v@(availability.Version)</span>
+                <span class="sherpa-badge sherpa-badge-neutral mono">v@(availability.Version)</span>
             }
         </div>
         <div class="copilot-header__right">
             @if (isConnecting)
             {
-                <span class="copilot-header__connecting"><i class="fas fa-spinner fa-spin"></i></span>
+                <button class="btn btn-secondary btn-sm" disabled>
+                    <i class="fa-solid fa-spinner fa-spin fa-fw" aria-hidden="true"></i> Connecting...
+                </button>
             }
             else if (!CopilotService.IsConnected)
             {
-                <button class="copilot-header__btn copilot-header__btn--connect" @onclick="Connect">Connect</button>
+                <button class="btn btn-primary btn-sm" @onclick="Connect">
+                    <i class="fa-solid fa-plug fa-fw" aria-hidden="true"></i> Connect
+                </button>
             }
             else
             {
-                <button class="copilot-header__btn copilot-header__btn--disconnect" @onclick="Disconnect">Disconnect</button>
+                <button class="btn btn-secondary btn-sm" @onclick="Disconnect">
+                    <i class="fa-solid fa-link-slash fa-fw" aria-hidden="true"></i> Disconnect
+                </button>
             }
-            <button class="copilot-header__btn copilot-header__btn--close" @onclick="OnClose">✕</button>
+            <button class="btn btn-ghost btn-icon btn-sm" @onclick="OnClose" title="Close" aria-label="Close Copilot">
+                <i class="fa-solid fa-xmark fa-fw" aria-hidden="true"></i>
+            </button>
         </div>
     </div>
 }
 
 @if (!IsEmbedded)
 {
-    <h1><i class="fas fa-robot"></i> GitHub Copilot</h1>
+    <h1><i class="fa-solid fa-robot"></i> GitHub Copilot</h1>
 }
 
 @if (isCheckingAvailability)
 {
     <div class="checking-status">
-        <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
+        <div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i></div>
         <div class="loading-text">Checking Copilot availability...</div>
     </div>
 }
 else if (availability != null && !availability.IsInstalled)
 {
-    <!-- Copilot Not Installed -->
     <div class="setup-required">
-        <div class="setup-icon error"><i class="fas fa-exclamation-triangle"></i></div>
-        <h2>GitHub Copilot CLI Not Found</h2>
-        <p>The GitHub Copilot CLI needs to be installed to use this feature.</p>
-        
-        <div class="setup-steps">
-            <div class="step">
-                <div class="step-number">1</div>
-                <div class="step-content">
-                    <strong>Install GitHub Copilot CLI</strong>
-                    <p>Visit the GitHub Copilot website to download and install the CLI tool.</p>
-                    <a href="#" @onclick:preventDefault 
-                       @onclick='() => OpenUrl("https://docs.github.com/en/copilot/managing-copilot/configure-personal-settings/installing-the-github-copilot-extension-in-your-environment")'
-                       class="btn btn-primary">
-                        <i class="fas fa-external-link-alt"></i> Get GitHub Copilot CLI
-                    </a>
-                </div>
-            </div>
-            <div class="step">
-                <div class="step-number">2</div>
-                <div class="step-content">
-                    <strong>Verify Installation</strong>
-                    <p>After installation, run <code>copilot --version</code> in your terminal to verify.</p>
-                </div>
+        <div class="setup-card">
+            <span class="sherpa-icon-well setup-icon setup-icon-danger" aria-hidden="true"><i class="fa-solid fa-triangle-exclamation fa-fw"></i></span>
+            <h2 class="setup-title">Copilot CLI not found</h2>
+            <p class="setup-description">Install the GitHub Copilot CLI to chat with Copilot in Sherpa.</p>
+
+            <ol class="sherpa-list setup-steps">
+                <li class="sherpa-list-row setup-step">
+                    <span class="setup-step-number" aria-hidden="true">1</span>
+                    <div class="setup-step-body">
+                        <span class="setup-step-title">Install the CLI</span>
+                        <div class="setup-command">
+                            <code>npm install -g @@github/copilot</code>
+                            <button class="btn btn-ghost btn-icon btn-sm" @onclick="@(() => CopyToClipboard("npm install -g @github/copilot"))" title="Copy command" aria-label="Copy install command">
+                                <i class="fa-solid fa-copy fa-fw" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                    </div>
+                </li>
+                <li class="sherpa-list-row setup-step">
+                    <span class="setup-step-number" aria-hidden="true">2</span>
+                    <div class="setup-step-body">
+                        <span class="setup-step-title">Verify the installation</span>
+                        <span class="setup-step-hint">Run <code>copilot --version</code> in your terminal.</span>
+                    </div>
+                </li>
+            </ol>
+
+            <div class="setup-actions">
+                <button class="btn btn-primary" @onclick="@(() => CheckAvailability(forceRefresh: true))">
+                    <i class="fa-solid fa-rotate fa-fw" aria-hidden="true"></i> Check again
+                </button>
+                <button class="btn btn-ghost" @onclick='() => OpenUrl("https://docs.github.com/copilot/how-tos/set-up/install-copilot-cli")'>
+                    <i class="fa-solid fa-arrow-up-right-from-square fa-fw" aria-hidden="true"></i> Installation guide
+                </button>
             </div>
         </div>
-
-        <button class="btn btn-secondary" @onclick="@(() => CheckAvailability(forceRefresh: true))">
-            <i class="fas fa-sync-alt"></i> Check Again
-        </button>
     </div>
 }
 else if (availability != null && !availability.IsAuthenticated)
 {
-    <!-- Copilot Not Authenticated -->
     <div class="setup-required">
-        <div class="setup-icon warning"><i class="fas fa-sign-in-alt"></i></div>
-        <h2>Authentication Required</h2>
-        <p>You need to log in to GitHub Copilot before you can use it.</p>
-        @if (!string.IsNullOrEmpty(availability.Version))
-        {
-            <p class="version-info"><i class="fas fa-check-circle"></i> Copilot CLI installed (v@(availability.Version))</p>
-        }
-        
-        <div class="setup-steps">
-            <div class="step">
-                <div class="step-number">1</div>
-                <div class="step-content">
-                    <strong>Open Terminal</strong>
-                    <p>Open your terminal or command prompt.</p>
-                </div>
-            </div>
-            <div class="step">
-                <div class="step-number">2</div>
-                <div class="step-content">
-                    <strong>Run Login Command</strong>
-                    <p>Run the following command to authenticate:</p>
-                    <div class="code-block">
-                        <code>copilot auth login</code>
-                        <button class="btn-copy-code" @onclick="@(() => CopyToClipboard("copilot auth login"))" title="Copy">
-                            <i class="fas fa-copy"></i>
-                        </button>
+        <div class="setup-card">
+            <span class="sherpa-icon-well setup-icon setup-icon-warning" aria-hidden="true"><i class="fa-solid fa-right-to-bracket fa-fw"></i></span>
+            <h2 class="setup-title">Sign in to Copilot</h2>
+            <p class="setup-description">Sign in to GitHub Copilot from your terminal, then check again.</p>
+            @if (!string.IsNullOrEmpty(availability.Version))
+            {
+                <span class="sherpa-badge sherpa-badge-success setup-version">
+                    <i class="fa-solid fa-circle-check fa-fw" aria-hidden="true"></i> Copilot CLI v@(availability.Version)
+                </span>
+            }
+
+            <ol class="sherpa-list setup-steps">
+                <li class="sherpa-list-row setup-step">
+                    <span class="setup-step-number" aria-hidden="true">1</span>
+                    <div class="setup-step-body">
+                        <span class="setup-step-title">Run the sign-in command</span>
+                        <div class="setup-command">
+                            <code>copilot login</code>
+                            <button class="btn btn-ghost btn-icon btn-sm" @onclick="@(() => CopyToClipboard("copilot login"))" title="Copy command" aria-label="Copy sign-in command">
+                                <i class="fa-solid fa-copy fa-fw" aria-hidden="true"></i>
+                            </button>
+                        </div>
                     </div>
-                </div>
-            </div>
-            <div class="step">
-                <div class="step-number">3</div>
-                <div class="step-content">
-                    <strong>Follow Browser Prompts</strong>
-                    <p>Complete the authentication in your browser when prompted.</p>
-                </div>
+                </li>
+                <li class="sherpa-list-row setup-step">
+                    <span class="setup-step-number" aria-hidden="true">2</span>
+                    <div class="setup-step-body">
+                        <span class="setup-step-title">Finish in your browser</span>
+                        <span class="setup-step-hint">Approve the device code when GitHub prompts you.</span>
+                    </div>
+                </li>
+            </ol>
+
+            <div class="setup-actions">
+                <button class="btn btn-primary" @onclick="@(() => CheckAvailability(forceRefresh: true))">
+                    <i class="fa-solid fa-rotate fa-fw" aria-hidden="true"></i> Check again
+                </button>
             </div>
         </div>
-
-        <button class="btn btn-secondary" @onclick="@(() => CheckAvailability(forceRefresh: true))">
-            <i class="fas fa-sync-alt"></i> Check Again
-        </button>
     </div>
 }
 else
@@ -149,7 +172,7 @@ else
     <!-- Copilot Available -->
     @if (!IsEmbedded)
     {
-    <div class="connection-status @(CopilotService.IsConnected ? "connected" : "disconnected")">
+    <div class="connection-status sherpa-banner @(CopilotService.IsConnected ? "connected sherpa-banner-success" : "disconnected sherpa-banner-info")">
         <span class="status-indicator"></span>
         <span class="status-text">
             @(CopilotService.IsConnected ? "Connected" : "Disconnected")
@@ -165,14 +188,14 @@ else
         @if (!CopilotService.IsConnected)
         {
             <button class="btn btn-sm btn-primary" @onclick="Connect" disabled="@isConnecting">
-                <i class="fas @(isConnecting ? "fa-spinner fa-spin" : "fa-plug")"></i>
+                <i class="fa-solid @(isConnecting ? "fa-spinner fa-spin" : "fa-plug")"></i>
                 @(isConnecting ? "Connecting..." : "Connect")
             </button>
         }
         else
         {
             <button class="btn btn-sm btn-secondary" @onclick="Disconnect">
-                <i class="fas fa-unlink"></i> Disconnect
+                <i class="fa-solid fa-unlink"></i> Disconnect
             </button>
         }
     </div>
@@ -181,11 +204,11 @@ else
     @if (!CopilotService.IsConnected && !isConnecting)
     {
         <div class="welcome-section">
-            <div class="welcome-icon"><i class="fas fa-robot"></i></div>
+            <div class="welcome-icon sherpa-icon-well"><i class="fa-solid fa-robot"></i></div>
             <h2>Welcome to Copilot</h2>
             <p>Connect to GitHub Copilot to get AI-powered assistance with your development environment.</p>
             <button class="btn btn-primary btn-lg" @onclick="Connect">
-                <i class="fas fa-plug"></i> Connect to Copilot
+                <i class="fa-solid fa-plug"></i> Connect to Copilot
             </button>
         </div>
     }
@@ -194,15 +217,18 @@ else
         <div class="chat-layout">
             <div class="chat-container">
                 <div class="model-selector">
-                    <label for="copilot-model"><i class="fas fa-robot"></i> Model</label>
-                    <select id="copilot-model" value="@selectedModel" @onchange="SelectModelAsync" disabled="@(isBusy || isConnecting || isStartingSession)">
-                        @foreach (var model in availableModels)
-                        {
-                            <option value="@model.Id">@model.Name</option>
-                        }
-                    </select>
+                    <label><i class="fa-solid fa-robot"></i> Model</label>
+                    <SherpaSelect TValue="string"
+                                  Value="@selectedModel"
+                                  ValueChanged="SelectModelAsync"
+                                  Options="ModelOptions"
+                                  LeadingIcon="fa-solid fa-robot"
+                                  AriaLabel="Select Copilot model"
+                                  Disabled="@(isBusy || isConnecting || isStartingSession)"
+                                  Searchable="true"
+                                  Class="copilot-model-select" />
                     <button class="model-selector__new-chat" @onclick="NewChatAsync" disabled="@(isBusy || isConnecting || isStartingSession)" title="Start a new conversation">
-                        <i class="fas fa-plus"></i> New chat
+                        <i class="fa-solid fa-plus"></i> New chat
                     </button>
                 </div>
 
@@ -221,17 +247,17 @@ else
                 @if (currentUsageInfo != null || CopilotService.IsConnected)
                 {
                     <div class="usage-info @(currentUsageInfo == null ? "subtle" : "")">
-                        <span class="usage-item"><i class="fas fa-robot"></i> @(currentUsageInfo?.Model ?? SelectedModelDisplayName)</span>
+                        <span class="usage-item"><i class="fa-solid fa-robot"></i> @(currentUsageInfo?.Model ?? SelectedModelDisplayName)</span>
                         @if (currentUsageInfo?.InputTokens.HasValue == true || currentUsageInfo?.OutputTokens.HasValue == true)
                         {
                             <span class="usage-item">
-                                <i class="fas fa-arrow-right"></i> @(currentUsageInfo.InputTokens ?? 0)
-                                <i class="fas fa-arrow-left"></i> @(currentUsageInfo.OutputTokens ?? 0)
+                                <i class="fa-solid fa-arrow-right"></i> @(currentUsageInfo.InputTokens ?? 0)
+                                <i class="fa-solid fa-arrow-left"></i> @(currentUsageInfo.OutputTokens ?? 0)
                             </span>
                         }
                         @if (currentUsageInfo?.CurrentTokens.HasValue == true && currentUsageInfo.TokenLimit.HasValue)
                         {
-                            <span class="usage-item"><i class="fas fa-database"></i> @currentUsageInfo.CurrentTokens / @currentUsageInfo.TokenLimit</span>
+                            <span class="usage-item"><i class="fa-solid fa-database"></i> @currentUsageInfo.CurrentTokens / @currentUsageInfo.TokenLimit</span>
                         }
                     </div>
                 }
@@ -245,21 +271,21 @@ else
 {
     <div class="debug-overlay @(debugOverlayExpanded ? "expanded" : "")">
         <div class="debug-header">
-            <span class="debug-title"><i class="fas fa-bug"></i> Debug Logs</span>
+            <span class="debug-title"><i class="fa-solid fa-bug"></i> Debug Logs</span>
             <div class="debug-controls">
                 <input type="text" class="debug-filter" placeholder="Filter logs..." 
                        @bind="debugFilter" @bind:event="oninput" />
                 <button class="debug-btn" @onclick="CopyFilteredLogs" title="Copy filtered logs">
-                    <i class="fas fa-copy"></i>
+                    <i class="fa-solid fa-copy"></i>
                 </button>
                 <button class="debug-btn" @onclick="ClearDebugLogs" title="Clear logs">
-                    <i class="fas fa-trash"></i>
+                    <i class="fa-solid fa-trash"></i>
                 </button>
                 <button class="debug-btn" @onclick="ToggleDebugExpanded" title="@(debugOverlayExpanded ? "Collapse" : "Expand")">
-                    <i class="fas @(debugOverlayExpanded ? "fa-compress-alt" : "fa-expand-alt")"></i>
+                    <i class="fa-solid @(debugOverlayExpanded ? "fa-compress-alt" : "fa-expand-alt")"></i>
                 </button>
                 <button class="debug-btn" @onclick="() => showDebugOverlay = false" title="Close">
-                    <i class="fas fa-times"></i>
+                    <i class="fa-solid fa-times"></i>
                 </button>
             </div>
         </div>
@@ -280,7 +306,7 @@ else
 @if (!IsEmbedded)
 {
 <button class="debug-toggle-btn" @onclick="() => showDebugOverlay = !showDebugOverlay" title="Toggle Debug Overlay">
-    <i class="fas fa-bug"></i>
+    <i class="fa-solid fa-bug"></i>
 </button>
 }
 
@@ -312,151 +338,199 @@ else
         border-radius: 0;
     }
 
-    h1 {
-        margin-bottom: 1.25rem;
-        font-size: 1.75rem;
-        color: var(--text-primary);
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-    }
-
-    h1 i { color: #6366f1; }
-
     /* Checking/Loading State */
     .checking-status {
-        background: var(--card-bg);
-        border-radius: 0.75rem;
-        padding: 3.75rem 2.5rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: 36px 24px;
         text-align: center;
     }
 
-    .checking-status .loading-spinner {
-        font-size: 48px;
-        color: #6366f1;
-        margin-bottom: 1rem;
+    .copilot-page.embedded .checking-status,
+    .copilot-page.embedded .welcome-section {
+        flex: 1 1 auto;
+        min-height: 0;
+        background: var(--surface-canvas);
+        border: 0;
+        border-radius: 0;
+        margin: 0;
+    }
+
+    .copilot-page.embedded .setup-required {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        background: var(--surface-canvas);
+        border: 0;
+        border-radius: 0;
+        padding: 24px;
     }
 
     .checking-status .loading-text {
-        color: var(--text-muted);
-        font-size: 1rem;
+        color: var(--text-secondary);
+        font-size: var(--font-size-md);
+        font-weight: 500;
     }
 
     /* Setup Required States */
     .setup-required {
-        background: var(--card-bg);
-        border-radius: 0.75rem;
-        padding: 2.5rem;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 32px 24px;
+    }
+
+    .setup-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        max-width: 440px;
+        padding: 28px 24px 24px;
+        text-align: center;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
     }
 
     .setup-icon {
-        font-size: 48px;
-        margin-bottom: 1.25rem;
+        margin-bottom: 4px;
     }
 
-    .setup-icon.error { color: var(--accent-danger); }
-    .setup-icon.warning { color: var(--accent-warning); }
+    .setup-icon-warning {
+        color: var(--status-warning-fg);
+        background: var(--status-warning-bg);
+        border-color: var(--status-warning-border);
+    }
 
-    .setup-required h2 {
-        font-size: 1.5rem;
+    .setup-icon-danger {
+        color: var(--status-danger-fg);
+        background: var(--status-error-bg);
+        border-color: var(--status-error-border);
+    }
+
+    .setup-title {
+        margin: 0;
         color: var(--text-primary);
-        margin-bottom: 0.75rem;
+        font-size: 1rem;
+        font-weight: 650;
+        line-height: 1.3;
+        letter-spacing: -0.01em;
     }
 
-    .setup-required > p {
-        color: var(--text-muted);
-        margin-bottom: 1.5rem;
-        max-width: 600px;
-    }
-
-    .version-info {
-        color: var(--accent-success);
+    .setup-description {
+        max-width: 65ch;
+        margin: 0;
+        color: var(--text-secondary);
         font-size: 0.875rem;
-        margin-bottom: 1.5rem;
+        line-height: 1.45;
     }
 
-    .version-info i { margin-right: 0.375rem; }
+    .setup-version {
+        font-variant-numeric: tabular-nums;
+    }
 
     .setup-steps {
-        background: var(--bg-tertiary);
-        border-radius: 0.5rem;
-        padding: 1.5rem;
-        margin-bottom: 1.5rem;
+        width: 100%;
+        margin: 12px 0 4px;
+        padding: 0;
+        list-style: none;
+        text-align: start;
+        background: var(--surface-well);
     }
 
-    .step {
-        display: flex;
-        gap: 1rem;
-        margin-bottom: 1.25rem;
+    .setup-step {
+        align-items: flex-start;
     }
 
-    .step:last-child { margin-bottom: 0; }
-
-    .step-number {
-        width: 2rem;
-        height: 2rem;
-        background: #6366f1;
-        color: white;
-        border-radius: 50%;
-        display: flex;
+    .setup-step-number {
+        display: inline-flex;
+        flex: 0 0 22px;
         align-items: center;
         justify-content: center;
+        width: 22px;
+        height: 22px;
+        color: var(--text-secondary);
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-pill);
+        font-size: 0.75rem;
         font-weight: 600;
-        flex-shrink: 0;
+        font-variant-numeric: tabular-nums;
     }
 
-    .step-content {
+    .setup-step-body {
+        display: flex;
         flex: 1;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+        padding-top: 2px;
     }
 
-    .step-content strong {
-        display: block;
+    .setup-step-title {
         color: var(--text-primary);
-        margin-bottom: 0.25rem;
+        font-weight: 600;
     }
 
-    .step-content p {
+    .setup-step-hint {
         color: var(--text-muted);
-        font-size: 0.875rem;
-        margin-bottom: 0.75rem;
-    }
-
-    .step-content code {
-        background: #1E1E1E;
-        color: #68d391;
-        padding: 2px 0.5rem;
-        border-radius: 0.25rem;
-        font-family: 'SF Mono', Menlo, Monaco, monospace;
         font-size: 0.8125rem;
     }
 
-    .code-block {
+    .setup-step-hint code {
+        padding: 1px 5px;
+        color: var(--text-primary);
+        background: var(--surface-card);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-xs);
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+    }
+
+    .setup-command {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
-        background: #1E1E1E;
-        padding: 0.75rem 1rem;
-        border-radius: 0.375rem;
+        gap: 8px;
+        padding: 4px 4px 4px 10px;
+        background: var(--surface-console);
+        border: 1px solid var(--border-console);
+        border-radius: var(--radius-md);
     }
 
-    .code-block code {
-        background: transparent;
-        padding: 0;
+    .setup-command code {
         flex: 1;
+        min-width: 0;
+        overflow-x: auto;
+        color: var(--console-text);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        white-space: nowrap;
     }
 
-    .btn-copy-code {
-        background: transparent;
-        border: none;
-        color: #a0aec0;
-        cursor: pointer;
-        padding: 0.25rem 0.5rem;
-        border-radius: 0.25rem;
+    .setup-command .btn-ghost {
+        color: var(--console-muted);
     }
 
-    .btn-copy-code:hover {
-        color: white;
-        background: rgba(255,255,255,0.1);
+    .setup-command .btn-ghost:hover {
+        color: var(--console-text);
+        background: var(--surface-console-row-hover);
+    }
+
+    .setup-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 8px;
     }
 
     .connection-status {
@@ -464,15 +538,15 @@ else
         align-items: center;
         gap: 0.75rem;
         padding: 0.75rem 1rem;
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
+        background: var(--surface-card);
+        border-radius: var(--radius-lg);
         margin-bottom: 1.25rem;
     }
 
     .status-indicator {
         width: 0.625rem;
         height: 0.625rem;
-        border-radius: 50%;
+        border-radius: var(--radius-pill);
     }
 
     .connection-status.connected .status-indicator { background: var(--accent-success); }
@@ -491,30 +565,34 @@ else
         font-size: 0.75rem;
         font-weight: normal;
         color: var(--text-muted);
-        background: var(--bg-hover);
+        background: var(--surface-card-hover);
         padding: 2px 0.5rem;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-xs);
     }
 
     .login-badge {
         font-size: 0.75rem;
         font-weight: 500;
-        color: #6366f1;
-        background: #eef2ff;
+        color: var(--accent);
+        background: var(--accent-soft);
         padding: 2px 0.5rem;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-xs);
     }
 
     .welcome-section {
-        background: var(--card-bg);
-        border-radius: 0.75rem;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         padding: 3.75rem 2.5rem;
         text-align: center;
     }
 
     .welcome-icon {
-        font-size: 64px;
-        color: #6366f1;
+        width: 42px;
+        height: 42px;
+        margin-inline: auto;
+        font-size: 17px;
+        color: var(--accent);
         margin-bottom: 1.25rem;
     }
 
@@ -543,7 +621,7 @@ else
         align-items: center;
         gap: 0.5rem;
         padding: 0.5rem 0.75rem;
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-subtle);
         color: var(--text-secondary);
         font-size: 0.8rem;
     }
@@ -555,15 +633,9 @@ else
         font-weight: 600;
     }
 
-    .model-selector select {
+    .copilot-model-select {
         min-width: 10rem;
         max-width: 16rem;
-        padding: 0.25rem 0.5rem;
-        border: 1px solid var(--border-color);
-        border-radius: 4px;
-        background: var(--bg-tertiary);
-        color: var(--text-primary);
-        font: inherit;
     }
 
     .chat-container {
@@ -571,8 +643,9 @@ else
         flex-direction: column;
         height: calc(100vh - 280px);
         min-height: 400px;
-        background: var(--card-bg);
-        border-radius: 0.75rem;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         overflow: hidden;
     }
 
@@ -583,10 +656,10 @@ else
         padding: 0.375rem 0.75rem;
         margin-bottom: 0.5rem;
         font-size: 0.6875rem;
-        color: #6366f1;
-        background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%);
-        border-radius: 0.5rem;
-        border: 1px solid rgba(99, 102, 241, 0.15);
+        color: var(--accent);
+        background: var(--accent-soft);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--accent-border);
         flex-shrink: 0;
         min-height: 1.5rem;
     }
@@ -618,23 +691,23 @@ else
         right: 1.25rem;
         width: 44px;
         height: 44px;
-        border-radius: 50%;
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
+        border-radius: var(--radius-pill);
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
         color: var(--text-secondary);
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
         z-index: 999;
-        box-shadow: 0 2px 0.5rem rgba(0, 0, 0, 0.15);
+        box-shadow: var(--shadow-popover);
         transition: all 0.2s ease;
     }
 
     .debug-toggle-btn:hover {
-        background: #6366f1;
-        color: white;
-        border-color: #6366f1;
+        background: var(--accent);
+        color: var(--text-inverse);
+        border-color: var(--accent);
     }
 
     .debug-overlay {
@@ -643,10 +716,10 @@ else
         right: 1.25rem;
         width: 500px;
         height: 300px;
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 0.75rem;
-        box-shadow: 0 0.5rem 2rem rgba(0, 0, 0, 0.2);
+        background: var(--surface-console);
+        border: 1px solid var(--border-console);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-popover);
         z-index: 1000;
         display: flex;
         flex-direction: column;
@@ -666,13 +739,13 @@ else
         align-items: center;
         justify-content: space-between;
         padding: 0.75rem 1rem;
-        background: rgba(99, 102, 241, 0.1);
-        border-bottom: 1px solid var(--border-color);
+        background: var(--surface-console-header);
+        border-bottom: 1px solid var(--border-console);
     }
 
     .debug-title {
         font-weight: 600;
-        color: #6366f1;
+        color: var(--accent);
         display: flex;
         align-items: center;
         gap: 0.5rem;
@@ -686,24 +759,24 @@ else
 
     .debug-filter {
         padding: 0.375rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        background: var(--input-bg, var(--card-bg));
-        color: var(--text-primary);
+        border: 1px solid var(--border-console);
+        border-radius: var(--radius-sm);
+        background: var(--surface-console);
+        color: var(--console-text);
         font-size: 0.8125rem;
         width: 150px;
     }
 
     .debug-filter:focus {
         outline: none;
-        border-color: #6366f1;
+        border-color: var(--accent);
     }
 
     .debug-btn {
         width: 2rem;
         height: 2rem;
         border: none;
-        border-radius: 0.375rem;
+        border-radius: var(--radius-sm);
         background: transparent;
         color: var(--text-secondary);
         cursor: pointer;
@@ -714,38 +787,39 @@ else
     }
 
     .debug-btn:hover {
-        background: rgba(99, 102, 241, 0.15);
-        color: #6366f1;
+        background: var(--accent-soft);
+        color: var(--accent);
     }
 
     .debug-content {
         flex: 1;
         overflow-y: auto;
-        font-family: 'SF Mono', Consolas, monospace;
+        overscroll-behavior: contain;
+        font-family: var(--font-mono);
         font-size: 0.75rem;
         padding: 0.5rem;
-        background: #f8fafc;
+        background: var(--surface-console);
     }
     
     .theme-dark .debug-content {
-        background: #1e1e2e;
+        background: var(--surface-console);
     }
 
     .debug-log {
         display: flex;
         gap: 0.5rem;
         padding: 0.25rem 0.5rem;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-xs);
         white-space: pre-wrap;
         word-break: break-word;
     }
 
     .debug-log:hover {
-        background: rgba(99, 102, 241, 0.1);
+        background: var(--surface-console-row-hover);
     }
 
     .log-time {
-        color: #64748b;
+        color: var(--console-muted);
         flex-shrink: 0;
     }
 
@@ -755,35 +829,35 @@ else
     }
 
     .log-message {
-        color: #1e293b;
+        color: var(--console-text);
     }
     
     .theme-dark .log-time {
-        color: #94a3b8;
+        color: var(--text-muted);
     }
     
     .theme-dark .log-message {
-        color: #e2e8f0;
+        color: var(--text-primary);
     }
 
-    .debug-log.log-dbg .log-level { color: #64748b; }
-    .debug-log.log-inf .log-level { color: #2563eb; }
-    .debug-log.log-wrn .log-level { color: #d97706; }
-    .debug-log.log-err .log-level { color: #dc2626; }
-    .debug-log.log-err { background: rgba(239, 68, 68, 0.15); }
+    .debug-log.log-dbg .log-level { color: var(--text-muted); }
+    .debug-log.log-inf .log-level { color: var(--status-info-fg); }
+    .debug-log.log-wrn .log-level { color: var(--status-warning-fg); }
+    .debug-log.log-err .log-level { color: var(--status-error-fg); }
+    .debug-log.log-err { background: var(--status-error-bg); }
     
-    .theme-dark .debug-log.log-dbg .log-level { color: #94a3b8; }
-    .theme-dark .debug-log.log-inf .log-level { color: #60a5fa; }
-    .theme-dark .debug-log.log-wrn .log-level { color: #fbbf24; }
-    .theme-dark .debug-log.log-err .log-level { color: #f87171; }
+    .theme-dark .debug-log.log-dbg .log-level { color: var(--text-muted); }
+    .theme-dark .debug-log.log-inf .log-level { color: var(--status-info-fg); }
+    .theme-dark .debug-log.log-wrn .log-level { color: var(--status-warning-fg); }
+    .theme-dark .debug-log.log-err .log-level { color: var(--status-error-fg); }
 
     .theme-dark .chat-container {
-        background: var(--card-bg);
+        background: var(--surface-card);
     }
 
     .theme-dark .login-badge {
-        background: rgba(99, 102, 241, 0.2);
-        color: #a78bfa;
+        background: var(--accent-soft);
+        color: var(--accent);
     }
 
     /* ─── Blazor Header Bar ─── */
@@ -791,114 +865,49 @@ else
         display: flex;
         align-items: center;
         justify-content: space-between;
-        background: linear-gradient(135deg, #6366f1, #4f46e5);
-        padding: 0.625rem 1rem;
+        gap: 12px;
+        background: var(--surface-card);
+        border-bottom: 1px solid var(--border-subtle);
+        padding: 10px 16px;
         flex-shrink: 0;
-        min-height: 44px;
+        min-height: 46px;
         box-sizing: border-box;
     }
 
     .copilot-header__left {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        flex-wrap: wrap;
+        gap: 8px;
         min-width: 0;
     }
 
-    .copilot-header__icon {
-        width: 20px;
-        height: 20px;
+    .copilot-header__well {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        border-radius: var(--radius-md);
+        background: linear-gradient(135deg, #6366f1, #7c3aed);
+        color: #ffffff;
+        font-size: 12px;
         flex-shrink: 0;
     }
 
     .copilot-header__title {
-        font-size: 0.9375rem;
-        font-weight: 700;
-        color: #fff;
-        white-space: nowrap;
-    }
-
-    .copilot-header__dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #f56565;
-        flex-shrink: 0;
-    }
-
-    .copilot-header__dot.connected {
-        background: #48bb78;
-    }
-
-    .copilot-header__status {
-        font-size: 0.75rem;
-        color: rgba(255, 255, 255, 0.7);
-        white-space: nowrap;
-    }
-
-    .copilot-header__badge {
-        font-size: 0.6875rem;
-        color: #fff;
-        background: rgba(255, 255, 255, 0.15);
-        padding: 0.125rem 0.5rem;
-        border-radius: 0.75rem;
-        white-space: nowrap;
-    }
-
-    .copilot-header__version {
-        font-size: 0.6875rem;
-        color: rgba(255, 255, 255, 0.5);
+        font-size: var(--font-size-lg);
+        font-weight: 650;
+        letter-spacing: -0.01em;
+        color: var(--text-primary);
         white-space: nowrap;
     }
 
     .copilot-header__right {
         display: flex;
         align-items: center;
-        gap: 0.375rem;
+        gap: 6px;
         flex-shrink: 0;
-    }
-
-    .copilot-header__connecting {
-        color: #fff;
-        font-size: 0.875rem;
-    }
-
-    .copilot-header__btn {
-        border: none;
-        border-radius: 0.25rem;
-        padding: 0.25rem 0.75rem;
-        font-size: 0.75rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: opacity 0.15s;
-        line-height: 1.4;
-    }
-
-    .copilot-header__btn:hover {
-        opacity: 0.85;
-    }
-
-    .copilot-header__btn--connect {
-        background: #fff;
-        color: #6366f1;
-    }
-
-    .copilot-header__btn--disconnect {
-        background: rgba(255, 255, 255, 0.15);
-        color: #fff;
-    }
-
-    .copilot-header__btn--close {
-        background: transparent;
-        color: rgba(255, 255, 255, 0.7);
-        font-size: 1rem;
-        padding: 0.125rem 0.375rem;
-        line-height: 1;
-    }
-
-    .copilot-header__btn--close:hover {
-        color: #fff;
-        opacity: 1;
     }
     .model-selector__new-chat {
         margin-left: auto;
@@ -906,16 +915,16 @@ else
         align-items: center;
         gap: 0.35rem;
         padding: 0.25rem 0.6rem;
-        border: 1px solid var(--border-color);
-        border-radius: 4px;
-        background: var(--bg-tertiary);
+        border: 1px solid var(--border-control);
+        border-radius: var(--radius-xs);
+        background: var(--surface-control);
         color: var(--text-primary);
         font: inherit;
         cursor: pointer;
     }
 
     .model-selector__new-chat:hover:not(:disabled) {
-        background: var(--bg-hover);
+        background: var(--surface-card-hover);
     }
 
     .model-selector__new-chat:disabled {
@@ -955,9 +964,9 @@ else
     /* Tool result tables (CopilotToolResultCard) */
     .copilot-result-card {
         margin: 0.25rem 0;
-        border: 1px solid var(--border-color-light);
-        border-radius: 0.5rem;
-        background: var(--bg-primary);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        background: var(--surface-well);
         overflow: hidden;
         font-size: 0.8125rem;
     }
@@ -970,7 +979,7 @@ else
         gap: 0.5rem;
         padding: 0.45rem 0.75rem;
         border: none;
-        background: var(--bg-secondary);
+        background: var(--surface-well);
         color: var(--text-primary);
         font: inherit;
         cursor: pointer;
@@ -989,8 +998,8 @@ else
 
     .copilot-result-count {
         padding: 0 0.45rem;
-        border-radius: 999px;
-        background: var(--bg-tertiary);
+        border-radius: var(--radius-pill);
+        background: var(--surface-card);
         color: var(--text-secondary);
         font-size: 0.7rem;
         font-weight: 600;
@@ -1014,6 +1023,8 @@ else
     .copilot-result-body {
         max-height: 20rem;
         overflow: auto;
+        overscroll-behavior: contain;
+        background: var(--surface-console);
     }
 
     .copilot-result-table {
@@ -1025,9 +1036,9 @@ else
         position: sticky;
         top: 0;
         padding: 0.4rem 0.75rem;
-        background: var(--bg-primary);
-        border-bottom: 1px solid var(--border-color-light);
-        color: var(--text-secondary);
+        background: var(--surface-console-header);
+        border-bottom: 1px solid var(--border-console);
+        color: var(--console-muted);
         font-size: 0.7rem;
         font-weight: 600;
         text-align: left;
@@ -1038,8 +1049,8 @@ else
 
     .copilot-result-table td {
         padding: 0.4rem 0.75rem;
-        border-bottom: 1px solid var(--border-color-light);
-        color: var(--text-primary);
+        border-bottom: 1px solid var(--border-console);
+        color: var(--console-text);
         vertical-align: middle;
     }
 
@@ -1048,9 +1059,9 @@ else
     }
 
     .copilot-result-table .mono {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-family: var(--font-mono);
         font-size: 0.75rem;
-        color: var(--text-secondary);
+        color: var(--console-muted);
         word-break: break-all;
     }
 
@@ -1064,17 +1075,17 @@ else
         align-items: center;
         gap: 0.3rem;
         padding: 0.2rem 0.55rem;
-        border: 1px solid var(--border-color-light);
-        border-radius: 4px;
-        background: var(--bg-secondary);
-        color: var(--accent-primary);
+        border: 1px solid var(--border-console);
+        border-radius: var(--radius-xs);
+        background: var(--surface-console-header);
+        color: var(--accent);
         font: inherit;
         font-size: 0.75rem;
         cursor: pointer;
     }
 
     .copilot-result-action:hover:not(:disabled) {
-        background: var(--bg-hover);
+        background: var(--surface-console-row-hover);
     }
 
     .copilot-result-action:disabled {
@@ -1084,14 +1095,14 @@ else
 
     .copilot-result-message {
         padding: 0.6rem 0.75rem;
-        color: var(--text-secondary);
+        color: var(--console-text);
         white-space: pre-wrap;
     }
 
     .copilot-pill {
         display: inline-block;
         padding: 0.1rem 0.5rem;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         font-size: 0.7rem;
         font-weight: 600;
         white-space: nowrap;
@@ -1101,7 +1112,7 @@ else
     .copilot-pill--warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
     .copilot-pill--error { background: var(--status-error-bg); color: var(--status-error-text); }
     .copilot-pill--info { background: var(--status-info-bg); color: var(--status-info-text); }
-    .copilot-pill--neutral { background: var(--bg-tertiary); color: var(--text-secondary); }
+    .copilot-pill--neutral { background: var(--surface-well); color: var(--text-secondary); }
 </style>
 
 <script suppress-error="BL9992">
@@ -1144,6 +1155,9 @@ else
     private bool isBusy = false;
     private string selectedModel = "auto";
     private List<CopilotModelOption> availableModels = [new("auto", "Auto")];
+    private IReadOnlyList<SherpaSelectOption<string>> ModelOptions =>
+        availableModels.Select(model =>
+            new SherpaSelectOption<string>(model.Id, model.Name, Icon: "fa-solid fa-robot")).ToArray();
     private string SelectedModelDisplayName => availableModels
         .FirstOrDefault(model => string.Equals(model.Id, selectedModel, StringComparison.OrdinalIgnoreCase))
         ?.Name ?? selectedModel;
@@ -1482,9 +1496,8 @@ else
         }
     }
 
-    private async Task SelectModelAsync(ChangeEventArgs args)
+    private async Task SelectModelAsync(string? model)
     {
-        var model = args.Value?.ToString();
         if (string.IsNullOrWhiteSpace(model) || string.Equals(model, selectedModel, StringComparison.Ordinal))
             return;
 

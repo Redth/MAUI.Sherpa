@@ -1,0 +1,182 @@
+@page "/modal/create-simulator"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@inject HybridFormBridgeHolder BridgeHolder
+@inject ISimulatorService SimulatorService
+@implements IDisposable
+
+@if (bridge != null)
+{
+    <div class="sherpa-form">
+        <div class="sherpa-field">
+            <label class="sherpa-field-label" for="simulator-name">Simulator Name</label>
+            <input id="simulator-name"
+                   type="text"
+                   class="sherpa-input"
+                   value="@simulatorName"
+                   @oninput="OnNameChanged"
+                   placeholder="My iPhone Simulator" />
+        </div>
+
+        @if (availableRuntimes.Count == 0)
+        {
+            <div class="sherpa-banner sherpa-banner-warning" role="alert">
+                <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i>
+                <span>No simulator runtimes are available. Install Xcode and an iOS simulator runtime first.</span>
+            </div>
+        }
+
+        <div class="sherpa-field">
+            <label class="sherpa-field-label">Runtime</label>
+            <SherpaSelect TValue="string"
+                          Value="@selectedRuntimeId"
+                          ValueChanged="OnRuntimeChanged"
+                          Options="RuntimeOptions"
+                          Placeholder="Select runtime..."
+                          AriaLabel="Simulator runtime"
+                          Disabled="@(availableRuntimes.Count == 0)"
+                          Class="sherpa-select-full" />
+        </div>
+
+        <div class="sherpa-field">
+            <label class="sherpa-field-label">Device Type</label>
+            <SherpaSelect TValue="string"
+                          Value="@selectedDeviceTypeId"
+                          ValueChanged="OnDeviceTypeChanged"
+                          Options="DeviceTypeOptions"
+                          Placeholder="@(selectedRuntimeId == null ? "Select runtime first..." : "Select device type...")"
+                          AriaLabel="Simulator device type"
+                          Searchable="true"
+                          Disabled="@(selectedRuntimeId == null || filteredDeviceTypes.Count == 0)"
+                          Class="sherpa-select-full" />
+        </div>
+    </div>
+}
+
+@code {
+    private HybridFormBridge? bridge;
+    private ISimulatorService? simulatorService;
+    private IReadOnlyList<SimulatorRuntime> availableRuntimes = [];
+    private IReadOnlyList<SimulatorDeviceType> allDeviceTypes = [];
+    private IReadOnlyList<SimulatorDeviceType> filteredDeviceTypes = [];
+    private string simulatorName = "My iPhone Simulator";
+    private string? selectedRuntimeId;
+    private string? selectedDeviceTypeId;
+
+    private IReadOnlyList<SherpaSelectOption<string>> RuntimeOptions =>
+        availableRuntimes.Select(runtime => new SherpaSelectOption<string>(
+            runtime.Identifier,
+            runtime.Name,
+            string.IsNullOrWhiteSpace(runtime.Platform)
+                ? runtime.Version
+                : $"{runtime.Platform} {runtime.Version}",
+            Icon: "fa-brands fa-apple")).ToArray();
+
+    private IReadOnlyList<SherpaSelectOption<string>> DeviceTypeOptions =>
+        filteredDeviceTypes.Select(deviceType => new SherpaSelectOption<string>(
+            deviceType.Identifier,
+            deviceType.Name,
+            deviceType.ProductFamily,
+            Icon: GetDeviceIcon(deviceType))).ToArray();
+
+    private bool CanSubmit =>
+        !string.IsNullOrWhiteSpace(simulatorName) &&
+        selectedRuntimeId != null &&
+        selectedDeviceTypeId != null;
+
+    protected override void OnInitialized()
+    {
+        bridge = BridgeHolder.Current;
+        if (bridge == null)
+            return;
+
+        simulatorService = bridge.Parameters.GetValueOrDefault("SimulatorService") as ISimulatorService
+            ?? SimulatorService;
+        availableRuntimes = GetParameterList<SimulatorRuntime>(bridge, "Runtimes")
+            .Where(runtime => runtime.IsAvailable)
+            .ToList();
+        allDeviceTypes = GetParameterList<SimulatorDeviceType>(bridge, "AllDeviceTypes");
+
+        bridge.SubmitRequested += OnSubmitRequested;
+
+        var newestIos = availableRuntimes
+            .Where(runtime =>
+                runtime.Platform?.Contains("iOS", StringComparison.OrdinalIgnoreCase) == true ||
+                runtime.Name.Contains("iOS", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(runtime => runtime.Version)
+            .FirstOrDefault();
+        var initialRuntime = newestIos ?? availableRuntimes.FirstOrDefault();
+        if (initialRuntime != null)
+            SelectRuntime(initialRuntime.Identifier);
+        else
+            UpdateValidity();
+    }
+
+    private static IReadOnlyList<T> GetParameterList<T>(HybridFormBridge source, string key) =>
+        source.Parameters.GetValueOrDefault(key) is IEnumerable<T> values
+            ? values.ToList()
+            : [];
+
+    private void OnNameChanged(ChangeEventArgs args)
+    {
+        simulatorName = args.Value?.ToString() ?? "";
+        UpdateValidity();
+    }
+
+    private void OnRuntimeChanged(string? value) => SelectRuntime(value);
+
+    private void SelectRuntime(string? runtimeId)
+    {
+        selectedRuntimeId = runtimeId;
+        selectedDeviceTypeId = null;
+
+        var runtime = availableRuntimes.FirstOrDefault(item => item.Identifier == runtimeId);
+        filteredDeviceTypes = runtime?.SupportedDeviceTypes?.ToList() ?? allDeviceTypes.ToList();
+
+        var firstIphone = filteredDeviceTypes.FirstOrDefault(deviceType =>
+            deviceType.Name.Contains("iPhone", StringComparison.OrdinalIgnoreCase));
+        var initialDevice = firstIphone ?? filteredDeviceTypes.FirstOrDefault();
+        if (initialDevice != null)
+        {
+            selectedDeviceTypeId = initialDevice.Identifier;
+            if (firstIphone != null)
+                simulatorName = $"My {firstIphone.Name}";
+        }
+
+        UpdateValidity();
+    }
+
+    private void OnDeviceTypeChanged(string? value)
+    {
+        selectedDeviceTypeId = value;
+        UpdateValidity();
+    }
+
+    private void UpdateValidity() => bridge?.SetValid(CanSubmit);
+
+    private async Task OnSubmitRequested()
+    {
+        if (bridge == null || simulatorService == null)
+            return;
+
+        var runtime = availableRuntimes.First(item => item.Identifier == selectedRuntimeId);
+        var deviceType = filteredDeviceTypes.First(item => item.Identifier == selectedDeviceTypeId);
+        var created = await simulatorService.CreateSimulatorAsync(
+            simulatorName.Trim(),
+            deviceType.Identifier,
+            runtime.Identifier);
+        bridge.Result = created;
+    }
+
+    private static string GetDeviceIcon(SimulatorDeviceType deviceType) =>
+        deviceType.ProductFamily.Contains("iPad", StringComparison.OrdinalIgnoreCase) ||
+        deviceType.Name.Contains("iPad", StringComparison.OrdinalIgnoreCase)
+            ? "fa-solid fa-tablet-screen-button"
+            : "fa-solid fa-mobile-screen-button";
+
+    public void Dispose()
+    {
+        if (bridge != null)
+            bridge.SubmitRequested -= OnSubmitRequested;
+    }
+}

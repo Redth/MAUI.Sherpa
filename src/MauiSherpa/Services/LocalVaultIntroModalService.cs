@@ -1,23 +1,23 @@
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Pages.Forms;
+using MauiSherpa.Pages.Modals;
 
 namespace MauiSherpa.Services;
 
 public sealed class LocalVaultIntroModalService
 {
-    private const string PreviewOnlyParameter = "PreviewOnly";
-    private readonly ModalParameterService _modalParams;
+    private readonly HybridFormBridgeHolder _bridgeHolder;
+    private readonly IFormModalService _formModalService;
     private readonly ILocalVaultIntroductionService _introductionService;
     private readonly SemaphoreSlim _modalLock = new(1, 1);
 
-    public bool IsVisible { get; private set; }
-    public event Action? VisibilityChanged;
-
     public LocalVaultIntroModalService(
-        ModalParameterService modalParams,
+        HybridFormBridgeHolder bridgeHolder,
+        IFormModalService formModalService,
         ILocalVaultIntroductionService introductionService)
     {
-        _modalParams = modalParams;
+        _bridgeHolder = bridgeHolder;
+        _formModalService = formModalService;
         _introductionService = introductionService;
     }
 
@@ -37,41 +37,16 @@ public sealed class LocalVaultIntroModalService
         await _modalLock.WaitAsync();
         try
         {
-            _modalParams.Clear();
-            _modalParams.Set(PreviewOnlyParameter, previewOnly);
-
-            var resultTask = _modalParams.WaitForResultAsync();
-#if LINUXGTK
-            IsVisible = true;
-            VisibilityChanged?.Invoke();
-            try
+            LocalVaultIntroPage? page = null;
+            await NativeUiDispatcher.RunAsync(() =>
             {
-                var inlineResult = await resultTask;
-                return inlineResult is LocalVaultIntroductionResult typedInlineResult
-                    ? typedInlineResult
-                    : null;
-            }
-            finally
-            {
-                IsVisible = false;
-                VisibilityChanged?.Invoke();
-            }
-#else
-            var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
-            if (nav == null)
-                return null;
-
-            var page = new ProgressModalPage("/modal/local-vault-intro", 620, 520);
-            await nav.PushModalAsync(page, animated: true);
-            var result = await resultTask;
-            await nav.PopModalAsync(animated: true);
-
-            return result is LocalVaultIntroductionResult typedResult ? typedResult : null;
-#endif
+                page = new LocalVaultIntroPage(_bridgeHolder, previewOnly);
+                return Task.CompletedTask;
+            });
+            return await _formModalService.ShowAsync(page!);
         }
         finally
         {
-            _modalParams.Clear();
             _modalLock.Release();
         }
     }

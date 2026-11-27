@@ -1,0 +1,58 @@
+@typeparam TValue
+
+<div class="@RootCssClass" role="group" aria-label="@AriaLabel">
+    @foreach (var option in Options)
+    {
+        var isActive = IsSelected(option);
+        <button type="button"
+                class="sherpa-segmented-btn @(isActive ? "active" : null)"
+                aria-pressed="@isActive.ToString().ToLowerInvariant()"
+                title="@option.Title"
+                disabled="@option.Disabled"
+                @onclick="() => SelectAsync(option)">
+            @if (!string.IsNullOrWhiteSpace(option.Icon))
+            {
+                <i class="@EnsureFixedWidth(option.Icon)" aria-hidden="true"></i>
+            }
+            <span>@option.Label</span>
+        </button>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public TValue? Value { get; set; }
+
+    [Parameter]
+    public EventCallback<TValue?> ValueChanged { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<SherpaSegmentOption<TValue>> Options { get; set; } =
+        Array.Empty<SherpaSegmentOption<TValue>>();
+
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    private string RootCssClass =>
+        string.Join(
+            " ",
+            new[] { "sherpa-segmented", Class }
+                .Where(cssClass => !string.IsNullOrWhiteSpace(cssClass)));
+
+    private bool IsSelected(SherpaSegmentOption<TValue> option) =>
+        EqualityComparer<TValue>.Default.Equals(Value!, option.Value);
+
+    private Task SelectAsync(SherpaSegmentOption<TValue> option) =>
+        option.Disabled
+            ? Task.CompletedTask
+            : ValueChanged.InvokeAsync(option.Value);
+
+    private static string EnsureFixedWidth(string icon) =>
+        icon.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Contains("fa-fw", StringComparer.Ordinal)
+                ? icon
+                : $"{icon} fa-fw";
+}

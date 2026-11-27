@@ -14,23 +14,23 @@
             @if (LogService.IsRunning)
             {
                 <button class="btn btn-sm btn-danger" @onclick="StopLog">
-                    <i class="fas fa-stop"></i> Stop
+                    <i class="fa-solid fa-stop"></i> Stop
                 </button>
             }
             else
             {
                 <button class="btn btn-sm btn-success" @onclick="StartLog">
-                    <i class="fas fa-play"></i> Start
+                    <i class="fa-solid fa-play"></i> Start
                 </button>
             }
             <button class="btn btn-sm btn-secondary" @onclick="ClearLog">
-                <i class="fas fa-trash-alt"></i> Clear
+                <i class="fa-solid fa-trash-alt"></i> Clear
             </button>
             <button class="btn btn-sm @(isPaused ? "btn-warning" : "btn-secondary")" @onclick="TogglePause">
-                <i class="fas @(isPaused ? "fa-play" : "fa-pause")"></i> @(isPaused ? "Resume" : "Pause")
+                <i class="fa-solid @(isPaused ? "fa-play" : "fa-pause")"></i> @(isPaused ? "Resume" : "Pause")
             </button>
             <button class="btn btn-sm @(autoScroll ? "btn-primary" : "btn-secondary")" @onclick="ToggleAutoScroll">
-                <i class="fas fa-arrow-down"></i> Auto-scroll
+                <i class="fa-solid fa-arrow-down"></i> Auto-scroll
             </button>
         </div>
         <div class="toolbar-right">
@@ -44,14 +44,12 @@
     <div class="simlog-filters">
         <div class="filter-group">
             <label>Level</label>
-            <select @bind="filterLevel" @bind:after="ApplyFilters">
-                <option value="">All</option>
-                <option value="Default">D - Default</option>
-                <option value="Info">I - Info</option>
-                <option value="Debug">G - Debug</option>
-                <option value="Error">E - Error</option>
-                <option value="Fault">F - Fault</option>
-            </select>
+            <SherpaSelect TValue="string"
+                          Value="@filterLevel"
+                          ValueChanged="OnFilterLevelChanged"
+                          Options="LogLevelOptions"
+                          AriaLabel="Minimum simulator log level"
+                          Compact="true" />
         </div>
         <div class="filter-group filter-grow">
             <label>Subsystem</label>
@@ -68,7 +66,7 @@
         @if (HasActiveFilters)
         {
             <button class="btn btn-sm btn-ghost" @onclick="ClearFilters">
-                <i class="fas fa-times"></i> Clear
+                <i class="fa-solid fa-times"></i> Clear
             </button>
         }
     </div>
@@ -118,8 +116,8 @@
         align-items: center;
         justify-content: space-between;
         padding: 0.375rem 0.5rem;
-        background: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
+        background: var(--surface-card);
+        border-bottom: 1px solid var(--border-hairline);
         flex-shrink: 0;
     }
     .simlog-toolbar .toolbar-left {
@@ -137,13 +135,13 @@
         display: inline-block;
         width: 0.5rem;
         height: 0.5rem;
-        background: #48bb78;
-        border-radius: 50%;
+        background: var(--accent-success);
+        border-radius: var(--radius-pill);
         margin-left: 0.375rem;
         animation: simlog-pulse 1.5s ease-in-out infinite;
     }
     .simlog-toolbar .streaming-dot.paused {
-        background: #ed8936;
+        background: var(--status-warning-fg);
         animation: none;
     }
 
@@ -158,8 +156,8 @@
         align-items: flex-end;
         gap: 0.5rem;
         padding: 0.3125rem 0.5rem;
-        background: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
+        background: var(--surface-card);
+        border-bottom: 1px solid var(--border-hairline);
         flex-shrink: 0;
     }
     .simlog-filters .filter-group {
@@ -168,49 +166,49 @@
         gap: 2px;
     }
     .simlog-filters .filter-group label {
-        font-size: 0.625rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: var(--text-muted);
+        font-size: var(--font-size-xs);
+        letter-spacing: 0.02em;
+        color: var(--text-primary);
         font-weight: 600;
     }
     .simlog-filters .filter-grow { flex: 1; }
     .simlog-filters .filter-group input, .simlog-filters .filter-group select {
-        background: var(--bg-tertiary);
-        border: 1px solid var(--border-color);
+        background: var(--surface-control);
+        border: 1px solid var(--border-control);
         color: var(--text-primary);
         padding: 0.25rem 0.5rem;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-xs);
         font-size: 0.75rem;
-        font-family: 'Consolas', 'Monaco', monospace;
+        font-family: var(--font-mono);
     }
     .simlog-filters .filter-group input:focus, .simlog-filters .filter-group select:focus {
         outline: none;
-        border-color: var(--accent-primary);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-ring);
     }
 
     /* Grid */
     .simlog-grid-container {
         flex: 1;
         overflow: hidden;
-        background: var(--bg-primary, #1a1a2e);
+        background: var(--surface-canvas);
     }
     .simlog-grid {
         display: flex;
         flex-direction: column;
         height: 100%;
-        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-family: var(--font-mono);
         font-size: 0.75rem;
+        font-variant-numeric: tabular-nums;
     }
     .simlog-grid .grid-header {
         display: flex;
         padding: 0.25rem 0;
-        background: var(--bg-tertiary);
-        border-bottom: 2px solid var(--border-color);
+        background: var(--surface-well);
+        border-bottom: 1px solid var(--border-strong);
         font-weight: 700;
         font-size: 0.6875rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.02em;
         color: var(--text-secondary);
         flex-shrink: 0;
     }
@@ -233,14 +231,15 @@
         z-index: 5;
     }
     .simlog-grid .col-resizer:hover, .simlog-grid .col-resizer:active {
-        background: var(--accent-primary, #4299e1);
+        background: var(--accent);
         opacity: 0.4;
-        border-radius: 2px;
+        border-radius: var(--radius-xs);
     }
     .simlog-grid-body {
         flex: 1;
         overflow-y: auto;
         overflow-x: hidden;
+        overscroll-behavior: contain;
     }
     .simlog-grid .grid-row {
         display: flex;
@@ -266,20 +265,19 @@
 
     /* Level badges */
     .simlog-grid .level-badge {
-        display: inline-block;
-        width: 1.25rem;
+        display: inline-grid;
+        place-items: center;
+        width: 1.2rem;
         height: 18px;
-        line-height: 18px;
-        text-align: center;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
+        border: 1px solid transparent;
         font-weight: 700;
         font-size: 0.6875rem;
     }
-    .simlog-grid .level-default { background: #4a5568; color: #a0aec0; }
-    .simlog-grid .level-info { background: #276749; color: #c6f6d5; }
-    .simlog-grid .level-debug { background: #2b6cb0; color: #bee3f8; }
-    .simlog-grid .level-error { background: #9b2c2c; color: #fed7d7; }
-    .simlog-grid .level-fault { background: #702459; color: #fed7e2; }
+    .simlog-grid .level-default { border-color: var(--border-control); background: var(--surface-well); color: var(--text-secondary); }
+    .simlog-grid .level-info { border-color: var(--status-success-border); background: var(--status-success-bg); color: var(--status-success-fg); }
+    .simlog-grid .level-debug { border-color: var(--status-info-border); background: var(--status-info-bg); color: var(--status-info-fg); }
+    .simlog-grid .level-error, .simlog-grid .level-fault { border-color: var(--status-error-border); background: var(--status-error-bg); color: var(--status-error-fg); }
 
     /* Row level tinting */
     .simlog-grid .row-default { }
@@ -289,17 +287,18 @@
     .simlog-grid .row-fault { background: rgba(183, 62, 137, 0.12); }
 
     /* Buttons */
-    .simlog-page .btn { padding: 0.375rem 0.875rem; border: none; border-radius: 0.3125rem; font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
+    .simlog-page .btn { padding: 0.375rem 0.875rem; border: none; border-radius: var(--radius-xs); font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
     .simlog-page .btn i { font-size: 0.6875rem; }
     .simlog-page .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.6875rem; }
     .simlog-page .btn-primary { background: var(--accent-primary); color: white; }
     .simlog-page .btn-secondary { background: var(--btn-secondary-bg); color: var(--text-secondary); border: none; }
-    .simlog-page .btn-success { background: #48bb78; color: white; }
-    .simlog-page .btn-danger { background: #f56565; color: white; }
-    .simlog-page .btn-warning { background: #ed8936; color: white; }
+    .simlog-page .btn-success { background: var(--accent-success); color: white; }
+    .simlog-page .btn-danger { background: var(--accent-danger); color: white; }
+    .simlog-page .btn-warning { background: var(--status-warning-fg); color: white; }
     .simlog-page .btn-ghost { background: transparent; color: var(--text-muted); }
     .simlog-page .btn:hover:not(:disabled) { filter: brightness(1.1); }
     .simlog-page .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .simlog-page :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 
 @code {
@@ -344,9 +343,24 @@
     private string filterSubsystem = "";
     private string filterProcess = "";
     private string filterText = "";
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> LogLevelOptions =
+    [
+        new("", "All"),
+        new("Default", "D - Default"),
+        new("Info", "I - Info"),
+        new("Debug", "G - Debug"),
+        new("Error", "E - Error"),
+        new("Fault", "F - Fault")
+    ];
 
     private bool HasActiveFilters => !string.IsNullOrEmpty(filterLevel) || !string.IsNullOrEmpty(filterSubsystem)
         || !string.IsNullOrEmpty(filterProcess) || !string.IsNullOrEmpty(filterText);
+
+    private void OnFilterLevelChanged(string? value)
+    {
+        filterLevel = value ?? string.Empty;
+        ApplyFilters();
+    }
 
     // Stream
     private CancellationTokenSource? _streamCts;
@@ -613,9 +627,9 @@
     {
         SimulatorLogLevel.Default => "D",
         SimulatorLogLevel.Info => "I",
-        SimulatorLogLevel.Debug => "G",
+        SimulatorLogLevel.Debug => "V",
         SimulatorLogLevel.Error => "E",
-        SimulatorLogLevel.Fault => "F",
+        SimulatorLogLevel.Fault => "E",
         _ => "?"
     };
 

@@ -19,29 +19,29 @@
     <div class="dialog-overlay" @onclick="HandleOverlayClick" id="edit-profile-modal">
         <div class="dialog" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="edit-profile-modal-title">
             <div class="dialog-header">
-                <h2 id="edit-profile-modal-title"><i class="fas fa-edit"></i> Edit Profile</h2>
-                <button class="close-btn" @onclick="Close"><i class="fas fa-times"></i></button>
+                <h2 id="edit-profile-modal-title"><i class="fa-solid fa-edit"></i> Edit Profile</h2>
+                <button class="close-btn" @onclick="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
             </div>
 
             <div class="dialog-body">
                 @if (isLoading)
                 {
                     <div class="loading-state">
-                        <i class="fas fa-spinner fa-spin"></i>
+                        <i class="fa-solid fa-spinner fa-spin"></i>
                         <span>Loading profile data...</span>
                     </div>
                 }
                 else if (!string.IsNullOrEmpty(errorMessage))
                 {
                     <div class="error-message">
-                        <i class="fas fa-exclamation-circle"></i>
+                        <i class="fa-solid fa-circle-exclamation"></i>
                         @errorMessage
                     </div>
                 }
                 else
                 {
                     <div class="warning-banner">
-                        <i class="fas fa-exclamation-triangle"></i>
+                        <i class="fa-solid fa-triangle-exclamation"></i>
                         <div>
                             <strong>This will delete and recreate the profile.</strong>
                             <p>The profile UUID will change. You may need to update your Xcode project settings.</p>
@@ -79,13 +79,13 @@
                         <p class="section-description">
                             Select @(IsDevelopmentProfile ? "development" : "distribution") certificates to include.
                         </p>
-                        
+
                         <div class="selection-list">
                             @foreach (var cert in FilteredCertificates)
                             {
                                 var isSelected = selectedCertificateIds.Contains(cert.Id);
                                 <label class="selection-item @(isSelected ? "selected" : "")">
-                                    <input type="checkbox" 
+                                    <input type="checkbox"
                                            checked="@isSelected"
                                            @onchange="@(e => ToggleCertificate(cert.Id, (bool)(e.Value ?? false)))" />
                                     <div class="item-content">
@@ -109,16 +109,16 @@
                             @if (!FilteredCertificates.Any())
                             {
                                 <div class="empty-list">
-                                    <i class="fas fa-certificate"></i>
+                                    <i class="fa-solid fa-certificate"></i>
                                     <span>No compatible certificates found</span>
                                 </div>
                             }
                         </div>
-                        
+
                         @if (selectedCertificateIds.Any())
                         {
                             <div class="selection-summary">
-                                <i class="fas fa-check-circle"></i> @selectedCertificateIds.Count certificate(s) selected
+                                <i class="fa-solid fa-circle-check"></i> @selectedCertificateIds.Count certificate(s) selected
                             </div>
                         }
                     </div>
@@ -134,7 +134,7 @@
 
                             <div class="device-toolbar">
                                 <label class="select-all-checkbox">
-                                    <input type="checkbox" 
+                                    <input type="checkbox"
                                            checked="@(selectedDeviceIds.Count == EnabledDevices.Count() && EnabledDevices.Any())"
                                            @onchange="ToggleAllDevices" />
                                     <span>Select All (@EnabledDevices.Count())</span>
@@ -167,7 +167,7 @@
                                 @if (!FilteredDevices.Any())
                                 {
                                     <div class="empty-list">
-                                        <i class="fas fa-mobile-alt"></i>
+                                        <i class="fa-solid fa-mobile-screen-button"></i>
                                         <span>No compatible devices found</span>
                                     </div>
                                 }
@@ -176,13 +176,13 @@
                             @if (selectedDeviceIds.Any())
                             {
                                 <div class="selection-summary">
-                                    <i class="fas fa-check-circle"></i> @selectedDeviceIds.Count device(s) selected
+                                    <i class="fa-solid fa-circle-check"></i> @selectedDeviceIds.Count device(s) selected
                                 </div>
                             }
                             else
                             {
                                 <div class="selection-summary warning">
-                                    <i class="fas fa-exclamation-triangle"></i> At least 1 device is required
+                                    <i class="fa-solid fa-triangle-exclamation"></i> At least 1 device is required
                                 </div>
                             }
                         </div>
@@ -195,12 +195,12 @@
                 <button class="btn btn-primary" @onclick="RegenerateProfile" disabled="@(!CanRegenerate || isRegenerating)">
                     @if (isRegenerating)
                     {
-                        <i class="fas fa-spinner fa-spin"></i>
+                        <i class="fa-solid fa-spinner fa-spin"></i>
                         <span>Regenerating...</span>
                     }
                     else
                     {
-                        <i class="fas fa-sync-alt"></i>
+                        <i class="fa-solid fa-arrows-rotate"></i>
                         <span>Regenerate Profile</span>
                     }
                 </button>
@@ -225,8 +225,8 @@
     }
 
     .dialog {
-        background: var(--card-bg, white);
-        border-radius: 0.75rem;
+        background: var(--surface-card);
+        border-radius: var(--radius-lg);
         width: 90%;
         max-width: 600px;
         max-height: 85vh;
@@ -240,36 +240,37 @@
         justify-content: space-between;
         align-items: center;
         padding: 1rem 1.5rem;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        border-bottom: 1px solid var(--border-subtle);
     }
 
     .dialog-header h2 {
         margin: 0;
         font-size: 1.125rem;
         font-weight: 600;
-        color: var(--text-primary, #1a202c);
+        color: var(--text-primary);
         display: flex;
         align-items: center;
         gap: 0.625rem;
     }
 
-    .dialog-header h2 i { color: #8b5cf6; }
+    .dialog-header h2 i { color: var(--accent); }
 
     .close-btn {
         background: none;
         border: none;
         font-size: 1.125rem;
-        color: var(--text-muted, #a0aec0);
+        color: var(--text-muted);
         cursor: pointer;
         padding: 0.25rem 0.5rem;
     }
 
-    .close-btn:hover { color: var(--text-secondary, #4a5568); }
+    .close-btn:hover { color: var(--text-secondary); }
 
     .dialog-body {
         flex: 1;
         padding: 1.5rem;
         overflow-y: auto;
+        overscroll-behavior: contain;
     }
 
     .warning-banner {
@@ -277,20 +278,20 @@
         gap: 0.75rem;
         padding: 1rem;
         background: var(--status-warning-bg);
-        border: 1px solid var(--accent-warning);
-        border-radius: 0.5rem;
+        border: 1px solid var(--status-warning-border);
+        border-radius: var(--radius-md);
         margin-bottom: 1.25rem;
     }
 
     .warning-banner i {
-        color: var(--accent-warning);
+        color: var(--status-warning-fg);
         font-size: 1.25rem;
         flex-shrink: 0;
         margin-top: 2px;
     }
 
     .warning-banner strong {
-        color: var(--status-warning-text);
+        color: var(--status-warning-fg);
         display: block;
         margin-bottom: 0.25rem;
     }
@@ -298,7 +299,7 @@
     .warning-banner p {
         margin: 0;
         font-size: 0.8125rem;
-        color: var(--status-warning-text);
+        color: var(--status-warning-fg);
     }
 
     .profile-info {
@@ -308,7 +309,7 @@
     .profile-info h3 {
         font-size: 0.875rem;
         font-weight: 600;
-        color: var(--text-secondary, #4a5568);
+        color: var(--text-secondary);
         margin: 0 0 0.75rem 0;
     }
 
@@ -316,6 +317,10 @@
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 0.75rem;
+        padding: 0.875rem;
+        background: var(--surface-well);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-md);
     }
 
     .info-item {
@@ -326,24 +331,24 @@
 
     .info-label {
         font-size: 0.6875rem;
-        color: var(--text-muted, #a0aec0);
+        color: var(--text-muted);
         text-transform: uppercase;
     }
 
     .info-value {
         font-size: 0.8125rem;
         font-weight: 500;
-        color: var(--text-primary, #1a202c);
+        color: var(--text-primary);
     }
 
-    .info-value.expired { color: #dc2626; }
+    .info-value.expired { color: var(--status-error-dot); }
 
     .badge-expired {
         display: inline-block;
         padding: 2px 0.375rem;
         background: var(--status-error-bg);
-        color: var(--status-error-text);
-        border-radius: 0.25rem;
+        color: var(--status-error-fg);
+        border-radius: var(--radius-xs);
         font-size: 0.625rem;
         font-weight: 500;
         margin-left: 0.5rem;
@@ -356,22 +361,23 @@
     .selection-section h3 {
         font-size: 0.875rem;
         font-weight: 600;
-        color: var(--text-secondary, #4a5568);
+        color: var(--text-secondary);
         margin: 0 0 0.25rem 0;
     }
 
     .section-description {
         font-size: 0.8125rem;
-        color: var(--text-muted, #718096);
+        color: var(--text-muted);
         margin: 0 0 0.75rem 0;
     }
 
     .selection-list {
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 0.5rem;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         max-height: 200px;
-        overflow-y: auto;
-        background: var(--input-bg, white);
+        overflow: hidden auto;
+        overscroll-behavior: contain;
+        background: var(--surface-card);
     }
 
     .selection-list.devices { max-height: 180px; }
@@ -381,56 +387,63 @@
         align-items: flex-start;
         gap: 0.75rem;
         padding: 0.75rem 0.875rem;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        border: 0;
+        border-bottom: 1px solid var(--border-hairline);
+        border-radius: 0;
         cursor: pointer;
         transition: background 0.15s;
-        background: var(--input-bg, white);
+        background: var(--surface-card);
     }
 
     .selection-item:last-child { border-bottom: none; }
-    .selection-item.selected { background: var(--accent-bg, #faf5ff); }
+    .selection-item:hover { background: var(--surface-card-hover); }
+    .selection-item.selected {
+        background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface-card));
+        border-radius: 0;
+        box-shadow: none;
+    }
     .selection-item.disabled { opacity: 0.5; cursor: not-allowed; }
 
-    .selection-item input { margin-top: 2px; accent-color: #8b5cf6; }
+    .selection-item input { margin-top: 2px; accent-color: var(--accent); }
 
     .item-content { flex: 1; min-width: 0; }
-    .item-name { 
-        font-weight: 500; 
-        font-size: 0.875rem; 
-        color: var(--text-primary, #1a202c);
+    .item-name {
+        font-weight: 500;
+        font-size: 0.875rem;
+        color: var(--text-primary);
         display: flex;
         align-items: center;
         gap: 0.5rem;
     }
-    .item-detail { 
-        font-size: 0.75rem; 
-        color: var(--text-muted, #718096); 
+    .item-detail {
+        font-size: 0.75rem;
+        color: var(--text-muted);
         margin-top: 2px;
         display: flex;
         gap: 0.75rem;
         font-family: monospace;
     }
 
-    .badge { 
+    .badge {
         display: inline-block;
         padding: 2px 0.5rem;
-        border-radius: 0.625rem;
+        border-radius: var(--radius-lg);
         font-size: 0.6875rem;
         font-weight: 500;
         margin-top: 0.25rem;
     }
 
-    .badge-warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
+    .badge-warning { background: var(--status-warning-bg); color: var(--status-warning-fg); }
 
     /* Sync status badges */
     .badge-sync-both { background: var(--sync-synced-bg); color: var(--sync-synced-text); }
     .badge-sync-local { background: var(--sync-local-bg); color: var(--sync-local-text); }
     .badge-sync-cloud { background: var(--sync-cloud-bg); color: var(--sync-cloud-text); }
     .badge-sync-none { background: var(--sync-none-bg); color: var(--sync-none-text); }
-    .text-sync-both { color: #22c55e; }
-    .text-sync-local { color: #3b82f6; }
-    .text-sync-cloud { color: #eab308; }
-    .text-sync-none { color: #6b7280; }
+    .text-sync-both { color: var(--status-success-dot); }
+    .text-sync-local { color: var(--accent); }
+    .text-sync-cloud { color: var(--status-warning-dot); }
+    .text-sync-none { color: var(--text-muted); }
 
     .empty-list {
         padding: 30px 1.25rem;
@@ -448,9 +461,10 @@
         margin-top: 0.5rem;
         padding: 0.5rem 0.75rem;
         background: var(--status-success-bg);
-        border-radius: 0.375rem;
+        border: 1px solid var(--status-success-border);
+        border-radius: var(--radius-sm);
         font-size: 0.8125rem;
-        color: var(--status-success-text);
+        color: var(--status-success-fg);
         display: flex;
         align-items: center;
         gap: 0.5rem;
@@ -458,7 +472,8 @@
 
     .selection-summary.warning {
         background: var(--status-warning-bg);
-        color: var(--status-warning-text);
+        border-color: var(--status-warning-border);
+        color: var(--status-warning-fg);
     }
 
     .device-toolbar {
@@ -474,22 +489,22 @@
         color: var(--text-secondary);
     }
 
-    .select-all-checkbox input { accent-color: #8b5cf6; }
+    .select-all-checkbox input { accent-color: var(--accent); }
 
     .dialog-footer {
         display: flex;
         justify-content: flex-end;
         padding: 1rem 1.5rem;
-        border-top: 1px solid var(--border-color, #e2e8f0);
+        border-top: 1px solid var(--border-subtle);
         gap: 0.75rem;
     }
 
     .btn-outline {
         background: none;
-        border: 1px solid var(--border-color, #e2e8f0);
-        color: var(--text-secondary, #4a5568);
+        border: 1px solid var(--border-subtle);
+        color: var(--text-secondary);
     }
-    .btn-outline:hover:not(:disabled) { background: var(--bg-hover, #f7fafc); }
+    .btn-outline:hover:not(:disabled) { background: var(--surface-card-hover); }
 
     .loading-state {
         display: flex;
@@ -498,17 +513,17 @@
         justify-content: center;
         padding: 2.5rem;
         gap: 0.75rem;
-        color: var(--text-muted, #a0aec0);
+        color: var(--text-muted);
     }
 
-    .loading-state i { font-size: 1.5rem; color: #ed8936; }
+    .loading-state i { font-size: 1.5rem; color: var(--status-warning-dot); }
 
     .error-message {
         padding: 0.75rem 1rem;
         background: var(--status-error-bg);
-        border: 1px solid var(--accent-danger);
-        border-radius: 0.375rem;
-        color: var(--status-error-text);
+        border: 1px solid var(--status-error-fg);
+        border-radius: var(--radius-sm);
+        color: var(--status-error-fg);
         display: flex;
         align-items: center;
         gap: 0.625rem;
@@ -688,12 +703,12 @@
 
     private string GetDeviceIcon(string deviceClass) => deviceClass?.ToUpperInvariant() switch
     {
-        "IPHONE" => "fas fa-mobile-alt",
-        "IPAD" => "fas fa-tablet-alt",
-        "MAC" => "fas fa-laptop",
-        "APPLE_TV" => "fas fa-tv",
-        "APPLE_WATCH" => "fas fa-clock",
-        _ => "fas fa-microchip"
+        "IPHONE" => "fa-solid fa-mobile-screen-button",
+        "IPAD" => "fa-solid fa-tablet-screen-button",
+        "MAC" => "fa-solid fa-laptop",
+        "APPLE_TV" => "fa-solid fa-tv",
+        "APPLE_WATCH" => "fa-solid fa-clock",
+        _ => "fa-solid fa-microchip"
     };
 
     private string FormatProfileType(string profileType) => AppleProfileTypes.GetDisplayName(profileType);
@@ -735,10 +750,10 @@
 
     private string GetSyncStatusIcon(SecretLocation location) => location switch
     {
-        SecretLocation.Both => "fas fa-check-circle text-sync-both",
-        SecretLocation.LocalOnly => "fas fa-hdd text-sync-local",
-        SecretLocation.CloudOnly => "fas fa-cloud text-sync-cloud",
-        _ => "fas fa-times-circle text-sync-none"
+        SecretLocation.Both => "fa-solid fa-circle-check text-sync-both",
+        SecretLocation.LocalOnly => "fa-solid fa-hdd text-sync-local",
+        SecretLocation.CloudOnly => "fa-solid fa-cloud text-sync-cloud",
+        _ => "fa-solid fa-circle-xmark text-sync-none"
     };
 
     private string GetSyncStatusText(SecretLocation location) => location switch

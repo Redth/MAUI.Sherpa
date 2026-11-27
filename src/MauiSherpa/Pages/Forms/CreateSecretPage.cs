@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
@@ -99,7 +100,7 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
         {
             Text = "Choose File",
             BorderWidth = 1,
-            CornerRadius = 6,
+            CornerRadius = FormTheme.ControlCornerRadius,
             FontSize = 13,
             HeightRequest = 36,
             Padding = new Thickness(12, 0),
@@ -141,7 +142,7 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
         {
             Text = "Add Metadata",
             BorderWidth = 0,
-            CornerRadius = 6,
+            CornerRadius = FormTheme.ControlCornerRadius,
             FontSize = 13,
             HeightRequest = 34,
             Padding = new Thickness(12, 0),
@@ -191,7 +192,11 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
     {
         try
         {
-            var result = await FilePicker.Default.PickAsync();
+            // FilePicker.Default is MAUI's portable stub on AppKit; the macOS implementation lives in DI.
+            var filePicker = Handler?.MauiContext?.Services.GetService<IFilePicker>()
+                ?? IPlatformApplication.Current?.Services.GetService<IFilePicker>()
+                ?? throw new InvalidOperationException("No file picker is registered.");
+            var result = await filePicker.PickAsync();
             if (result != null)
             {
                 _fileName = result.FileName;
@@ -264,7 +269,7 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
         {
             Text = "Remove",
             BorderWidth = 0,
-            CornerRadius = 5,
+            CornerRadius = FormTheme.ControlCornerRadius,
             FontSize = 12,
             HeightRequest = 36,
             Padding = new Thickness(10, 0),

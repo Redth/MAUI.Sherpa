@@ -14,11 +14,11 @@
                 {
                     @if (sortColumnIndex == idx)
                     {
-                        <i class="fas @(sortAscending ? "fa-caret-up" : "fa-caret-down") dg-sort-active"></i>
+                        <i class="fa-solid fa-fw @(sortAscending ? "fa-caret-up" : "fa-caret-down") dg-sort-active"></i>
                     }
                     else
                     {
-                        <i class="fas fa-sort dg-sort-idle"></i>
+                        <i class="fa-solid fa-fw fa-sort dg-sort-idle"></i>
                     }
                 }
                 @if (col.DefaultWidth > 0)
@@ -55,12 +55,12 @@
     <div class="dg-body">
         @if (IsLoading)
         {
-            <div class="dg-status"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
+            <div class="dg-status"><i class="fa-solid fa-fw fa-spinner fa-spin"></i> Loading...</div>
         }
         else if (displayItems.Count == 0)
         {
             <div class="dg-status">
-                <i class="fas fa-inbox"></i>
+                <i class="fa-solid fa-fw fa-inbox"></i>
                 <span>@(EmptyMessage ?? "No data")</span>
             </div>
         }
@@ -242,17 +242,23 @@
         flex-direction: column;
         height: 100%;
         overflow: hidden;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        background: var(--surface-card);
     }
 
     .dg-header-row {
         display: flex;
         align-items: stretch;
-        background: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: var(--surface-card);
+        border-bottom: 1px solid var(--border-subtle);
         font-size: 0.7rem;
         font-weight: 600;
         text-transform: uppercase;
-        color: var(--text-tertiary);
+        color: var(--text-muted);
         letter-spacing: 0.05em;
         flex-shrink: 0;
         user-select: none;
@@ -270,11 +276,12 @@
 
     .dg-header-cell:hover {
         color: var(--text-primary);
-        background: var(--bg-tertiary);
+        background: var(--surface-card-hover);
     }
 
     .dg-header-cell.dg-sorted {
-        color: var(--text-primary);
+        color: var(--accent);
+        background: var(--accent-soft);
     }
 
     .dg-sort-idle {
@@ -289,7 +296,7 @@
 
     .dg-sort-active {
         font-size: 0.6rem;
-        color: var(--accent-color, #3b82f6);
+        color: var(--accent);
     }
 
     .dg-col-resize {
@@ -304,15 +311,15 @@
 
     .dg-col-resize:hover,
     .dg-col-resize:active {
-        background: var(--accent-color, #3b82f6);
+        background: var(--accent);
         opacity: 0.5;
     }
 
     .dg-filter-row {
         display: flex;
         align-items: center;
-        background: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
+        background: var(--surface-well);
+        border-bottom: 1px solid var(--border-hairline);
         flex-shrink: 0;
         padding: 0.15rem 0;
     }
@@ -325,21 +332,23 @@
         width: 100%;
         font-size: 0.7rem;
         padding: 0.15rem 0.3rem;
-        border: 1px solid var(--border-color);
-        border-radius: 3px;
-        background: var(--bg-primary);
+        border: 1px solid var(--border-control);
+        border-radius: var(--radius-sm);
+        background: var(--surface-control);
         color: var(--text-primary);
         box-sizing: border-box;
     }
 
     .dg-filter-input:focus {
         outline: none;
-        border-color: var(--accent-color, #3b82f6);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px var(--accent-ring);
     }
 
     .dg-body {
         flex: 1;
         overflow: auto;
+        overscroll-behavior: contain;
     }
 
     .dg-mono .dg-body {
@@ -350,12 +359,16 @@
     .dg-row {
         display: flex;
         align-items: flex-start;
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-hairline);
         padding: 0.2rem 0;
     }
 
+    .dg-row:hover {
+        background: var(--surface-card-hover);
+    }
+
     .dg-row.selected {
-        background: rgba(59, 130, 246, 0.08);
+        background: var(--accent-soft);
     }
 
     .dg-cell {
@@ -370,7 +383,7 @@
         align-items: center;
         gap: 0.5rem;
         padding: 2rem;
-        color: var(--text-tertiary);
+        color: var(--text-muted);
         font-size: 0.85rem;
     }
 

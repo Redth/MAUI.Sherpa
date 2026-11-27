@@ -1,4 +1,5 @@
 @page "/xcode-management"
+@using System.ComponentModel
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.ViewModels
 @using MauiSherpa.Pages.Forms
@@ -18,12 +19,12 @@
 @inject IAppleDownloadAuthService DownloadAuthService
 @implements IDisposable
 
-<h1><i class="fab fa-apple"></i> @ViewModel.Title</h1>
+<h1><i class="fa-brands fa-apple"></i> @ViewModel.Title</h1>
 
 @if (!Platform.IsMacCatalyst && !Platform.IsMacOS)
 {
     <div class="not-supported">
-        <div class="warning-icon"><i class="fas fa-exclamation-triangle"></i></div>
+        <div class="warning-icon"><i class="fa-solid fa-exclamation-triangle"></i></div>
         <h2>macOS Only</h2>
         <p>Apple development tools management requires macOS with Xcode installed.</p>
     </div>
@@ -34,27 +35,27 @@ else
     {
         <div class="toolbar">
             <button class="btn btn-primary" @onclick="RefreshAll" disabled="@IsActiveTabLoading">
-                <i class="fas fa-sync-alt"></i> @(IsActiveTabLoading ? "Loading..." : "Refresh")
+                <i class="fa-solid fa-sync-alt"></i> @(IsActiveTabLoading ? "Loading..." : "Refresh")
             </button>
             <div class="toolbar-spacer"></div>
             @if (ViewModel.IsAuthenticated)
             {
                 <button data-screenshot-external class="btn btn-outline" @onclick="SignOut">
-                    <i class="fas fa-lock"></i> Sign Out
+                    <i class="fa-solid fa-lock"></i> Sign Out
                 </button>
             }
             else
             {
                 <button data-screenshot-external class="btn btn-outline" @onclick="OpenAuthModal">
-                    <i class="fas fa-lock-open"></i> Sign In
+                    <i class="fa-solid fa-lock-open"></i> Sign In
                 </button>
             }
         </div>
     }
 
-    <div class="auth-banner @(ViewModel.IsAuthenticated && DownloadAuthService.SessionValidationMessage == null ? "auth-banner-signed-in" : "")" data-testid="apple-account-card">
+    <div class="auth-banner sherpa-banner @(DownloadAuthService.SessionValidationMessage != null ? "sherpa-banner-danger" : ViewModel.IsAuthenticated ? "sherpa-banner-success" : "sherpa-banner-warning")" data-testid="apple-account-card">
         <div class="auth-banner-icon">
-            <i class="fas @(DownloadAuthService.SessionValidationMessage != null ? "fa-triangle-exclamation" : ViewModel.IsAuthenticated ? "fa-user-check" : "fa-user-lock")"></i>
+            <i class="fa-solid @(DownloadAuthService.SessionValidationMessage != null ? "fa-triangle-exclamation" : ViewModel.IsAuthenticated ? "fa-user-check" : "fa-user-lock")"></i>
         </div>
         <div class="auth-banner-content">
             @if (DownloadAuthService.SessionValidationMessage is { } validationMessage)
@@ -77,53 +78,35 @@ else
             @if (ViewModel.IsAuthenticated)
             {
                 <button data-screenshot-external class="btn btn-outline" data-testid="apple-sign-out" @onclick="SignOut">
-                    <i class="fas fa-lock"></i> Sign Out
+                    <i class="fa-solid fa-lock"></i> Sign Out
                 </button>
             }
             else
             {
                 <button data-screenshot-external class="btn btn-primary" data-testid="apple-sign-in" @onclick="OpenAuthModal">
-                    <i class="fas fa-lock-open"></i> Sign In
+                    <i class="fa-solid fa-lock-open"></i> Sign In
                 </button>
             }
         </div>
     </div>
 
-    <div class="tabs">
-        <button class="tab @(activeTab == "installed" ? "active" : "")" @onclick="@(() => SwitchTab("installed"))">
-            <i class="fas fa-hdd"></i> Installed (@ViewModel.InstalledXcodes.Count)
-        </button>
-        <button class="tab @(activeTab == "available" ? "active" : "")" @onclick="@(() => SwitchTab("available"))">
-            <i class="fas fa-cloud-download-alt"></i> Available
-            @if (ViewModel.AvailableReleases.Count > 0)
-            {
-                <span class="tab-count">(@filteredReleases.Count)</span>
-            }
-        </button>
-        <button class="tab @(activeTab == "runtimes" ? "active" : "")" @onclick="@(() => SwitchTab("runtimes"))">
-            <i class="fas fa-layer-group"></i> Runtimes
-            @if (hasLoadedRuntimeData)
-            {
-                <span class="tab-count">(@filteredRuntimeStorage.Count)</span>
-            }
-        </button>
-    </div>
+    <SherpaTabs Items="XcodeTabs"
+                ActiveKey="@activeTab"
+                ActiveKeyChanged="SwitchTab"
+                Variant="SherpaTabVariant.Standard"
+                AriaLabel="Xcode management views" />
 
     @* ====== INSTALLED TAB ====== *@
     @if (activeTab == "installed")
     {
-        @if (ViewModel.IsLoading && ViewModel.InstalledXcodes.Count == 0)
+        @if (!hasLoadedInstalled || (ViewModel.IsLoading && ViewModel.InstalledXcodes.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
-                <div class="loading-title">Discovering Xcode Installations</div>
-                <div class="loading-description">Scanning /Applications for Xcode bundles...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading installed Xcode versions..." />
         }
         else if (ViewModel.InstalledXcodes.Count == 0)
         {
             <div class="empty-state">
-                <div class="empty-icon"><i class="fas fa-box-open"></i></div>
+                <div class="empty-icon"><i class="fa-solid fa-box-open"></i></div>
                 <h3>No Xcode Installations Found</h3>
                 <p>Install Xcode from the Mac App Store or download from the Available tab.</p>
             </div>
@@ -131,49 +114,50 @@ else
         else if (filteredInstalledXcodes.Count == 0)
         {
             <div class="empty-state">
-                <div class="empty-icon"><i class="fas fa-search"></i></div>
+                <div class="empty-icon"><i class="fa-solid fa-search"></i></div>
                 <h3>No Matching Xcode Installations</h3>
                 <p>Try a different search to find an installed Xcode version.</p>
             </div>
         }
         else
         {
-                <div class="xcode-list">
+                <div class="xcode-list sherpa-list">
                     @foreach (var xcode in filteredInstalledXcodes)
                     {
-                    <div class="xcode-card @((xcode.IsSelected || xcode.IsDefault) ? "selected" : "")">
-                        <div class="xcode-card-icon">
-                            <i class="fas fa-hammer"></i>
+                    <div class="xcode-card sherpa-list-row @((xcode.IsSelected || xcode.IsDefault) ? "selected" : "")">
+                        <div class="xcode-card-icon sherpa-icon-well sherpa-icon-well-apple">
+                            <i class="fa-solid fa-hammer"></i>
+                            <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
                         </div>
-                        <div class="xcode-card-info">
-                            <div class="xcode-card-title">
-                                Xcode @xcode.Version
+                        <div class="xcode-card-info sherpa-row-stack">
+                            <div class="xcode-card-title sherpa-row-title">
+                                <span>Xcode @xcode.Version</span>
                                 @if (xcode.IsDefault)
                                 {
-                                    <span class="badge badge-installed"><i class="fas fa-link"></i> Default</span>
+                                    <span class="sherpa-badge sherpa-badge-success"><span class="sherpa-dot sherpa-dot-success"></span> Default</span>
                                 }
                                 @if (xcode.IsSelected)
                                 {
-                                    <span class="badge badge-active"><i class="fas fa-check"></i> Selected</span>
+                                    <span class="sherpa-badge sherpa-badge-accent"><i class="fa-solid fa-check"></i> Selected</span>
                                 }
                             </div>
-                            <div class="xcode-card-details">
-                                <span class="detail-item"><i class="fas fa-code-branch"></i> Build @xcode.BuildNumber</span>
-                                <span class="detail-item"><i class="fas fa-tag"></i> @Path.GetFileName(xcode.Path)</span>
-                                <span class="detail-item"><i class="fas fa-folder"></i> @xcode.Path</span>
+                            <div class="xcode-card-details sherpa-row-sub mono">
+                                <span>Build @xcode.BuildNumber</span>
+                                <span>· @Path.GetFileName(xcode.Path)</span>
+                                <span>· @xcode.Path</span>
                             </div>
                         </div>
-                        <div class="xcode-card-actions">
+                        <div class="xcode-card-actions sherpa-row-actions">
                             @if (!xcode.IsSelected)
                             {
-                                <button data-screenshot-external class="btn btn-sm btn-outline" @onclick="() => SelectXcode(xcode)">
-                                    <i class="fas fa-check-circle"></i> Select
+                                <button data-screenshot-external class="btn btn-sm btn-secondary" @onclick="() => SelectXcode(xcode)">
+                                    <i class="fa-solid fa-check-circle"></i> Select
                                 </button>
                             }
                             @if (!xcode.IsSelected && !xcode.IsDefault)
                             {
-                                <button data-screenshot-external class="btn btn-sm btn-danger-outline" @onclick="() => UninstallXcode(xcode)">
-                                    <i class="fas fa-trash-alt"></i> Uninstall
+                                <button data-screenshot-external class="btn btn-sm btn-icon btn-ghost-danger" @onclick="() => UninstallXcode(xcode)" title="Uninstall Xcode" aria-label="@($"Uninstall Xcode {xcode.Version}")">
+                                    <i class="fa-solid fa-trash-can"></i>
                                 </button>
                             }
                         </div>
@@ -192,20 +176,23 @@ else
                 @if (!ViewModel.IsAuthenticated)
                 {
                     <span class="auth-hint">
-                        <i class="fas fa-info-circle"></i> Sign in with Apple ID to download Xcode
+                        <i class="fa-solid fa-info-circle"></i> Sign in with Apple ID to download Xcode
                     </span>
                 }
                 @if (ViewModel.IsLoadingAvailable)
                 {
-                    <span class="loading-indicator"><i class="fas fa-spinner fa-spin"></i> Fetching releases...</span>
+                    <span class="loading-indicator"><i class="fa-solid fa-spinner fa-spin"></i> Fetching releases...</span>
                 }
             </div>
         }
 
-        @if (!(ViewModel.IsLoadingAvailable && filteredReleases.Count == 0))
+        @if (hasLoadedAvailable && !(ViewModel.IsLoadingAvailable && filteredReleases.Count == 0))
         {
             <div class="results-info available-results-info">
-                <span>Showing @filteredReleases.Count releases</span>
+                @if (HasActiveAvailableFilters)
+                {
+                    <span class="sherpa-filter-pill"><i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i> @filteredReleases.Count of @ViewModel.AvailableReleases.Count</span>
+                }
                 <label class="toggle-label available-toggle-label">
                     <input type="checkbox" @bind="showBetas" @bind:event="oninput" />
                     <span>Show Betas &amp; RCs</span>
@@ -213,76 +200,71 @@ else
             </div>
         }
 
-        @if (ViewModel.IsLoadingAvailable && filteredReleases.Count == 0)
+        @if (!hasLoadedAvailable || (ViewModel.IsLoadingAvailable && filteredReleases.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
-                <div class="loading-title">Fetching Available Releases</div>
-                <div class="loading-description">Fetching releases and checking Apple archive availability...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading available Xcode releases..." />
         }
         else if (filteredReleases.Count > 0)
         {
-            <div class="xcode-list">
+            <div class="xcode-list sherpa-list">
                 @foreach (var release in filteredReleases)
                 {
                     var installed = ViewModel.IsInstalled(release);
                     var isDownloading = downloadingRelease?.BuildNumber == release.BuildNumber;
-                    <div class="xcode-card @(installed ? "installed" : "") @(isDownloading ? "downloading" : "")">
-                        <div class="xcode-card-icon">
+                    <div class="xcode-card sherpa-list-row @(installed ? "installed" : "") @(isDownloading ? "downloading" : "")">
+                        <div class="xcode-card-icon sherpa-icon-well sherpa-icon-well-apple">
                             @if (release.IsBeta)
                             {
-                                <i class="fas fa-flask"></i>
+                                <i class="fa-solid fa-flask"></i>
                             }
                             else
                             {
-                                <i class="fas fa-hammer"></i>
+                                <i class="fa-solid fa-hammer"></i>
                             }
+                            <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
                         </div>
-                        <div class="xcode-card-info">
-                            <div class="xcode-card-title">
-                                Xcode @release.Version
+                        <div class="xcode-card-info sherpa-row-stack">
+                            <div class="xcode-card-title sherpa-row-title">
+                                <span>Xcode @release.Version</span>
                                 @if (release.IsBeta)
                                 {
-                                    <span class="badge badge-beta">@release.PrereleaseLabel</span>
+                                    <span class="sherpa-badge sherpa-badge-warning">@release.PrereleaseLabel</span>
                                 }
                                 @if (installed)
                                 {
-                                    <span class="badge badge-installed"><i class="fas fa-check"></i> Installed</span>
+                                    <span class="sherpa-badge sherpa-badge-success"><span class="sherpa-dot sherpa-dot-success"></span> Installed</span>
                                 }
                             </div>
-                            <div class="xcode-card-details">
-                                <span class="detail-item"><i class="fas fa-code-branch"></i> Build @release.BuildNumber</span>
-                                <span class="detail-item"><i class="fas fa-calendar"></i> @release.ReleaseDate.ToString("MMM d, yyyy")</span>
+                            <div class="xcode-card-details sherpa-row-sub mono">
+                                <span>Build @release.BuildNumber</span>
+                                <span>· @release.ReleaseDate.ToString("MMM d, yyyy")</span>
                                 @if (!string.IsNullOrEmpty(release.ArchiveExtension))
                                 {
-                                    <span class="detail-item"><i class="fas fa-file-archive"></i> @release.ArchiveExtension.TrimStart('.').ToUpperInvariant()</span>
+                                    <span>· @release.ArchiveExtension.TrimStart('.').ToUpperInvariant()</span>
                                 }
                                 @if (!string.IsNullOrEmpty(release.MinimumMacOSVersion))
                                 {
-                                    <span class="detail-item"><i class="fas fa-desktop"></i> macOS @release.MinimumMacOSVersion+</span>
+                                    <span>· macOS @release.MinimumMacOSVersion+</span>
                                 }
                                 @if (release.FileSizeBytes > 0)
                                 {
-                                    <span class="detail-item"><i class="fas fa-weight"></i> @FormatBytes(release.FileSizeBytes.Value)</span>
+                                    <span>· @FormatBytes(release.FileSizeBytes.Value)</span>
                                 }
                             </div>
-                            @if (release.Sdks.Count > 0)
+                            @if (release.Sdks.Count > 0 || release.Compilers.Count > 0)
                             {
-                                <div class="xcode-card-sdks">
-                                    @foreach (var sdk in release.Sdks.Take(5))
+                                <div class="xcode-card-extras sherpa-row-sub">
+                                    @if (release.Sdks.Count > 0)
                                     {
-                                        <span class="sdk-tag">@sdk.Name @sdk.Version</span>
+                                        @foreach (var sdk in release.Sdks.Take(5))
+                                        {
+                                            <span class="sdk-tag">@sdk.Name @sdk.Version</span>
+                                        }
+                                        @if (release.Sdks.Count > 5)
+                                        {
+                                            <span class="sdk-tag more">+@(release.Sdks.Count - 5) more</span>
+                                        }
                                     }
-                                    @if (release.Sdks.Count > 5)
-                                    {
-                                        <span class="sdk-tag more">+@(release.Sdks.Count - 5) more</span>
-                                    }
-                                </div>
-                            }
-                            @if (release.Compilers.Count > 0)
-                            {
-                                <div class="xcode-card-compilers">
                                     @foreach (var compiler in release.Compilers)
                                     {
                                         <span class="compiler-tag">@compiler.Name @compiler.Version</span>
@@ -306,31 +288,31 @@ else
                                 </div>
                             }
                         </div>
-                        <div class="xcode-card-actions">
+                        <div class="xcode-card-actions sherpa-row-actions">
                             @if (!string.IsNullOrEmpty(release.ReleaseNotesUrl))
                             {
-                                <button class="btn btn-sm btn-ghost" @onclick="() => OpenUrl(release.ReleaseNotesUrl)" title="Release Notes">
-                                    <i class="fas fa-file-alt"></i>
+                                <button class="btn btn-sm btn-icon btn-ghost" @onclick="() => OpenUrl(release.ReleaseNotesUrl)" title="Release Notes" aria-label="@($"Open release notes for Xcode {release.Version}")">
+                                    <i class="fa-solid fa-file-alt"></i>
                                 </button>
                             }
                             @if (!installed && !string.IsNullOrEmpty(release.DownloadUrl))
                             {
                                 @if (isDownloading)
                                 {
-                                    <button class="btn btn-sm btn-danger-outline" @onclick="CancelDownload">
-                                        <i class="fas fa-times"></i> Cancel
+                                    <button class="btn btn-sm btn-danger-soft" @onclick="CancelDownload">
+                                        <i class="fa-solid fa-times"></i> Cancel
                                     </button>
                                 }
                                 else if (ViewModel.IsAuthenticated)
                                 {
-                                    <button data-screenshot-external class="btn btn-sm btn-primary-sm" @onclick="() => DownloadAndInstall(release)" disabled="@(downloadingRelease != null)">
-                                        <i class="fas fa-download"></i> Install
+                                    <button data-screenshot-external class="btn btn-sm btn-primary" @onclick="() => DownloadAndInstall(release)" disabled="@(downloadingRelease != null)">
+                                        <i class="fa-solid fa-download"></i> Install
                                     </button>
                                 }
                                 else
                                 {
-                                    <button class="btn btn-sm btn-outline" @onclick="() => OpenUrl(release.DownloadUrl)" title="Open in browser">
-                                        <i class="fas fa-external-link-alt"></i>
+                                    <button class="btn btn-sm btn-icon btn-outline" @onclick="() => OpenUrl(release.DownloadUrl)" title="Open in browser" aria-label="@($"Open Xcode {release.Version} download in browser")">
+                                        <i class="fa-solid fa-external-link-alt"></i>
                                     </button>
                                 }
                             }
@@ -342,7 +324,7 @@ else
         else
         {
             <div class="empty-state">
-                <div class="empty-icon"><i class="fas @(ViewModel.AvailableReleases.Count == 0 ? "fa-cloud-download-alt" : "fa-search")"></i></div>
+                <div class="empty-icon"><i class="fa-solid @(ViewModel.AvailableReleases.Count == 0 ? "fa-cloud-download-alt" : "fa-search")"></i></div>
                 <h3>@(ViewModel.AvailableReleases.Count == 0 ? "No Xcode Releases Found" : "No Matching Xcode Releases")</h3>
                 <p>@(ViewModel.AvailableReleases.Count == 0
                     ? "Try refreshing to load the latest releases."
@@ -354,22 +336,22 @@ else
     @* ====== RUNTIMES TAB ====== *@
     @if (activeTab == "runtimes")
     {
-        @if ((ViewModel.IsLoadingRuntimes || ViewModel.IsLoadingDownloadableRuntimes) &&
-             ViewModel.RuntimeStorage.Count == 0 &&
-             ViewModel.DownloadableRuntimes.Count == 0)
+        @if (!hasLoadedRuntimeData ||
+             ((ViewModel.IsLoadingRuntimes || ViewModel.IsLoadingDownloadableRuntimes) &&
+              ViewModel.RuntimeStorage.Count == 0 &&
+              ViewModel.DownloadableRuntimes.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
-                <div class="loading-title">Loading Simulator Runtimes</div>
-                <div class="loading-description">Querying installed and downloadable simulator runtimes...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading simulator runtimes..." />
         }
         else
         {
             <div class="results-info runtime-results-info">
                 <div class="runtime-results-summary">
-                    <span>Showing @filteredRuntimeStorage.Count of @ViewModel.RuntimeStorage.Count runtime(s)</span>
-                    <span>&bull;</span>
+                    @if (HasActiveRuntimeFilters)
+                    {
+                        <span class="sherpa-filter-pill"><i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i> @filteredRuntimeStorage.Count of @ViewModel.RuntimeStorage.Count</span>
+                        <span>&bull;</span>
+                    }
                     <span>@FormatBytes(filteredRuntimeStorageBytes) in view</span>
                     @if (filteredRuntimeStorageBytes != ViewModel.TotalRuntimeStorageBytes)
                     {
@@ -377,15 +359,15 @@ else
                         <span>@FormatBytes(ViewModel.TotalRuntimeStorageBytes) total</span>
                     }
                 </div>
-                <button data-screenshot-external class="btn btn-sm btn-primary-sm" @onclick="OpenRuntimePicker">
+                <button data-screenshot-external class="btn btn-sm btn-primary" @onclick="OpenRuntimePicker">
                     @if (ViewModel.IsLoadingDownloadableRuntimes && ViewModel.DownloadableRuntimes.Count == 0)
                     {
-                        <i class="fas fa-spinner fa-spin"></i>
+                        <i class="fa-solid fa-spinner fa-spin"></i>
                         <span>Loading...</span>
                     }
                     else
                     {
-                        <i class="fas fa-plus"></i>
+                        <i class="fa-solid fa-plus"></i>
                         <span>Add Runtime...</span>
                     }
                 </button>
@@ -394,7 +376,7 @@ else
             @if (ViewModel.RuntimeStorage.Count == 0)
             {
                 <div class="empty-state">
-                    <div class="empty-icon"><i class="fas fa-layer-group"></i></div>
+                    <div class="empty-icon"><i class="fa-solid fa-layer-group"></i></div>
                     <h3>No Simulator Runtimes Found</h3>
                     <p>No simulator runtimes were reported by `xcrun simctl` yet. Use <strong>Add Runtime...</strong> to install one.</p>
                 </div>
@@ -402,60 +384,59 @@ else
             else if (filteredRuntimeStorage.Count == 0)
             {
                 <div class="empty-state">
-                    <div class="empty-icon"><i class="fas fa-search"></i></div>
+                    <div class="empty-icon"><i class="fa-solid fa-search"></i></div>
                     <h3>No Matching Runtimes</h3>
                     <p>Try a different search to find a simulator runtime.</p>
                 </div>
             }
             else
             {
-                <div class="xcode-list">
+                <div class="xcode-list sherpa-list">
                     @foreach (var runtime in filteredRuntimeStorage)
                     {
-                        <div class="xcode-card">
-                            <div class="xcode-card-icon">
+                        <div class="xcode-card sherpa-list-row">
+                            <div class="xcode-card-icon sherpa-icon-well sherpa-icon-well-apple">
                                 <i class="@GetRuntimeIcon(runtime.PlatformIdentifier)"></i>
+                                <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
                             </div>
-                            <div class="xcode-card-info">
-                                <div class="xcode-card-title">
-                                    @FormatRuntimeName(runtime)
-                                    <span class="badge @GetRuntimeStateBadgeClass(runtime.State)">@runtime.State</span>
+                            <div class="xcode-card-info sherpa-row-stack">
+                                <div class="xcode-card-title sherpa-row-title">
+                                    <span>@FormatRuntimeName(runtime)</span>
+                                    <span class="sherpa-badge @GetRuntimeStateBadgeClass(runtime.State)">@runtime.State</span>
                                     @if (!runtime.Deletable)
                                     {
-                                        <span class="badge badge-unknown">Protected</span>
+                                        <span class="sherpa-badge sherpa-badge-neutral">Protected</span>
                                     }
                                 </div>
-                                <div class="xcode-card-details">
-                                    <span class="detail-item"><i class="fas fa-cube"></i> @runtime.Identifier</span>
+                                <div class="xcode-card-details sherpa-row-sub mono">
+                                    <span>@runtime.Identifier</span>
                                     @if (!string.IsNullOrWhiteSpace(runtime.Build))
                                     {
-                                        <span class="detail-item"><i class="fas fa-code-branch"></i> Build @runtime.Build</span>
+                                        <span>· Build @runtime.Build</span>
                                     }
                                     @if (!string.IsNullOrWhiteSpace(runtime.PlatformIdentifier))
                                     {
-                                        <span class="detail-item"><i class="fas fa-desktop"></i> @FriendlyPlatform(runtime.PlatformIdentifier)</span>
+                                        <span>· @FriendlyPlatform(runtime.PlatformIdentifier)</span>
                                     }
                                     @if (runtime.SizeBytes.HasValue)
                                     {
-                                        <span class="detail-item"><i class="fas fa-weight"></i> @FormatBytes(runtime.SizeBytes.Value)</span>
+                                        <span>· @FormatBytes(runtime.SizeBytes.Value)</span>
                                     }
                                     @if (runtime.LastUsedAt.HasValue)
                                     {
-                                        <span class="detail-item"><i class="fas fa-clock"></i> Last used @FormatLastUsed(runtime.LastUsedAt.Value)</span>
+                                        <span>· Last used @FormatLastUsed(runtime.LastUsedAt.Value)</span>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(runtime.MountPath))
+                                    {
+                                        <span>· @runtime.MountPath</span>
                                     }
                                 </div>
-                                @if (!string.IsNullOrWhiteSpace(runtime.MountPath))
-                                {
-                                    <div class="xcode-card-details">
-                                        <span class="detail-item"><i class="fas fa-folder"></i> @runtime.MountPath</span>
-                                    </div>
-                                }
                             </div>
-                            <div class="xcode-card-actions">
+                            <div class="xcode-card-actions sherpa-row-actions">
                                 @if (runtime.Deletable)
                                 {
-                                    <button data-screenshot-external class="btn btn-sm btn-danger-outline" @onclick="() => DeleteRuntime(runtime)">
-                                        <i class="fas fa-trash-alt"></i> Delete
+                                    <button data-screenshot-external class="btn btn-sm btn-icon btn-ghost-danger" @onclick="() => DeleteRuntime(runtime)" title="Delete runtime" aria-label="@($"Delete {FormatRuntimeName(runtime)}")">
+                                        <i class="fa-solid fa-trash-can"></i>
                                     </button>
                                 }
                             </div>
@@ -469,17 +450,11 @@ else
 }
 
 <style>
-    h1 {
-        margin-bottom: 1.25rem;
-        font-size: 1.75rem;
-        color: var(--text-primary);
-    }
-
     .not-supported {
         text-align: center;
         padding: 3.75rem 1.25rem;
         background: var(--status-error-bg);
-        border-radius: 0.75rem;
+        border-radius: var(--radius-lg);
         border: 1px solid var(--accent-danger);
     }
     .not-supported .warning-icon { font-size: 48px; margin-bottom: 1rem; color: var(--accent-warning); }
@@ -496,19 +471,12 @@ else
     }
 
     .auth-banner {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        padding: 1rem 1.25rem;
         margin-bottom: 1rem;
-        background: var(--status-warning-bg);
-        color: var(--status-warning-text);
-        border-radius: var(--card-radius);
     }
 
     .auth-banner-icon {
         font-size: 1.5rem;
-        color: var(--accent-warning);
+        color: inherit;
         flex-shrink: 0;
     }
 
@@ -519,28 +487,10 @@ else
         min-width: 0;
     }
 
-    .auth-banner-content strong {
-        color: var(--status-warning-text);
-    }
-
     .auth-banner-content p {
         margin: 0;
         font-size: 0.875rem;
-        color: var(--status-warning-text);
-    }
-
-    .auth-banner-signed-in {
-        background: var(--status-success-bg);
-        color: var(--status-success-text);
-    }
-
-    .auth-banner-signed-in .auth-banner-icon {
-        color: var(--accent-success);
-    }
-
-    .auth-banner-signed-in .auth-banner-content strong,
-    .auth-banner-signed-in .auth-banner-content p {
-        color: var(--status-success-text);
+        color: inherit;
     }
 
     .auth-banner-actions {
@@ -572,41 +522,13 @@ else
         }
     }
 
-    /* Tabs */
-    .tabs {
-        display: flex;
-        gap: 0.25rem;
-        margin-bottom: 1rem;
-        border-bottom: 2px solid var(--border-color);
-    }
-    .tab {
-        padding: 0.75rem 1.25rem;
-        background: transparent;
-        border: none;
-        cursor: pointer;
-        color: var(--text-muted);
-        font-size: 0.875rem;
-        border-bottom: 2px solid transparent;
-        margin-bottom: -2px;
-        transition: all 0.2s ease;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-    .tab:hover { color: var(--accent-primary); }
-    .tab.active {
-        color: var(--accent-primary);
-        border-bottom-color: var(--accent-primary);
-        font-weight: 600;
-    }
-    .tab-count { opacity: 0.7; }
-
     /* Loading & Empty States */
     .loading-state, .empty-state {
         text-align: center;
         padding: 3rem 1.5rem;
         background: var(--card-bg);
-        border-radius: var(--card-radius);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
     }
     .loading-spinner { font-size: 2rem; color: var(--accent-primary); margin-bottom: 1rem; }
     .loading-title, .empty-state h3 { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
@@ -614,58 +536,36 @@ else
     .empty-icon { font-size: 2.5rem; color: var(--text-muted); margin-bottom: 1rem; opacity: 0.5; }
 
     /* Xcode Cards */
-    .xcode-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .xcode-list { margin-bottom: 1rem; }
 
     .xcode-card {
-        display: flex;
-        align-items: flex-start;
-        gap: 1rem;
-        padding: 1rem 1.25rem;
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        transition: all 0.15s ease;
+        align-items: center;
     }
-    .xcode-card.selected { background: var(--status-success-bg); }
-    .xcode-card.downloading { background: rgba(66, 153, 225, 0.03); }
+    .xcode-card.selected { background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-card)); }
+    .xcode-card.downloading { background: color-mix(in srgb, var(--status-info-bg) 55%, var(--surface-card)); }
 
     .xcode-card-icon {
-        font-size: 1.5rem;
-        color: var(--accent-primary);
-        padding-top: 0.125rem;
-        flex-shrink: 0;
-        width: 2rem;
-        text-align: center;
+        padding: 0;
     }
-    .xcode-card.selected .xcode-card-icon { color: var(--accent-success); }
 
-    .xcode-card-info { flex: 1; min-width: 0; }
+    .xcode-card-info { min-width: 0; }
 
     .xcode-card-title {
-        font-size: 1rem;
-        font-weight: 600;
-        color: var(--text-primary);
         display: flex;
         align-items: center;
-        gap: 0.5rem;
-        flex-wrap: wrap;
+        gap: 6px;
     }
 
     .xcode-card-details {
         display: flex;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-top: 0.375rem;
-        font-size: 0.8125rem;
-        color: var(--text-muted);
+        align-items: center;
+        gap: 6px;
     }
-    .detail-item { display: flex; align-items: center; gap: 0.375rem; }
-    .detail-item i { font-size: 0.6875rem; opacity: 0.7; }
 
-    .xcode-card-sdks, .xcode-card-compilers {
+    .xcode-card-extras {
         display: flex;
-        flex-wrap: wrap;
+        align-items: center;
         gap: 0.375rem;
-        margin-top: 0.5rem;
     }
 
     .sdk-tag {
@@ -687,13 +587,6 @@ else
         background: rgba(66, 153, 225, 0.1);
         color: var(--accent-primary);
         border: 1px solid rgba(66, 153, 225, 0.2);
-    }
-
-    .xcode-card-actions {
-        display: flex;
-        gap: 0.375rem;
-        flex-shrink: 0;
-        align-items: flex-start;
     }
 
     /* Badges */
@@ -736,77 +629,6 @@ else
         border: 1px solid var(--border-color);
     }
 
-    /* Buttons */
-    .btn-sm {
-        padding: 0.375rem 0.75rem;
-        font-size: 0.8125rem;
-    }
-    .btn-outline {
-        background: transparent;
-        border: 1px solid var(--accent-primary);
-        color: var(--accent-primary);
-        border-radius: 0.375rem;
-        cursor: pointer;
-        transition: all 0.15s;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-    .btn-outline:hover { background: var(--accent-primary); color: white; }
-
-    .btn-primary-sm {
-        background: var(--accent-primary);
-        border: 1px solid var(--accent-primary);
-        color: white;
-        border-radius: 0.375rem;
-        cursor: pointer;
-        transition: all 0.15s;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-    .btn-primary-sm:hover { opacity: 0.9; }
-    .btn-primary-sm:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    .btn-danger-outline {
-        background: transparent;
-        border: 1px solid var(--accent-danger);
-        color: var(--accent-danger);
-        border-radius: 0.375rem;
-        cursor: pointer;
-        transition: all 0.15s;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-    .btn-danger-outline:hover { background: var(--accent-danger); color: white; }
-    .btn-danger-outline:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    .btn-ghost {
-        background: transparent;
-        border: 1px solid var(--border-color);
-        color: var(--text-muted);
-        border-radius: 0.375rem;
-        cursor: pointer;
-        transition: all 0.15s;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-    .btn-ghost:hover { color: var(--accent-primary); border-color: var(--accent-primary); }
-
-    .btn-secondary {
-        background: var(--bg-tertiary);
-        border: 1px solid var(--border-color);
-        color: var(--text-secondary);
-        padding: 0.5rem 1rem;
-        border-radius: 0.375rem;
-        cursor: pointer;
-        font-size: 0.875rem;
-    }
-    .btn-secondary:hover { background: var(--border-color); }
-    .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
-
     /* Available Controls */
     .available-controls {
         display: flex;
@@ -832,9 +654,9 @@ else
     }
 
     .results-info {
-        font-size: 0.8125rem;
+        font-size: var(--font-size-xs);
         color: var(--text-muted);
-        margin-bottom: 0.75rem;
+        margin: 0 0 8px;
     }
 
     .available-results-info {
@@ -855,7 +677,7 @@ else
         align-items: center;
         justify-content: space-between;
         gap: 0.75rem;
-        margin-bottom: 1rem;
+        margin: 0 0 8px;
     }
 
     .runtime-results-summary {
@@ -897,7 +719,17 @@ else
     private string searchQuery = "";
     private bool showBetas;
     private bool hasInitialized;
+    private bool hasLoadedInstalled;
+    private bool hasLoadedAvailable;
     private bool hasLoadedRuntimeData;
+    private bool isInitialLoadPending = true;
+    private bool isRefreshingActiveTab;
+    private IReadOnlyList<SherpaTabItem> XcodeTabs =>
+    [
+        new("installed", "Installed", "fa-solid fa-hard-drive", ViewModel.InstalledXcodes.Count),
+        new("available", "Available", "fa-solid fa-cloud-arrow-down", filteredReleases.Count),
+        new("runtimes", "Runtimes", "fa-solid fa-layer-group", hasLoadedRuntimeData ? filteredRuntimeStorage.Count : null)
+    ];
 
     // Download/Install state
     private XcodeRelease? downloadingRelease;
@@ -928,6 +760,12 @@ else
             .Where(MatchesSearch)
             .ToList();
 
+    private bool HasActiveAvailableFilters =>
+        !string.IsNullOrWhiteSpace(searchQuery) || showBetas;
+
+    private bool HasActiveRuntimeFilters =>
+        !string.IsNullOrWhiteSpace(searchQuery);
+
     private IReadOnlyList<DownloadableSimulatorRuntime> downloadableRuntimeCatalog =>
         ViewModel.DownloadableRuntimes
             .Where(IsModernDownloadableRuntime)
@@ -942,12 +780,13 @@ else
             .Where(runtime => runtime.SizeBytes.HasValue)
             .Sum(runtime => runtime.SizeBytes!.Value);
 
-    private bool IsActiveTabLoading => activeTab switch
-    {
-        "available" => ViewModel.IsLoadingAvailable,
-        "runtimes" => ViewModel.IsLoadingRuntimes || ViewModel.IsLoadingDownloadableRuntimes,
-        _ => ViewModel.IsLoading,
-    };
+    private bool IsActiveTabLoading => isInitialLoadPending || isRefreshingActiveTab ||
+        (activeTab switch
+        {
+            "available" => ViewModel.IsLoadingAvailable,
+            "runtimes" => ViewModel.IsLoadingRuntimes || ViewModel.IsLoadingDownloadableRuntimes,
+            _ => ViewModel.IsLoading,
+        });
 
     protected override async Task OnInitializedAsync()
     {
@@ -955,17 +794,27 @@ else
         {
             hasInitialized = true;
             DownloadAuthService.AuthStateChanged += OnDownloadAuthStateChanged;
+            ViewModel.PropertyChanged += OnViewModelPropertyChanged;
             ToolbarService.ClearItems();
             ToolbarService.SetItems(
                 new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
             );
+            UpdateToolbarItemStates();
             ToolbarService.SetSearch("Search Xcode versions or runtimes...");
             ToolbarService.SetFilters();
             ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
             ToolbarService.SearchTextChanged += OnSearchTextChanged;
-            if (DownloadAuthService.IsAuthenticated)
-                await DownloadAuthService.ValidateSessionAsync();
-            await ViewModel.LoadInstalledAsync();
+            try
+            {
+                if (DownloadAuthService.IsAuthenticated)
+                    await DownloadAuthService.ValidateSessionAsync();
+                await LoadInstalledDataAsync();
+            }
+            finally
+            {
+                isInitialLoadPending = false;
+                UpdateToolbarItemStates();
+            }
         }
     }
 
@@ -976,17 +825,24 @@ else
 
         InvokeAsync(async () =>
         {
-            ToolbarService.SetItemEnabled("refresh", false);
-            try
-            {
-                await RefreshAll();
-            }
-            finally
-            {
-                ToolbarService.SetItemEnabled("refresh", true);
-                StateHasChanged();
-            }
+            await RefreshAll();
+            StateHasChanged();
         });
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is nameof(XcodeManagementViewModel.IsLoading) or
+            nameof(XcodeManagementViewModel.IsLoadingAvailable) or
+            nameof(XcodeManagementViewModel.IsLoadingRuntimes) or
+            nameof(XcodeManagementViewModel.IsLoadingDownloadableRuntimes))
+        {
+            InvokeAsync(() =>
+            {
+                UpdateToolbarItemStates();
+                StateHasChanged();
+            });
+        }
     }
 
     private void OnSearchTextChanged(string text)
@@ -1003,45 +859,89 @@ else
         {
             await Mediator.FlushStores("apple:xcode:available");
             if (activeTab == "available" && !ViewModel.IsLoadingAvailable)
-                await ViewModel.LoadAvailableAsync();
+                await LoadAvailableDataAsync();
             StateHasChanged();
         });
 
     public void Dispose()
     {
         DownloadAuthService.AuthStateChanged -= OnDownloadAuthStateChanged;
+        ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
     }
 
     private async Task RefreshAll()
     {
-        if (activeTab != "available" && DownloadAuthService.IsAuthenticated)
-            await DownloadAuthService.ValidateSessionAsync();
+        if (isRefreshingActiveTab)
+            return;
 
-        if (activeTab == "installed")
+        isRefreshingActiveTab = true;
+        UpdateToolbarItemStates();
+        try
         {
-            await Mediator.FlushStores("apple:xcode:installed");
-            await ViewModel.LoadInstalledAsync();
+            if (activeTab != "available" && DownloadAuthService.IsAuthenticated)
+                await DownloadAuthService.ValidateSessionAsync();
+
+            if (activeTab == "installed")
+            {
+                await Mediator.FlushStores("apple:xcode:installed");
+                await LoadInstalledDataAsync();
+            }
+            else if (activeTab == "available")
+            {
+                await Mediator.FlushStores("apple:xcode:available");
+                await LoadAvailableDataAsync();
+            }
+            else if (activeTab == "runtimes")
+                await LoadRuntimeDataAsync(forceRefresh: true);
         }
-        else if (activeTab == "available")
+        finally
         {
-            await Mediator.FlushStores("apple:xcode:available");
-            await ViewModel.LoadAvailableAsync();
+            isRefreshingActiveTab = false;
+            UpdateToolbarItemStates();
         }
-        else if (activeTab == "runtimes")
-            await LoadRuntimeDataAsync(forceRefresh: true);
     }
 
     private async Task SwitchTab(string tab)
     {
         activeTab = tab;
+        UpdateToolbarItemStates();
         if (tab == "available" && ViewModel.AvailableReleases.Count == 0)
-            await ViewModel.LoadAvailableAsync();
+            await LoadAvailableDataAsync();
+        else if (tab == "available")
+            hasLoadedAvailable = true;
         else if (tab == "runtimes" && !hasLoadedRuntimeData)
             await LoadRuntimeDataAsync();
 
         StateHasChanged();
+    }
+
+    private void UpdateToolbarItemStates() =>
+        ToolbarService.SetItemEnabled("refresh", !IsActiveTabLoading);
+
+    private async Task LoadInstalledDataAsync()
+    {
+        try
+        {
+            await ViewModel.LoadInstalledAsync();
+        }
+        finally
+        {
+            hasLoadedInstalled = true;
+        }
+    }
+
+    private async Task LoadAvailableDataAsync()
+    {
+        try
+        {
+            await ViewModel.LoadAvailableAsync();
+        }
+        finally
+        {
+            hasLoadedAvailable = true;
+        }
     }
 
     private bool MatchesSearch(XcodeInstallation xcode) =>
@@ -1253,11 +1153,16 @@ else
             await Mediator.FlushStores("apple:simulator:downloadable-runtimes");
         }
 
-        await Task.WhenAll(
-            ViewModel.LoadRuntimeStorageAsync(),
-            ViewModel.LoadDownloadableRuntimesAsync());
-
-        hasLoadedRuntimeData = true;
+        try
+        {
+            await Task.WhenAll(
+                ViewModel.LoadRuntimeStorageAsync(),
+                ViewModel.LoadDownloadableRuntimesAsync());
+        }
+        finally
+        {
+            hasLoadedRuntimeData = true;
+        }
     }
 
     private async Task OpenRuntimePicker()
@@ -1331,12 +1236,12 @@ else
 
     private static string GetRuntimeIcon(string? platformIdentifier) => FriendlyPlatform(platformIdentifier) switch
     {
-        "iOS" => "fas fa-mobile-alt",
-        "watchOS" => "fas fa-clock",
-        "tvOS" => "fas fa-tv",
-        "visionOS" => "fas fa-vr-cardboard",
-        "macOS" => "fas fa-laptop",
-        _ => "fas fa-cube"
+        "iOS" => "fa-solid fa-mobile-alt",
+        "watchOS" => "fa-solid fa-clock",
+        "tvOS" => "fa-solid fa-tv",
+        "visionOS" => "fa-solid fa-vr-cardboard",
+        "macOS" => "fa-solid fa-laptop",
+        _ => "fa-solid fa-cube"
     };
 
     private string GetRuntimeStateBadgeClass(string state) => state.ToLowerInvariant() switch

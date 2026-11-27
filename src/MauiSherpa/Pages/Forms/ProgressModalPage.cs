@@ -19,9 +19,9 @@ namespace MauiSherpa.Pages.Forms;
 public class ProgressModalPage : ContentPage, INativeModalDismissible
 {
     private bool _built;
-    private View? _webView;
+    private HybridLoadingView? _loadingView;
 
-    public void OnNativeDismissed() => ModalWebViewReadySignal.Ready -= OnBlazorReady;
+    public void OnNativeDismissed() => _loadingView?.StopLoading();
 
     public ProgressModalPage(string route, int minWidth = 600, int minHeight = 400)
     {
@@ -45,28 +45,22 @@ public class ProgressModalPage : ContentPage, INativeModalDismissible
         if (_built) return;
         _built = true;
 
-        ModalWebViewReadySignal.Ready += OnBlazorReady;
-
 #if MACOSAPP
-        var blazorWebView = new MacOSBlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = route,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new BlazorRootComponent
         {
             Selector = "#app",
             ComponentType = typeof(Components.ModalApp)
         });
-        _webView = blazorWebView;
-        Content = blazorWebView;
 #else
-        var blazorWebView = new BlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = route,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new RootComponent
         {
@@ -74,18 +68,8 @@ public class ProgressModalPage : ContentPage, INativeModalDismissible
             ComponentType = typeof(Components.ModalApp)
         });
         HandlerProperties.SetDisconnectPolicy(blazorWebView, HandlerDisconnectPolicy.Manual);
-        _webView = blazorWebView;
-        Content = blazorWebView;
 #endif
-    }
-
-    private void OnBlazorReady(double contentHeight)
-    {
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
-        Dispatcher.Dispatch(async () =>
-        {
-            if (_webView != null)
-                await _webView.FadeToAsync(1, 200, Easing.CubicIn);
-        });
+        _loadingView = new HybridLoadingView(blazorWebView);
+        Content = _loadingView;
     }
 }

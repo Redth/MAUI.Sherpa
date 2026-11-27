@@ -22,7 +22,59 @@
 @inject ICloudSecretsService CloudSecretsService
 @implements IDisposable
 
-<h1><i class="fas fa-id-card"></i> Provisioning Profiles</h1>
+<div class="sherpa-list-header-row">
+    <div class="sherpa-list-header-lead">
+        <h1><i class="fa-solid fa-id-card"></i> Provisioning Profiles</h1>
+        @if (HasActiveFilters)
+        {
+            <span class="sherpa-filter-pill">
+                <i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i>
+                @FilteredProfiles.Count() of @profiles.Count
+            </span>
+        }
+    </div>
+    @if (IdentityState.SelectedIdentity != null && !LocalVaultAccess.GetState().RequiresUserAction)
+    {
+        <div class="sherpa-list-header-actions">
+            @if (!isSelectionMode)
+            {
+                <button class="btn btn-secondary btn-sm" @onclick="BeginSelectionMode" disabled="@(isLoading || !FilteredProfiles.Any())">
+                    <i class="fa-solid fa-check-square fa-fw"></i> Select
+                </button>
+            }
+            else
+            {
+                <div class="sherpa-selection-inline">
+                    <div class="sherpa-selection-pill">
+                        <label>
+                            <input type="checkbox"
+                                   checked="@AllVisibleSelected"
+                                   disabled="@isLoading"
+                                   @onchange="ToggleAllVisible" />
+                            <span>All</span>
+                        </label>
+                        <span class="sherpa-selection-sep"></span>
+                        <span class="sherpa-selection-count">@selectedProfileIds.Count selected</span>
+                        @if (HiddenSelectionCount > 0)
+                        {
+                            <span class="sherpa-selection-hidden">(@HiddenSelectionCount hidden)</span>
+                        }
+                    </div>
+                    <button class="btn btn-primary btn-sm" @onclick="BackUpSelectedAsync" disabled="@(isLoading || selectedProfileIds.Count == 0)">
+                        <i class="fa-solid fa-cloud-arrow-up fa-fw"></i> Back Up
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="InstallSelectedAsync" disabled="@(isLoading || selectedProfileIds.Count == 0)">
+                        <i class="fa-solid fa-download fa-fw"></i> Install
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="ExportSelectedAsync" disabled="@(isLoading || selectedProfileIds.Count == 0)">
+                        <i class="fa-solid fa-file-export fa-fw"></i> Export
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="CancelSelectionMode">Done</button>
+                </div>
+            }
+        </div>
+    }
+</div>
 
 <AppleIdentityPicker />
 
@@ -31,44 +83,23 @@
     @if (!PlatformInfo.HasNativeToolbar)
     {
     <div class="toolbar">
-        @if (isSelectionMode)
-        {
-        <button data-screenshot-external class="btn btn-primary" @onclick="BackUpSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
-            <i class="fas fa-cloud-arrow-up"></i> Back Up
-        </button>
-        <button data-screenshot-external class="btn btn-secondary" @onclick="InstallSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
-            <i class="fas fa-download"></i> Install
-        </button>
-        <button data-screenshot-external class="btn btn-secondary" @onclick="ExportSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
-            <i class="fas fa-file-export"></i> Export
-        </button>
-        <button class="btn btn-secondary" @onclick="CancelSelectionMode">
-            <i class="fas fa-times"></i> Cancel
-        </button>
-        }
-        else
-        {
         <button data-screenshot-external class="btn btn-purple" @onclick="ShowCreateDialog" disabled="@isLoading">
-            <i class="fas fa-plus"></i> Create Profile
+            <i class="fa-solid fa-plus"></i> Create Profile
         </button>
         <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
-            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+            <i class="fa-solid @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
         </button>
         <button data-screenshot-external class="btn btn-secondary" @onclick="RevealProfilesFolder" disabled="@isLoading">
-            <i class="fas fa-folder-open"></i> Profiles Folder
+            <i class="fa-solid fa-folder-open"></i> Profiles Folder
         </button>
         <button data-screenshot-external class="btn btn-secondary" @onclick="ShowCleanupDialog" disabled="@isLoading">
-            <i class="fas fa-broom"></i> Clean Up
+            <i class="fa-solid fa-broom"></i> Clean Up
         </button>
         @if (GetInstallableProfiles().Any())
         {
             <button data-screenshot-external class="btn btn-success" @onclick="InstallAllProfiles" disabled="@isLoading">
-                <i class="fas fa-download"></i> Install All (@GetInstallableProfiles().Count())
+                <i class="fa-solid fa-download"></i> Install All (@GetInstallableProfiles().Count())
             </button>
-        }
-        <button class="btn btn-secondary" @onclick="BeginSelectionMode" disabled="@isLoading">
-            <i class="fas fa-check-square"></i> Select
-        </button>
         }
         <div class="toolbar-spacer"></div>
     </div>
@@ -79,31 +110,40 @@
     {
     <div class="filter-section">
         <div class="search-box">
-            <span class="search-icon"><i class="fas fa-search"></i></span>
+            <span class="search-icon"><i class="fa-solid fa-search"></i></span>
             <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search profiles..." />
             @if (!string.IsNullOrEmpty(searchQuery))
             {
-                <button class="clear-btn" @onclick="@(() => searchQuery = "")">×</button>
+                <button class="clear-btn" @onclick="@(() => searchQuery = "")" aria-label="Clear profile search">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
             }
         </div>
         <div class="filter-chips">
-            <select @bind="filterState" class="filter-select">
-                <option value="">All States</option>
-                <option value="ACTIVE">Active</option>
-                <option value="INVALID">Invalid</option>
-            </select>
-            <select @bind="filterType" class="filter-select">
-                <option value="">All Types</option>
-                <option value="DEVELOPMENT">Development</option>
-                <option value="ADHOC">Ad Hoc</option>
-                <option value="APPSTORE">App Store</option>
-            </select>
-            <select @bind="filterPlatform" class="filter-select">
-                <option value="">All Platforms</option>
-                <option value="IOS">iOS</option>
-                <option value="TVOS">tvOS</option>
-                <option value="MAC_OS">macOS</option>
-            </select>
+            <SherpaSelect TValue="string"
+                          Value="@filterState"
+                          ValueChanged="@(value => filterState = value ?? "")"
+                          Options="StateFilterOptions"
+                          LeadingIcon="fa-solid fa-circle-dot"
+                          AriaLabel="Filter by profile state"
+                          Compact="true"
+                          Class="filter-select" />
+            <SherpaSelect TValue="string"
+                          Value="@filterType"
+                          ValueChanged="@(value => filterType = value ?? "")"
+                          Options="ProfileTypeFilterOptions"
+                          LeadingIcon="fa-solid fa-id-card"
+                          AriaLabel="Filter by profile type"
+                          Compact="true"
+                          Class="filter-select" />
+            <SherpaSelect TValue="string"
+                          Value="@filterPlatform"
+                          ValueChanged="@(value => filterPlatform = value ?? "")"
+                          Options="PlatformFilterOptions"
+                          LeadingIcon="fa-brands fa-apple"
+                          AriaLabel="Filter by platform"
+                          Compact="true"
+                          Class="filter-select" />
         </div>
         @if (HasActiveFilters)
         {
@@ -117,45 +157,22 @@
         <div class="error-bar">@errorMessage</div>
     }
 
-    <div class="results-info">
-        Showing @FilteredProfiles.Count() of @profiles.Count profiles
-    </div>
-
-    @if (isSelectionMode)
-    {
-        <div class="selection-bar">
-            <label class="select-all-checkbox">
-                <input type="checkbox"
-                       checked="@AllVisibleSelected"
-                       @onchange="ToggleAllVisible" />
-                <span>Select all profiles shown</span>
-            </label>
-            <span class="selection-count">@selectedProfileIds.Count selected</span>
-        </div>
-    }
-
-    <div class="profile-list">
-        @if (isLoading && profiles.Count == 0)
+    <div class="profile-list sherpa-list">
+        @if (!hasLoaded || (isLoading && profiles.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner">
-                    <i class="fas fa-id-card"></i>
-                </div>
-                <div class="loading-title">Loading Profiles</div>
-                <div class="loading-description">Fetching provisioning profiles from App Store Connect...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading provisioning profiles..." />
         }
         else if (!FilteredProfiles.Any())
         {
             <div class="empty-state">
-                <div class="empty-icon"><i class="fas @(profiles.Count == 0 ? "fa-file-alt" : "fa-search")"></i></div>
+                <div class="empty-icon"><i class="fa-solid @(profiles.Count == 0 ? "fa-file-alt" : "fa-search")"></i></div>
                 <div class="empty-title">@(profiles.Count == 0 ? "No provisioning profiles found" : "No matching profiles")</div>
                 <div class="empty-description">
                     @if (profiles.Count == 0)
                     {
                         <span>Create a new profile to get started</span>
                         <button data-screenshot-external class="btn btn-purple btn-empty-cta" @onclick="ShowCreateDialog">
-                            <i class="fas fa-plus"></i> Create Profile
+                            <i class="fa-solid fa-plus"></i> Create Profile
                         </button>
                     }
                     else
@@ -173,93 +190,68 @@
                 var isExpiringSoon = !isExpired && profile.ExpirationDate < AppClock.UtcNow.AddDays(30);
                 var isInvalid = profile.State != "ACTIVE";
                 
-                <div class="profile-card @(isExpired || isInvalid ? "invalid" : isExpiringSoon ? "expiring" : "") @(selectedProfileIds.Contains(profile.Id) ? "selected" : "")">
+                <div class="profile-card sherpa-list-row @(isExpired || isInvalid ? "invalid" : isExpiringSoon ? "expiring" : "") @(selectedProfileIds.Contains(profile.Id) ? "selected" : "") @(isSelectionMode ? "selectable sherpa-list-row-interactive" : "")"
+                     @onclick="@(() => { if (isSelectionMode) ToggleProfileSelection(profile.Id, !selectedProfileIds.Contains(profile.Id)); })">
                     @if (isSelectionMode)
                     {
-                        <label class="profile-select">
+                        <label class="profile-select" @onclick:stopPropagation="true">
                             <input type="checkbox"
                                    aria-label="@($"Select {profile.Name}")"
                                    checked="@selectedProfileIds.Contains(profile.Id)"
+                                   disabled="@isLoading"
+                                   @onclick:stopPropagation="true"
                                    @onchange="@(e => ToggleProfileSelection(profile.Id, e.Value is bool selected && selected))" />
                         </label>
                     }
-                    <div class="profile-icon"><i class="fas fa-id-card"></i></div>
-                    <div class="profile-details">
-                        <div class="profile-name"><span>@profile.Name</span></div>
-                        <div class="profile-uuid">
-                            <span class="@(demoMode ? "demo-blur" : "")">@profile.Uuid</span>
-                            <button class="btn-copy" @onclick="@(() => CopyToClipboard(profile.Uuid))" title="Copy to clipboard">
-                                <i class="fas fa-copy"></i>
-                            </button>
-                        </div>
-                        @if (!string.IsNullOrEmpty(profile.BundleId))
-                        {
-                            <div class="profile-bundle-id">
-                                <i class="fas fa-cube"></i> <span>@profile.BundleId</span>
-                            </div>
-                        }
-                        <div class="profile-badges">
-                            <span class="badge badge-type">@FormatProfileType(profile.ProfileType)</span>
+                    <div class="profile-icon sherpa-icon-well sherpa-icon-well-apple">
+                        <i class="fa-solid fa-id-card"></i>
+                        <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
+                    </div>
+                    <div class="profile-details sherpa-row-stack">
+                        <div class="profile-name sherpa-row-title">
+                            <span>@profile.Name</span>
+                            <span class="sherpa-badge sherpa-badge-neutral">@FormatProfileType(profile.ProfileType)</span>
                             @if (!string.IsNullOrEmpty(GetProfilePlatform(profile)))
                             {
-                                <span class="badge badge-platform">@AppleProfileTypes.GetPlatformLabel(GetProfilePlatform(profile))</span>
+                                <span class="sherpa-badge sherpa-badge-neutral">@AppleProfileTypes.GetPlatformLabel(GetProfilePlatform(profile))</span>
                             }
                             @if (isInvalid)
                             {
-                                <span class="badge badge-invalid">@profile.State</span>
+                                <span class="sherpa-badge sherpa-badge-danger"><span class="sherpa-dot sherpa-dot-danger"></span> @profile.State</span>
                             }
                             else if (isExpired)
                             {
-                                <span class="badge badge-expired">Expired</span>
+                                <span class="sherpa-badge sherpa-badge-danger"><span class="sherpa-dot sherpa-dot-danger"></span> Expired</span>
                             }
                             else if (isExpiringSoon)
                             {
-                                <span class="badge badge-expiring">Expiring Soon</span>
+                                <span class="sherpa-badge sherpa-badge-warning"><span class="sherpa-dot sherpa-dot-warning"></span> Expiring Soon</span>
                             }
                             else
                             {
-                                <span class="badge badge-valid">Active</span>
+                                <span class="sherpa-badge sherpa-badge-success"><span class="sherpa-dot sherpa-dot-success"></span> Active</span>
                             }
                         </div>
-                        <div class="profile-expiry">
-                            Expires: @profile.ExpirationDate.ToString("MMM dd, yyyy")
+                        <div class="profile-uuid sherpa-row-sub mono">
+                            <span class="@(demoMode ? "demo-blur" : "")">@profile.Uuid</span>
+                            <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick:stopPropagation="true" @onclick="@(() => CopyToClipboard(profile.Uuid))" title="Copy UUID" aria-label="@($"Copy UUID for {profile.Name}")">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
+                            @if (!string.IsNullOrEmpty(profile.BundleId))
+                            {
+                                <span>· @profile.BundleId</span>
+                            }
+                            <span>· Expires @profile.ExpirationDate.ToString("MMM dd, yyyy")</span>
                         </div>
                     </div>
                     @if (!isSelectionMode)
                     {
-                    <div class="profile-actions">
+                    <div class="profile-actions sherpa-row-actions">
                         <MauiSherpa.Components.SecretProviderPickerHost
                             @key="@($"profile-sync-{profile.Id}")"
                             Item="@(new SecretItemRef(SecretItemKind.ProvisioningProfile, profile.Id, profile.Name) { AppleIdentityId = profilesIdentityId })" />
-                        <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => ShowEditDialog(profile))" disabled="@isLoading" title="Edit">
-                            <i class="fas fa-edit"></i>
-                        </button>
-                        <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => DownloadProfile(profile))" disabled="@isLoading" title="Download">
-                            <i class="fas fa-download"></i>
-                        </button>
-                        <div class="prof-dropdown">
-                            <button class="btn btn-secondary btn-icon prof-dropdown-toggle" @onclick="@(() => ToggleDropdown(profile.Id))" @onclick:stopPropagation="true" title="More actions">
-                                <i class="fas fa-ellipsis-v"></i>
-                            </button>
-                            @if (openDropdown == profile.Id)
-                            {
-                                <div class="prof-dropdown-menu">
-                                    <button data-screenshot-external class="prof-dropdown-item" @onclick="@(() => { openDropdown = null; DownloadProfileTo(profile); })">
-                                        <i class="fas fa-folder-open"></i> Download to...
-                                    </button>
-                                    <button data-screenshot-external class="prof-dropdown-item" @onclick="@(() => { openDropdown = null; InstallProfile(profile); })">
-                                        <i class="fas fa-folder-plus"></i> Install to System
-                                    </button>
-                                    <button data-screenshot-external class="prof-dropdown-item" @onclick="@(() => RevealInstalledProfile(profile))">
-                                        <i class="fas fa-magnifying-glass"></i> @RevealProfileLabel
-                                    </button>
-                                    <div class="prof-dropdown-divider"></div>
-                                    <button data-screenshot-external class="prof-dropdown-item danger" @onclick="@(() => { openDropdown = null; DeleteProfile(profile); })" disabled="@isLoading">
-                                        <i class="fas fa-trash"></i> Delete
-                                    </button>
-                                </div>
-                            }
-                        </div>
+                        <SherpaActionMenu Items="@GetProfileActions(profile)"
+                                          AriaLabel="@($"Actions for {profile.Name}")" />
                     </div>
                     }
                 </div>
@@ -269,22 +261,21 @@
 }
 
 <style>
-    h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
-
     .toolbar { margin-bottom: 1rem; display: flex; gap: 0.75rem; align-items: center; }
     .toolbar-spacer { flex: 1; }
-    .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border-radius: 0.75rem; margin-bottom: 1rem; }
+    .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border: 1px solid var(--status-error-border); border-radius: var(--radius-lg); margin-bottom: 1rem; }
 
-    .btn-purple { background: #8b5cf6; color: white; }
-    .btn-purple:hover:not(:disabled) { background: #7c3aed; }
+    .btn-purple { background: var(--accent); color: var(--text-inverse); }
+    .btn-purple:hover:not(:disabled) { background: var(--accent-hover); }
 
     /* Filter Section Styles */
     .filter-section {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        padding: 1rem;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: 10px 14px;
         margin-bottom: 1rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        box-shadow: none;
         display: flex;
         flex-wrap: wrap;
         gap: 0.75rem;
@@ -292,7 +283,6 @@
     }
 
     .filter-section .search-box {
-        position: relative;
         flex: 1;
         min-width: 200px;
         margin: 0 !important;
@@ -300,26 +290,19 @@
 
     .filter-section .search-box input {
         width: 100%;
-        padding: 0.625rem 36px 0.625rem 36px;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
+        padding: 0;
+        border: 0;
         box-sizing: border-box;
-        background: var(--input-bg);
+        background: transparent;
         color: var(--text-primary);
     }
 
     .filter-section .search-box input:focus {
         outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+        box-shadow: none;
     }
 
     .search-icon {
-        position: absolute;
-        left: 0.75rem;
-        top: 0;
-        bottom: 0;
         display: flex;
         align-items: center;
         font-size: 0.875rem;
@@ -336,24 +319,21 @@
     }
 
     .clear-btn {
-        position: absolute;
-        right: 0.5rem;
-        top: 50%;
-        transform: translateY(-50%);
-        background: var(--border-color);
-        border: none;
-        border-radius: 50%;
-        width: 1.25rem;
-        height: 1.25rem;
-        font-size: 0.875rem;
-        cursor: pointer;
-        display: flex;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: var(--radius-sm);
+        font-size: 0.875rem;
+        cursor: pointer;
         color: var(--text-muted);
     }
 
-    .clear-btn:hover { background: var(--bg-hover); }
+    .clear-btn:hover { background: var(--surface-card-hover); }
 
     .filter-chips {
         display: flex;
@@ -361,21 +341,7 @@
         flex-wrap: wrap;
     }
 
-    .filter-select {
-        padding: 0.5rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.8125rem;
-        background: var(--card-bg);
-        color: var(--text-primary);
-        cursor: pointer;
-        min-width: 120px;
-    }
-
-    .filter-select:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-    }
+    .filter-select { min-width: 120px; }
 
     .clear-filters-btn {
         padding: 0.5rem 0.75rem;
@@ -391,19 +357,6 @@
         background: var(--bg-tertiary);
         color: var(--text-secondary);
     }
-
-    .results-info {
-        font-size: 0.8125rem;
-        color: var(--text-muted);
-        margin-bottom: 0.75rem;
-    }
-    .btn i { font-size: 0.75rem; }
-    .btn-icon {
-        width: 2rem; height: 2rem; padding: 0;
-        display: inline-flex; align-items: center; justify-content: center;
-        border-radius: 0.375rem; font-size: 0.8125rem;
-    }
-    .btn-icon i { font-size: 0.8125rem; margin: 0; }
 
     /* ── Dropdown ── */
     .prof-dropdown { position: relative; }
@@ -423,24 +376,24 @@
     .prof-dropdown-item:hover:not(:disabled) { background: var(--bg-tertiary); }
     .prof-dropdown-item:disabled { opacity: 0.4; cursor: not-allowed; }
     .prof-dropdown-item i { font-size: 0.75rem; width: 0.875rem; text-align: center; color: var(--text-secondary); }
-    .prof-dropdown-item.danger { color: var(--accent-danger, #e53e3e); }
-    .prof-dropdown-item.danger i { color: var(--accent-danger, #e53e3e); }
+    .prof-dropdown-item.danger { color: var(--accent-danger); }
+    .prof-dropdown-item.danger i { color: var(--accent-danger); }
     .prof-dropdown-divider { height: 1px; background: var(--border-color); margin: 0.25rem 0; }
 
-    .profile-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .profile-list { margin-bottom: 1.25rem; }
 
     .profile-card {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        padding: 0.875rem;
-        display: flex;
-        align-items: flex-start;
-        gap: 1rem;
-        border-left: 0.25rem solid var(--accent-success);
+        align-items: center;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
     }
 
-    .profile-card.invalid { border-left-color: #f56565; opacity: 0.7; }
-    .profile-card.selected { box-shadow: 0 0 0 2px var(--accent-primary); }
+    .profile-card.invalid { opacity: 0.7; }
+    .profile-card.selectable { cursor: pointer; }
+    .profile-card.selectable:hover { background: var(--surface-card-hover); }
+    .profile-card.selected { background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-card)); }
 
     .profile-select {
         display: flex;
@@ -454,87 +407,32 @@
         accent-color: var(--accent-primary);
     }
 
-    .selection-bar {
+    .profile-details { min-width: 0; }
+    .profile-name {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        padding: 0.75rem 1rem;
-        margin-bottom: 0.75rem;
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: var(--card-radius);
+        gap: 6px;
     }
-    .select-all-checkbox {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        color: var(--text-secondary);
-        cursor: pointer;
-        font-size: 0.875rem;
-    }
-    .select-all-checkbox input { accent-color: var(--accent-primary); }
-    .selection-count {
-        color: var(--text-muted);
-        font-size: 0.8125rem;
-        white-space: nowrap;
-    }
-    .profile-card.expiring { border-left-color: var(--accent-warning); }
-
-    .profile-icon { font-size: 1.5rem; color: #6b46c1; }
-    .profile-icon i { font-size: 1.25rem; }
-    .profile-details { flex: 1; }
-    .profile-name { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
-    .profile-uuid { 
-        font-family: monospace; 
-        font-size: 0.6875rem; 
-        color: #a0aec0; 
-        margin-top: 0.25rem;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-    .profile-expiry { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.5rem; }
-    .profile-bundle-id {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-        margin-top: 0.25rem;
-        font-family: monospace;
-        display: flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-    .profile-bundle-id i { font-size: 0.625rem; }
-    .profile-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
-
-    .profile-actions { display: flex; gap: 0.25rem; align-items: center; }
+    .profile-uuid { display: flex; align-items: center; gap: 6px; }
 
     .btn-copy {
-        background: none;
-        border: none;
-        color: #a0aec0;
-        cursor: pointer;
-        padding: 2px 0.375rem;
-        font-size: 0.75rem;
-        border-radius: 0.25rem;
-        transition: all 0.15s;
+        width: 20px;
+        min-width: 20px;
+        height: 20px;
+        min-height: 20px;
         flex-shrink: 0;
     }
-    .btn-copy:hover {
-        color: var(--accent-primary);
-        background: var(--bg-hover);
-    }
 
-    .badge { padding: 2px 0.625rem; border-radius: 0.75rem; font-size: 0.75rem; font-weight: 500; }
-    .badge-type { background: #faf5ff; color: #6b46c1; }
-    .badge-platform { background: #bee3f8; color: #2c5282; }
+    .badge { padding: 2px 0.625rem; border-radius: var(--radius-pill); font-size: 0.75rem; font-weight: 500; }
+    .badge-type { background: var(--accent-soft); color: var(--accent); }
+    .badge-platform { background: var(--status-info-bg); color: var(--status-info-text); }
     .badge-valid { background: var(--status-success-bg); color: var(--status-success-text); }
     .badge-expiring { background: var(--status-warning-bg); color: var(--status-warning-text); }
     .badge-expired { background: var(--status-error-bg); color: var(--status-error-text); }
     .badge-invalid { background: var(--status-error-bg); color: var(--status-error-text); }
 
     .empty-state { background: var(--card-bg); border-radius: var(--card-radius); padding: 3.75rem 2.5rem; text-align: center; }
-    .empty-icon { font-size: 48px; margin-bottom: 1rem; color: #a0aec0; }
+    .empty-icon { font-size: 48px; margin-bottom: 1rem; color: var(--text-muted); }
     .empty-icon i { font-size: 48px; }
     .empty-title { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
     .empty-description { color: var(--text-muted); font-size: 0.875rem; display: flex; flex-direction: column; align-items: center; gap: 1rem; }
@@ -545,10 +443,11 @@
     private List<AppleProfile> profiles = new();
     private string? profilesIdentityId;
     private int identitySelectionVersion;
-    private bool isLoading = false;
+    private bool isLoading = true;
+    private bool hasLoaded;
+    private bool isDisposed;
     private bool demoMode = false;
     private string errorMessage = "";
-    private string? openDropdown = null;
     private bool isSelectionMode;
     private readonly HashSet<string> selectedProfileIds = new(StringComparer.Ordinal);
     // Filter state
@@ -556,6 +455,26 @@
     private string filterState = "";
     private string filterType = "";
     private string filterPlatform = "";
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> StateFilterOptions =
+    [
+        new("", "All States"),
+        new("ACTIVE", "Active", DotCssClass: "sherpa-dot-success"),
+        new("INVALID", "Invalid", DotCssClass: "sherpa-dot-danger")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> ProfileTypeFilterOptions =
+    [
+        new("", "All Types"),
+        new("DEVELOPMENT", "Development"),
+        new("ADHOC", "Ad Hoc"),
+        new("APPSTORE", "App Store")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> PlatformFilterOptions =
+    [
+        new("", "All Platforms"),
+        new("IOS", "iOS", Icon: "fa-brands fa-apple"),
+        new("TVOS", "tvOS", Icon: "fa-brands fa-apple"),
+        new("MAC_OS", "macOS", Icon: "fa-brands fa-apple")
+    ];
 
     private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || 
                                       !string.IsNullOrEmpty(filterState) || 
@@ -569,10 +488,16 @@
         .Where(p => p.ExpirationDate > AppClock.UtcNow)
         .ToList();
 
-    private void ToggleDropdown(string id)
-    {
-        openDropdown = openDropdown == id ? null : id;
-    }
+    private IReadOnlyList<SherpaMenuItem> GetProfileActions(AppleProfile profile) =>
+    [
+        SherpaMenuItem.Action("Edit Profile...", "fa-solid fa-pen-to-square", () => ShowEditDialog(profile), disabled: isLoading),
+        SherpaMenuItem.Action("Download", "fa-solid fa-download", () => DownloadProfile(profile), disabled: isLoading),
+        SherpaMenuItem.Action("Download to...", "fa-solid fa-folder-open", () => DownloadProfileTo(profile), disabled: isLoading),
+        SherpaMenuItem.Action("Install to System", "fa-solid fa-folder-plus", () => InstallProfile(profile), disabled: isLoading),
+        SherpaMenuItem.Action(RevealProfileLabel, "fa-solid fa-magnifying-glass", () => RevealInstalledProfile(profile)),
+        SherpaMenuItem.Divider,
+        SherpaMenuItem.Action("Delete Profile", "fa-solid fa-trash-can", () => DeleteProfile(profile), isDanger: true, disabled: isLoading)
+    ];
 
     private async Task ShowCreateDialog()
     {
@@ -643,6 +568,7 @@
 
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
+        LocalVaultAccess.StateChanged += OnLocalVaultStateChanged;
         if (IdentityState.SelectedIdentity != null)
             await RefreshData();
     }
@@ -650,6 +576,7 @@
     private void OnIdentityChanged()
     {
         Interlocked.Increment(ref identitySelectionVersion);
+        hasLoaded = false;
         InvokeAsync(async () =>
         {
             profiles.Clear();
@@ -657,12 +584,16 @@
             isLoading = false;
             if (isSelectionMode)
                 CancelSelectionMode();
+            else
+                UpdateToolbarItemStates();
 
             StateHasChanged();
             await RefreshData();
             StateHasChanged();
         });
     }
+
+    private void OnLocalVaultStateChanged() => OnIdentityChanged();
 
     private void OnSearchTextChanged(string text)
     {
@@ -691,10 +622,12 @@
 
     public void Dispose()
     {
+        isDisposed = true;
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
+        LocalVaultAccess.StateChanged -= OnLocalVaultStateChanged;
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -703,18 +636,10 @@
         {
             switch (actionId)
             {
-                case "refresh":
-                    ToolbarService.SetItemEnabled("refresh", false);
-                    try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
-                    break;
+                case "refresh": await RefreshData(forceRefresh: true); break;
                 case "create": await ShowCreateDialog(); break;
                 case "profiles-folder": await RevealProfilesFolder(); break;
                 case "cleanup": await ShowCleanupDialog(); break;
-                case "select": BeginSelectionMode(); break;
-                case "backup-selected": await BackUpSelectedAsync(); break;
-                case "install-selected": await InstallSelectedAsync(); break;
-                case "export-selected": await ExportSelectedAsync(); break;
-                case "cancel-selection": CancelSelectionMode(); break;
             }
             StateHasChanged();
         });
@@ -724,10 +649,14 @@
     {
         var identityId = IdentityState.SelectedIdentity?.Id;
         if (string.IsNullOrWhiteSpace(identityId) || LocalVaultAccess.GetState().RequiresUserAction)
+        {
+            UpdateToolbarItemStates();
             return;
+        }
 
         var identityVersion = Volatile.Read(ref identitySelectionVersion);
         isLoading = true;
+        UpdateToolbarItemStates();
         errorMessage = "";
         
         ToastMessage? toast = null;
@@ -753,7 +682,7 @@
             profilesIdentityId = identityId;
             selectedProfileIds.IntersectWith(profiles.Select(profile => profile.Id));
             if (isSelectionMode)
-                UpdateSelectionToolbar();
+                UpdateToolbarItemStates();
         }
         catch (Exception ex)
         {
@@ -763,7 +692,11 @@
         finally
         {
             if (IsCurrentIdentity(identityId, identityVersion))
+            {
+                hasLoaded = true;
                 isLoading = false;
+                UpdateToolbarItemStates();
+            }
             if (toast != null) ToastService.Dismiss(toast);
             await InvokeAsync(StateHasChanged);
         }
@@ -789,8 +722,8 @@
 
     private async Task DownloadProfile(AppleProfile profile)
     {
-        openDropdown = null;
         isLoading = true;
+        UpdateToolbarItemStates();
         try
         {
             // Save to Downloads folder by default
@@ -804,13 +737,14 @@
         finally
         {
             isLoading = false;
+            UpdateToolbarItemStates();
         }
     }
     
     private async Task DownloadProfileTo(AppleProfile profile)
     {
-        openDropdown = null;
         isLoading = true;
+        UpdateToolbarItemStates();
         try
         {
             var folder = await DialogService.PickFolderAsync("Select Download Location");
@@ -825,6 +759,7 @@
         finally
         {
             isLoading = false;
+            UpdateToolbarItemStates();
         }
     }
     
@@ -911,7 +846,6 @@
 
     private async Task RevealInstalledProfile(AppleProfile profile)
     {
-        openDropdown = null;
         try
         {
             var paths = await AppleService.FindInstalledProfilePathsAsync(profile.Uuid);
@@ -932,8 +866,6 @@
 
     private async Task InstallProfile(AppleProfile profile)
     {
-        openDropdown = null;
-        
         var result = await OperationModal.RunAsync(
             "Install Profile",
             $"Installing '{profile.Name}' to system...",
@@ -998,27 +930,13 @@
 
     private void ConfigureToolbarItems()
     {
-        if (isSelectionMode)
-        {
-            ToolbarService.SetItems(
-                new ToolbarAction("backup-selected", "Back Up", "icloud.and.arrow.up"),
-                new ToolbarAction("install-selected", "Install", "square.and.arrow.down"),
-                new ToolbarAction("export-selected", "Export", "square.and.arrow.up"),
-                new ToolbarAction("cancel-selection", "Cancel", "xmark", IsPrimary: false));
-            UpdateSelectionToolbar();
-        }
-        else
-        {
-            ToolbarService.SetItems(
-                new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
-                new ToolbarAction("create", "Create Profile", "plus"),
-                new ToolbarAction("profiles-folder", "Profiles Folder", "folder"),
-                new ToolbarAction("cleanup", "Clean Up", "trash"),
-                new ToolbarAction("select", "Select", "checkmark.circle"));
-        }
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Create Profile", "plus"),
+            new ToolbarAction("profiles-folder", "Profiles Folder", "folder"),
+            new ToolbarAction("cleanup", "Clean Up", "trash"));
+        UpdateToolbarItemStates();
 
-        // SetItems resets the native search field and filters; put them back with the
-        // page's current values so switching modes doesn't strand active filters.
         ToolbarService.SetSearch("Search profiles...");
         if (!string.IsNullOrEmpty(searchQuery))
             ToolbarService.NotifySearchTextChanged(searchQuery);
@@ -1040,46 +958,67 @@
         }
     }
 
+    private int HiddenSelectionCount
+    {
+        get
+        {
+            var visibleIds = FilteredProfiles
+                .Select(profile => profile.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            return selectedProfileIds.Count(id => !visibleIds.Contains(id));
+        }
+    }
+
     private void BeginSelectionMode()
     {
-        openDropdown = null;
         isSelectionMode = true;
         selectedProfileIds.Clear();
-        ConfigureToolbarItems();
     }
 
     private void CancelSelectionMode()
     {
         isSelectionMode = false;
         selectedProfileIds.Clear();
-        ConfigureToolbarItems();
     }
 
     private void ToggleProfileSelection(string profileId, bool selected)
     {
+        if (!isSelectionMode || isLoading)
+            return;
+
         if (selected)
             selectedProfileIds.Add(profileId);
         else
             selectedProfileIds.Remove(profileId);
-        UpdateSelectionToolbar();
+        UpdateToolbarItemStates();
     }
 
     private void ToggleAllVisible(ChangeEventArgs args)
     {
+        if (!isSelectionMode || isLoading)
+            return;
+
         var visibleIds = FilteredProfiles.Select(profile => profile.Id).ToList();
         if (args.Value is bool selected && selected)
             selectedProfileIds.UnionWith(visibleIds);
         else
             selectedProfileIds.ExceptWith(visibleIds);
-        UpdateSelectionToolbar();
+        UpdateToolbarItemStates();
     }
 
-    private void UpdateSelectionToolbar()
+    private void UpdateToolbarItemStates()
     {
-        var hasSelection = selectedProfileIds.Count > 0;
-        ToolbarService.SetItemEnabled("backup-selected", hasSelection);
-        ToolbarService.SetItemEnabled("install-selected", hasSelection);
-        ToolbarService.SetItemEnabled("export-selected", hasSelection);
+        if (isDisposed)
+            return;
+
+        var ready = IdentityState.SelectedIdentity != null &&
+            !LocalVaultAccess.GetState().RequiresUserAction &&
+            !isLoading;
+
+        ToolbarService.SetItemEnabled("refresh", ready);
+        ToolbarService.SetItemEnabled("create", ready);
+        ToolbarService.SetItemEnabled("profiles-folder", ready);
+        ToolbarService.SetItemEnabled("cleanup", ready && profiles.Count > 0);
     }
 
     private List<AppleProfile> GetSelectedProfiles() => profiles
@@ -1154,6 +1093,7 @@
             return;
 
         isLoading = true;
+        UpdateToolbarItemStates();
         var saved = 0;
         var failures = new List<string>();
         try
@@ -1175,6 +1115,7 @@
         finally
         {
             isLoading = false;
+            UpdateToolbarItemStates();
         }
 
         if (failures.Count > 0)

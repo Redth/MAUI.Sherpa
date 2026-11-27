@@ -22,7 +22,6 @@ public class HybridProgressPage : ContentPage
     private readonly ProgressBridgeHolder _bridgeHolder;
     private readonly string _route;
     private readonly string _initialTitle;
-    private View? _webView;
     private Label? _titleLabel;
     private readonly Button[] _footerButtons = new Button[4];
     private HorizontalStackLayout? _footerLayout;
@@ -41,7 +40,7 @@ public class HybridProgressPage : ContentPage
         _bridge = new ProgressBridge();
         _route = route;
         _initialTitle = title;
-
+        this.SetDynamicResource(BackgroundColorProperty, FormTheme.PageBg);
 
 #if MACOSAPP
         MacOSPage.SetModalSheetWidth(this, width);
@@ -72,8 +71,9 @@ public class HybridProgressPage : ContentPage
             Text = _initialTitle,
             FontSize = 18,
             FontAttributes = FontAttributes.Bold,
-            Margin = new Thickness(28, 24, 28, 12),
+            Margin = new Thickness(24, 18, 24, 12),
         };
+        _titleLabel.SetDynamicResource(Label.TextColorProperty, FormTheme.TextPrimary);
 
         // Header separator
         var headerSeparator = new BoxView { HeightRequest = 1 };
@@ -81,27 +81,22 @@ public class HybridProgressPage : ContentPage
 
 
         // BlazorWebView
-        ModalWebViewReadySignal.Ready += OnBlazorReady;
-        View webView;
 #if MACOSAPP
-        var blazorWebView = new MacOSBlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = _route,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new BlazorRootComponent
         {
             Selector = "#app",
             ComponentType = typeof(Components.ModalApp)
         });
-        webView = blazorWebView;
 #else
-        var blazorWebView = new BlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = _route,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new RootComponent
         {
@@ -109,9 +104,8 @@ public class HybridProgressPage : ContentPage
             ComponentType = typeof(Components.ModalApp)
         });
         HandlerProperties.SetDisconnectPolicy(blazorWebView, HandlerDisconnectPolicy.Manual);
-        webView = blazorWebView;
 #endif
-        _webView = webView;
+        var webView = new HybridLoadingView(blazorWebView);
 
         // Footer separator
         var footerSeparator = new BoxView { HeightRequest = 1 };
@@ -124,7 +118,7 @@ public class HybridProgressPage : ContentPage
         {
             Spacing = 12,
             HorizontalOptions = LayoutOptions.End,
-            Margin = new Thickness(28, 12, 28, 24),
+            Margin = new Thickness(24, 12, 24, 18),
         };
         for (int i = 0; i < _footerButtons.Length; i++)
         {
@@ -133,9 +127,9 @@ public class HybridProgressPage : ContentPage
             {
                 Text = " ",
                 FontSize = 13,
-                CornerRadius = 5,
+                CornerRadius = FormTheme.ControlCornerRadius,
                 Padding = new Thickness(14, 4),
-                HeightRequest = 30,
+                HeightRequest = FormTheme.ActionButtonHeight,
                 IsVisible = false,
             };
             btn.Clicked += async (_, _) => await OnFooterButtonClicked(idx);
@@ -157,6 +151,7 @@ public class HybridProgressPage : ContentPage
             RowSpacing = 0,
             VerticalOptions = LayoutOptions.Fill,
         };
+        grid.SetDynamicResource(Grid.BackgroundColorProperty, FormTheme.PageBg);
 
         Grid.SetRow(_titleLabel, 0);
         Grid.SetRow(headerSeparator, 1);
@@ -220,13 +215,14 @@ public class HybridProgressPage : ContentPage
                 btn.ImageSource = null;
                 btn.ClearValue(Button.TextColorProperty);
                 btn.ClearValue(Button.BackgroundColorProperty);
+                btn.ClearValue(Button.BorderColorProperty);
                 btn.ClearValue(Button.BackgroundProperty);
 
                 switch (def.Style)
                 {
                     case ProgressButtonStyle.Primary:
                         btn.FontAttributes = FontAttributes.Bold;
-                        btn.TextColor = Colors.White;
+                        btn.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimaryText);
                         btn.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.AccentPrimary);
                         break;
                     case ProgressButtonStyle.Warning:
@@ -237,7 +233,7 @@ public class HybridProgressPage : ContentPage
                     case ProgressButtonStyle.Danger:
                         btn.FontAttributes = FontAttributes.Bold;
                         btn.TextColor = Colors.White;
-                        btn.BackgroundColor = Color.FromArgb("#e53e3e");
+                        btn.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.AccentDanger);
                         break;
                     case ProgressButtonStyle.Copilot:
                         btn.FontAttributes = FontAttributes.Bold;
@@ -246,8 +242,10 @@ public class HybridProgressPage : ContentPage
                         btn.BackgroundColor = Color.FromArgb("#4f46e5");
                         break;
                     default: // Secondary
-                        btn.BackgroundColor = Colors.Transparent;
-                        btn.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimary);
+                        btn.BorderWidth = 1;
+                        btn.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.SecondaryButtonBg);
+                        btn.SetDynamicResource(Button.BorderColorProperty, FormTheme.ButtonOutlineBorder);
+                        btn.SetDynamicResource(Button.TextColorProperty, FormTheme.TextPrimary);
                         break;
                 }
 
@@ -258,15 +256,5 @@ public class HybridProgressPage : ContentPage
                 btn.IsVisible = false;
             }
         }
-    }
-
-    private void OnBlazorReady(double contentHeight)
-    {
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
-        Dispatcher.Dispatch(async () =>
-        {
-            if (_webView != null)
-                await _webView.FadeToAsync(1, 200, Easing.CubicIn);
-        });
     }
 }

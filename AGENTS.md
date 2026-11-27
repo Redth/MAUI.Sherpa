@@ -146,6 +146,78 @@ builder.Services.AddSingleton<MyViewModel>();
 
 ## UI Patterns
 
+### Design System & Styling (`DESIGN.md`)
+
+`DESIGN.md` at the repository root is the authoritative UI design specification for all
+Blazor Hybrid work. The single source of truth for shared design tokens and component
+styles is `src/MauiSherpa/wwwroot/css/app.css`.
+
+- **Surfaces & nesting:** Use the pure-neutral four-tier ladder:
+  `--surface-canvas` / `--bg-primary`, `--surface-card` / `--card-bg`,
+  `--surface-well` / `--bg-tertiary`, and `--surface-popover`. Separate surfaces with
+  crisp 1px `--border-subtle` / `--border-hairline` borders. Never nest rounded cards
+  inside cards, use thick colored 3–4px `border-left` stripes, hardcode hex colors, or
+  mix blue-tinted slates into dark neutral surfaces.
+- **Custom dropdowns:** Never use native HTML `<select>` elements. Always use
+  `<SherpaSelect>` from `src/MauiSherpa/Components/UI/`, backed by
+  `wwwroot/js/mauiSherpaPopovers.js`.
+- **Tabs and segmented controls:** Use `<SherpaTabs>` (Standard or Inspector variant)
+  and `<SherpaSegmentedControl>` instead of writing inline tab CSS.
+- **Buttons:** Use the shared global variants from `app.css`: `.btn-primary`,
+  `.btn-secondary`, `.btn-outline`, `.btn-ghost`, `.btn-success`, `.btn-warning`,
+  `.btn-danger`, `.btn-danger-soft`, `.btn-ghost-danger`, `.btn-copilot`, `.btn-sm`,
+  and `.btn-icon`. Prefer `.btn-ghost-danger` or `.btn-danger-soft` for per-row delete
+  actions in dense lists.
+- **Corner radii:** Use only `--radius-xs`, `--radius-sm`, `--radius-md`,
+  `--radius-lg`, `--radius-xl`, and `--radius-pill`; never introduce arbitrary
+  pixel/rem radii.
+- **Iconography:** Use Font Awesome 6 classes (`fa-solid`, `fa-regular`,
+  `fa-brands`) with `fa-fw` where alignment matters. Use `fa-xmark`, not a raw `×`,
+  and `.sherpa-icon-well` for entity and device icons.
+- **Headers, dividers, and lists:** Use `<SherpaPageHeader>`,
+  `<SherpaSectionHeader>`, `.sherpa-divider`, and `.sherpa-list` /
+  `.sherpa-list-row` rather than recreating these patterns per page.
+- **Multi-select & filter counts:** Never put `Select` or bulk selection actions in native
+  toolbars. Keep `Select` on the right side of the page/section heading row (`.sherpa-list-header-row`
+  or `.device-section-heading`) and swap it in place with a compact, borderless `.sherpa-selection-inline`
+  so the list below never shifts vertically. Clicking anywhere on a selectable card/row must toggle
+  selection (`@onclick:stopPropagation` on checkboxes and nested buttons). Omit `"Showing N of N"`
+  text when unfiltered; show a succinct `.sherpa-filter-pill` (`filtered of total`) beside the
+  title/selection controls only while search or filters are active.
+- **Loading & empty states:** Never show a "none found" empty state before the first
+  load has completed and confirmed zero items. Track initial load completion (`hasLoaded` /
+  `hasInitialized`) and render `<SherpaListSkeleton />` until data is ready.
+- **Row overflow menus:** Keep list-row action strips calm and aligned—show at most 1–2
+  consistent primary actions/indicators on the row (e.g. Cloud Sync picker or Boot/Start)
+  and place secondary, conditional, and destructive actions inside `<SherpaActionMenu>` (`⋮`)
+  rather than rendering jagged walls of conditional icon buttons.
+- **Structured JSON / code editors:** Use `<SherpaJsonEditor>` (lazy-loaded Monaco in
+  `wwwroot/vendor/monaco`, hosted via `wwwroot/js/monacoInterop.js`) for multi-line JSON
+  or code editing (push payloads, simulator push payloads, service-account JSON). Rebuild
+  the vendored Monaco bundle when updating with `cd build/monaco && npm ci && npm run build`.
+- **Surface & Dialog Inventory:** `DESIGN.md` maintains the full inventory of all main
+  pages, hybrid modal dialogs (`Pages/Modals/`), native modal hosts (`Pages/Forms/`), and
+  `MauiSherpa.AppInspector` views. Update that inventory whenever you add/rename/remove a
+  page or dialog, and check every group when making design-system or theme changes.
+- **Cross-platform adaptation:** Never add ad-hoc platform CSS to individual pages.
+  Platform differences are centralized in `app.css` through `.platform-macos`
+  (macOS 26/27: Apple Blue, SF Pro at 13px, borderless tonal `16px` squircle cards with `corner-shape: squircle`, flat tonal buttons, `ellipsis.circle` row menus, elongated switches, and Liquid Glass frosted popovers), `.platform-windows` (Sherpa Violet,
+  Fluent 2 8px/4px radii, Segoe UI at 14px), and `.platform-linux` (Adwaita Blue,
+  Libadwaita 12px/8px radii).
+- **Native hybrid dialogs:** Use `HybridFormPage<T>` (not raw native MAUI `FormPage<T>`
+  with `Picker`/`Entry`) for all creation/edit dialogs so forms use `.sherpa-form`,
+  `<SherpaSelect>`, `<SherpaSegmentedControl>`, `.sherpa-input-group`, and collapsible
+  `.sherpa-disclosure` sections. Keep `FormTheme.cs` synchronized with `app.css` per
+  platform (pure-neutral backgrounds, platform accents, `FormTheme.ControlCornerRadius`)
+  so native MAUI dialog headers/footers join seamlessly with `ModalLayout.razor`.
+- **Console/log output & nested scrolling:** Use `.sherpa-console` (`--surface-console: #141416`,
+  `--surface-console-header: #1c1c1f`, `--border-console`) for terminals, activity logs,
+  and command previews so they stay clearly framed in both Light and Dark mode. For
+  multi-step operations (`MultiOperationModal`), auto-collapse succeeded steps into single
+  status rows while expanding the actively running (or failed) step's log. Enforce a single
+  scroll region per modal (`flex: 1; min-height: 0;` with pinned headers/footers) and always
+  set `overscroll-behavior: contain` on nested scrollable panels.
+
 ### Blazor Pages
 - Located in `src/MauiSherpa/Pages/`
 - Use `@inject` for services
@@ -207,24 +279,40 @@ Windows toolbar action glyphs use native `FontIcon` controls rather than rasteri
 Windows and GTK toolbar actions use icon-only buttons with descriptive tooltips for familiar actions (add, refresh/update, import/export, edit, delete, select, cancel, and folder navigation). Keep labels for ambiguous actions such as release notes and artifact/session imports, and keep menu entries labeled. Windows icon-only buttons retain the action label as their accessible name.
 On Windows and GTK, Pair Device and Create Emulator share a device-icon dropdown; Android SDK commands use a package-icon dropdown. Icon-only menu buttons include a dropdown arrow.
 
-Using Font Awesome. Example:
+For Blazor UI iconography, use Font Awesome 6 prefixes (`fa-solid`, `fa-regular`,
+`fa-brands`) and add `fa-fw` in buttons, tabs, dropdown options, and aligned lists.
+Use `fa-xmark` instead of a literal `×`; use `.sherpa-icon-well` for entity/device
+icons. Example:
 ```razor
-<i class="fa-solid fa-check text-success"></i>
+<i class="fa-solid fa-check fa-fw text-success" aria-hidden="true"></i>
 ```
 
 ### Theming
-- CSS variables defined in `app.css` with `.theme-light` and `.theme-dark` overrides
+- Follow `DESIGN.md`; all shared CSS variables are defined in
+  `src/MauiSherpa/wwwroot/css/app.css` with `.theme-light` and `.theme-dark`
+  overrides
 - **Always validate UI changes in BOTH light and dark mode**
-- Use `var(--text-primary)`, `var(--bg-tertiary)`, `var(--card-bg)`, etc. — never hardcode colors
-- Service-specific tags (Google, Firebase, Facebook) need explicit dark mode overrides with `rgba()` backgrounds
+- Use semantic tokens such as `var(--text-primary)`, `var(--surface-well)`,
+  `var(--surface-card)`, `var(--border-subtle)`, and `var(--accent)` — never
+  hardcode colors or duplicate theme variables in pages
+- Platform-specific accent, typography, density, and geometry belong only in the
+  centralized `.platform-macos`, `.platform-windows`, and `.platform-linux`
+  token overrides
+- Service-specific tags (Google, Firebase, Facebook) use token-based translucent
+  backgrounds with appropriate dark-mode contrast
 
 ### UI Quality Checklist
 When making or reviewing UI changes, always verify:
-- Padding around elements is consistent and looks polished
-- Button alignment is consistent across the app
-- Icon usage is appropriate (correct icon, right size)
-- Text and button sizes are proportional and readable
-- Both light AND dark mode look good
+- The surface ladder, 1px hairlines, spacing, and tokenized radii follow `DESIGN.md`
+- There are no nested rounded cards, thick colored side stripes, raw `<select>`
+  elements, hardcoded colors/radii, or page-specific platform overrides
+- Shared controls (`SherpaSelect`, `SherpaTabs`, `SherpaSegmentedControl`, headers,
+  buttons, dividers, and grouped lists) are reused instead of restyled inline
+- Padding, button alignment, icon sizing/alignment, and typography are consistent
+  and readable
+- Icon-only controls have accessible labels and decorative icons are hidden from
+  assistive technology
+- Light and dark themes look polished on macOS, Windows, and Linux GTK
 
 ## Code Conventions
 

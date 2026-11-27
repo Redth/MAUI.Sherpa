@@ -7,7 +7,7 @@
 @if (inventory != null)
 {
     <div class="set-dialog">
-        <div class="current-set">
+        <div class="current-set sherpa-card">
             <div>
                 <span class="label">Feature band</span>
                 <strong class="mono">@inventory.Target.FeatureBand</strong>
@@ -44,8 +44,8 @@
 
         @if (inventory.UpdateMode == DotnetWorkloadUpdateMode.Manifests)
         {
-            <div class="mode-change-note">
-                <i class="fas fa-code-compare"></i>
+            <div class="mode-change-note sherpa-banner sherpa-banner-info">
+                <i class="fa-solid fa-code-compare"></i>
                 <div>
                     <strong>Switch to workload-set mode</strong>
                     <span>Sherpa uses workload sets for coordinated manifest updates. Applying a version changes this feature band from loose manifests to workload-set mode.</span>
@@ -53,7 +53,7 @@
             </div>
         }
 
-        <div class="set-list">
+        <div class="set-list sherpa-list">
             @foreach (var version in VisibleVersions())
             {
                 var isCurrent = string.Equals(
@@ -61,7 +61,7 @@
                     inventory.ActiveWorkloadVersion,
                     StringComparison.OrdinalIgnoreCase) &&
                     inventory.UpdateMode == DotnetWorkloadUpdateMode.WorkloadSet;
-                <label class="set-item @(selectedVersion == version.Version ? "selected" : "") @(isCurrent ? "current" : "")">
+                <label class="set-item sherpa-list-row sherpa-list-row-interactive @(selectedVersion == version.Version ? "selected" : "") @(isCurrent ? "current" : "")">
                     <input type="radio"
                            name="workload-set"
                            value="@version.Version"
@@ -88,10 +88,16 @@
             }
         </div>
 
-        <p class="set-note">
-            <i class="fas fa-circle-info"></i>
+        <p class="set-note sherpa-banner sherpa-banner-info">
+            <i class="fa-solid fa-circle-info"></i>
             Changing the set updates manifests together and updates packs for workloads already installed in this feature band.
         </p>
+    </div>
+}
+else
+{
+    <div class="set-dialog">
+        <SherpaListSkeleton Rows="5" Label="Loading workload sets..." />
     </div>
 }
 
@@ -108,8 +114,7 @@
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 0.75rem;
         padding: 0.7rem 0.85rem;
-        border-radius: 0.625rem;
-        background: var(--bg-tertiary);
+        background: var(--surface-card);
     }
 
     .current-set > div {
@@ -160,27 +165,16 @@
     .set-list {
         max-height: 48vh;
         overflow-y: auto;
-        border: 1px solid var(--border-color);
-        border-radius: 0.75rem;
-        background: var(--card-bg);
+        overscroll-behavior: contain;
     }
 
     .mode-change-note {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.55rem;
-        padding: 0.65rem 0.75rem;
-        border: 1px solid color-mix(in srgb, var(--accent-purple) 35%, var(--border-color));
-        border-radius: 0.625rem;
-        background: color-mix(in srgb, var(--accent-purple) 12%, transparent);
-        color: var(--text-secondary);
         font-size: 0.78rem;
-        line-height: 1.4;
     }
 
     .mode-change-note i {
         margin-top: 0.15rem;
-        color: var(--accent-purple);
+        color: var(--accent);
     }
 
     .mode-change-note div {
@@ -194,20 +188,22 @@
     }
 
     .set-item {
-        display: flex;
-        align-items: center;
-        gap: 0.55rem;
         padding: 0.65rem 0.85rem;
         cursor: pointer;
     }
 
-    .set-item + .set-item {
-        border-top: 1px solid var(--border-color);
+    .set-item:hover {
+        background: var(--surface-card-hover);
     }
 
-    .set-item:hover,
     .set-item.selected {
-        background: var(--bg-tertiary);
+        background: var(--accent-soft);
+    }
+
+    .set-item input[type="radio"] {
+        flex: none;
+        margin: 0;
+        accent-color: var(--accent);
     }
 
     .set-version {
@@ -218,22 +214,15 @@
     }
 
     .set-note {
-        display: flex;
-        gap: 0.45rem;
         margin: 0;
-        padding: 0.65rem 0.75rem;
-        border-radius: 0.625rem;
-        background: var(--bg-tertiary);
-        color: var(--text-secondary);
         font-size: 0.78rem;
-        line-height: 1.4;
     }
 
     .badge {
         display: inline-flex;
         align-items: center;
         padding: 2px 0.5rem;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         font-size: 0.68rem;
         font-weight: 500;
         white-space: nowrap;
