@@ -38,15 +38,15 @@
     else
     {
         <div class="cleanup-summary" aria-label="Provisioning profile cleanup summary">
-            <div class="summary-card">
+            <div class="summary-card sherpa-card">
                 <span class="summary-value">@profiles.Count</span>
                 <span class="summary-label">Installed</span>
             </div>
-            <div class="summary-card recommended">
+            <div class="summary-card recommended sherpa-card">
                 <span class="summary-value">@profiles.Count(profile => profile.RecommendedForDeletion)</span>
                 <span class="summary-label">Recommended</span>
             </div>
-            <div class="summary-card healthy">
+            <div class="summary-card healthy sherpa-card">
                 <span class="summary-value">@profiles.Count(profile => !profile.RecommendedForDeletion)</span>
                 <span class="summary-label">Healthy</span>
             </div>
@@ -60,11 +60,11 @@
             </div>
         </div>
 
-        <div class="profile-cleanup-list">
+        <div class="profile-cleanup-list sherpa-list">
             @foreach (var profile in profiles)
             {
                 var isSelected = selectedPaths.Contains(profile.Path);
-                <div class="cleanup-profile-card @(isSelected ? "selected" : "") @(!profile.RecommendedForDeletion ? "healthy" : "")"
+                <div class="cleanup-profile-card sherpa-list-row sherpa-list-row-interactive @(isSelected ? "selected" : "") @(!profile.RecommendedForDeletion ? "healthy" : "")"
                      @onclick="() => SetSelected(profile.Path, !isSelected)">
                     <label class="selection-checkbox" @onclick:stopPropagation="true">
                         <input type="checkbox"
@@ -77,19 +77,19 @@
                         <div class="profile-card-header">
                             <div class="profile-title-group">
                                 <strong>@profile.Name</strong>
-                                <span class="kind-badge">@profile.ProfileKind</span>
-                                <span class="location-badge">@profile.Location</span>
+                                <span class="kind-badge sherpa-badge sherpa-badge-neutral">@profile.ProfileKind</span>
+                                <span class="location-badge sherpa-badge sherpa-badge-neutral">@profile.Location</span>
                             </div>
                             @if (profile.RecommendedForDeletion)
                             {
-                                <span class="health-badge warning">
+                                <span class="health-badge warning sherpa-badge sherpa-badge-warning">
                                     <i class="fa-solid fa-exclamation-triangle" aria-hidden="true"></i>
                                     Review
                                 </span>
                             }
                             else
                             {
-                                <span class="health-badge good">
+                                <span class="health-badge good sherpa-badge sherpa-badge-success">
                                     <i class="fa-solid fa-check-circle" aria-hidden="true"></i>
                                     Good
                                 </span>
@@ -314,9 +314,6 @@
 
     .summary-card {
         padding: 0.875rem 1rem;
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        background: var(--surface-card);
         display: flex;
         align-items: baseline;
         gap: 0.5rem;
@@ -324,12 +321,10 @@
 
     .summary-card.recommended {
         background: var(--status-warning-bg);
-        border-color: var(--status-warning-border);
     }
 
     .summary-card.healthy {
         background: var(--status-success-bg);
-        border-color: var(--status-success-border);
     }
 
     .summary-value {
@@ -386,7 +381,6 @@
     .profile-cleanup-list {
         display: flex;
         flex-direction: column;
-        gap: 0.625rem;
     }
 
     .cleanup-profile-card {
@@ -394,16 +388,12 @@
         align-items: flex-start;
         gap: 0.875rem;
         padding: 0.875rem 1rem;
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        background: var(--surface-card);
         cursor: pointer;
-        transition: border-color 160ms ease, background-color 160ms ease;
+        transition: background-color 160ms ease;
     }
 
     .cleanup-profile-card:hover,
     .cleanup-profile-card.selected {
-        border-color: var(--accent);
         background: var(--accent-soft);
     }
 
@@ -417,12 +407,7 @@
         flex: 0 0 auto;
     }
 
-    .selection-checkbox > input {
-        width: 18px;
-        height: 18px;
-        margin-top: 0.15rem;
-        accent-color: var(--accent);
-    }
+    .selection-checkbox > input { margin-top: 0.15rem; }
 
     .profile-card-content {
         flex: 1;
@@ -452,34 +437,7 @@
         font-size: 0.9rem;
     }
 
-    .kind-badge,
-    .location-badge,
-    .health-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.3rem;
-        padding: 0.2rem 0.5rem;
-        border-radius: 999px;
-        font-size: 0.68rem;
-        font-weight: 700;
-        white-space: nowrap;
-    }
-
-    .kind-badge,
-    .location-badge {
-        background: var(--surface-well);
-        color: var(--text-secondary);
-    }
-
-    .health-badge.warning {
-        background: var(--status-warning-bg);
-        color: var(--status-warning-fg);
-    }
-
-    .health-badge.good {
-        background: var(--status-success-bg);
-        color: var(--status-success-fg);
-    }
+    .health-badge { gap: 0.3rem; }
 
     .profile-meta {
         gap: 0.75rem;
@@ -518,19 +476,6 @@
 
     .reason.good {
         color: var(--status-success-fg);
-    }
-
-    .btn {
-        min-height: 44px;
-        padding: 0.625rem 1rem;
-        border: 0;
-        border-radius: var(--radius-md);
-        cursor: pointer;
-    }
-
-    .btn-secondary {
-        background: var(--surface-well);
-        color: var(--text-primary);
     }
 
     @@media (max-width: 640px) {

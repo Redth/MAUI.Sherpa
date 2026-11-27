@@ -40,10 +40,10 @@
                 <h4>Select Apple Identity</h4>
                 @if (appleIdentities.Any())
                 {
-                    <div class="cert-list">
+                    <div class="cert-list sherpa-list">
                         @foreach (var identity in appleIdentities)
                         {
-                            <label class="cert-item @(config.IdentityId == identity.Id ? "selected" : "")">
+                            <label class="cert-item sherpa-list-row sherpa-list-row-interactive @(config.IdentityId == identity.Id ? "selected" : "")">
                                 <input type="radio" name="wizardIdentity"
                                        checked="@(config.IdentityId == identity.Id)"
                                        @onchange="@(() => SelectAppleIdentity(identity.Id))" />
@@ -53,7 +53,7 @@
                                         <span>Key ID: <span class="@(demoMode ? "demo-blur" : "")">@identity.KeyId</span></span>
                                     </div>
                                 </div>
-                                <span style="font-size: 14px; color: var(--text-muted);"><i class="fa-brands fa-apple"></i></span>
+                                <span class="identity-icon"><i class="fa-brands fa-apple"></i></span>
                             </label>
                         }
                     </div>
@@ -67,7 +67,7 @@
                 }
                 @if (loadingAppleData)
                 {
-                    <div class="loading-indicator" style="margin-top: 0.75rem; color: var(--text-secondary); font-size: 0.85rem;">
+                    <div class="loading-indicator">
                         <i class="fa-solid fa-spinner fa-spin"></i> Loading certificates &amp; profiles…
                     </div>
                 }
@@ -78,25 +78,25 @@
             {
                 <h4>Select Platform</h4>
                 <div class="option-cards">
-                    <div class="option-card @(config.Platform == ApplePlatformType.iOS ? "selected" : "")"
+                    <div class="option-card sherpa-card sherpa-choice-card @(config.Platform == ApplePlatformType.iOS ? "selected" : "")"
                          @onclick="@(() => SelectPlatform(ApplePlatformType.iOS))">
                         <i class="fa-brands fa-apple"></i>
                         <div class="option-label">iOS</div>
                         <div class="option-desc">iPhone &amp; iPad</div>
                     </div>
-                    <div class="option-card @(config.Platform == ApplePlatformType.tvOS ? "selected" : "")"
+                    <div class="option-card sherpa-card sherpa-choice-card @(config.Platform == ApplePlatformType.tvOS ? "selected" : "")"
                          @onclick="@(() => SelectPlatform(ApplePlatformType.tvOS))">
                         <i class="fa-solid fa-tv"></i>
                         <div class="option-label">tvOS</div>
                         <div class="option-desc">Apple TV</div>
                     </div>
-                    <div class="option-card @(config.Platform == ApplePlatformType.MacCatalyst ? "selected" : "")"
+                    <div class="option-card sherpa-card sherpa-choice-card @(config.Platform == ApplePlatformType.MacCatalyst ? "selected" : "")"
                          @onclick="@(() => SelectPlatform(ApplePlatformType.MacCatalyst))">
                         <i class="fa-solid fa-laptop"></i>
                         <div class="option-label">Mac Catalyst</div>
                         <div class="option-desc">iPad app on Mac</div>
                     </div>
-                    <div class="option-card @(config.Platform == ApplePlatformType.macOS ? "selected" : "")"
+                    <div class="option-card sherpa-card sherpa-choice-card @(config.Platform == ApplePlatformType.macOS ? "selected" : "")"
                          @onclick="@(() => SelectPlatform(ApplePlatformType.macOS))">
                         <i class="fa-solid fa-display"></i>
                         <div class="option-label">macOS</div>
@@ -112,7 +112,7 @@
                 <div class="option-cards">
                     @foreach (var dist in GetAvailableDistributionTypes())
                     {
-                        <div class="option-card @(config.DistributionType == dist.Type ? "selected" : "")"
+                        <div class="option-card sherpa-card sherpa-choice-card @(config.DistributionType == dist.Type ? "selected" : "")"
                              @onclick="@(() => SelectDistribution(dist.Type))">
                             <i class="@dist.Icon"></i>
                             <div class="option-label">@dist.Name</div>
@@ -133,13 +133,13 @@
                 </div>
                 @if (FilteredSigningCerts.Any())
                 {
-                    <div class="cert-list">
+                    <div class="cert-list sherpa-list">
                         @foreach (var cert in FilteredSigningCerts)
                         {
                             var syncLoc = GetCertSyncLocation(cert);
                             var hasLocal = syncLoc == SecretLocation.LocalOnly || syncLoc == SecretLocation.Both;
                             var isSelected = IsSigningCertificateSelected(cert);
-                            <label class="cert-item @(isSelected ? "selected" : "") @(!hasLocal ? "no-key" : "")"
+                            <label class="cert-item sherpa-list-row sherpa-list-row-interactive @(isSelected ? "selected" : "") @(!hasLocal ? "no-key" : "")"
                                    title="@(!hasLocal ? "Private key not available locally" : "")">
                                 <input type="checkbox"
                                        disabled="@(!hasLocal)"
@@ -155,16 +155,16 @@
                                 @switch (syncLoc)
                                 {
                                     case SecretLocation.Both:
-                                        <span class="sync-badge synced" title="Synced — private key in keychain and cloud"><i class="fa-solid fa-cloud-arrow-up"></i> Synced</span>
+                                        <span class="sync-badge synced sherpa-badge sherpa-badge-success" title="Synced — private key in keychain and cloud"><i class="fa-solid fa-cloud-arrow-up"></i> Synced</span>
                                         break;
                                     case SecretLocation.LocalOnly:
-                                        <span class="sync-badge local-only" title="Local only — private key in keychain"><i class="fa-solid fa-key"></i> Local</span>
+                                        <span class="sync-badge local-only sherpa-badge sherpa-badge-accent" title="Local only — private key in keychain"><i class="fa-solid fa-key"></i> Local</span>
                                         break;
                                     case SecretLocation.CloudOnly:
-                                        <span class="sync-badge cloud-only" title="Cloud only — not installed locally"><i class="fa-solid fa-cloud"></i> Cloud</span>
+                                        <span class="sync-badge cloud-only sherpa-badge sherpa-badge-warning" title="Cloud only — not installed locally"><i class="fa-solid fa-cloud"></i> Cloud</span>
                                         break;
                                     default:
-                                        <span class="sync-badge no-key" title="No private key available"><i class="fa-solid fa-key"></i> No Key</span>
+                                        <span class="sync-badge no-key sherpa-badge sherpa-badge-danger" title="No private key available"><i class="fa-solid fa-key"></i> No Key</span>
                                         break;
                                 }
                             </label>
@@ -191,12 +191,12 @@
                 </div>
                 @if (FilteredInstallerCerts.Any())
                 {
-                    <div class="cert-list">
+                    <div class="cert-list sherpa-list">
                         @foreach (var cert in FilteredInstallerCerts)
                         {
                             var syncLoc = GetCertSyncLocation(cert);
                             var hasLocal = syncLoc == SecretLocation.LocalOnly || syncLoc == SecretLocation.Both;
-                            <label class="cert-item @(config.InstallerCertSerialNumber == cert.SerialNumber ? "selected" : "") @(!hasLocal ? "no-key" : "")"
+                            <label class="cert-item sherpa-list-row sherpa-list-row-interactive @(config.InstallerCertSerialNumber == cert.SerialNumber ? "selected" : "") @(!hasLocal ? "no-key" : "")"
                                    title="@(!hasLocal ? "Private key not available locally" : "")">
                                 <input type="radio" name="wizardInstallerCert"
                                        disabled="@(!hasLocal)"
@@ -212,16 +212,16 @@
                                 @switch (syncLoc)
                                 {
                                     case SecretLocation.Both:
-                                        <span class="sync-badge synced" title="Synced — private key in keychain and cloud"><i class="fa-solid fa-cloud-arrow-up"></i> Synced</span>
+                                        <span class="sync-badge synced sherpa-badge sherpa-badge-success" title="Synced — private key in keychain and cloud"><i class="fa-solid fa-cloud-arrow-up"></i> Synced</span>
                                         break;
                                     case SecretLocation.LocalOnly:
-                                        <span class="sync-badge local-only" title="Local only — private key in keychain"><i class="fa-solid fa-key"></i> Local</span>
+                                        <span class="sync-badge local-only sherpa-badge sherpa-badge-accent" title="Local only — private key in keychain"><i class="fa-solid fa-key"></i> Local</span>
                                         break;
                                     case SecretLocation.CloudOnly:
-                                        <span class="sync-badge cloud-only" title="Cloud only — not installed locally"><i class="fa-solid fa-cloud"></i> Cloud</span>
+                                        <span class="sync-badge cloud-only sherpa-badge sherpa-badge-warning" title="Cloud only — not installed locally"><i class="fa-solid fa-cloud"></i> Cloud</span>
                                         break;
                                     default:
-                                        <span class="sync-badge no-key" title="No private key available"><i class="fa-solid fa-key"></i> No Key</span>
+                                        <span class="sync-badge no-key sherpa-badge sherpa-badge-danger" title="No private key available"><i class="fa-solid fa-key"></i> No Key</span>
                                         break;
                                 }
                             </label>
@@ -252,11 +252,11 @@
                 </div>
                 @if (FilteredProfiles.Any())
                 {
-                    <div class="cert-list">
+                    <div class="cert-list sherpa-list">
                         @foreach (var prof in FilteredProfiles)
                         {
                             var isSelected = IsProvisioningProfileSelected(prof);
-                            <label class="cert-item @(isSelected ? "selected" : "")">
+                            <label class="cert-item sherpa-list-row sherpa-list-row-interactive @(isSelected ? "selected" : "")">
                                 <input type="checkbox"
                                        checked="@isSelected"
                                        @onchange="@(() => ToggleProvisioningProfile(prof))" />
@@ -296,7 +296,7 @@
                         </div>
                         @if (config.NotarizationAppleIdUseManual)
                         {
-                            <input type="text" class="form-control compact" placeholder="apple@example.com"
+                            <input type="text" class="form-control compact sherpa-input" placeholder="apple@example.com"
                                    @bind="config.NotarizationAppleIdManualValue" @bind:event="oninput" />
                         }
                         else
@@ -320,7 +320,7 @@
                         </div>
                         @if (config.NotarizationPasswordUseManual)
                         {
-                            <input type="password" class="form-control compact" placeholder="App-specific password"
+                            <input type="password" class="form-control compact sherpa-input" placeholder="App-specific password"
                                    @bind="config.NotarizationPasswordManualValue" @bind:event="oninput" />
                         }
                         else
@@ -344,7 +344,7 @@
                         </div>
                         @if (config.NotarizationTeamIdUseManual)
                         {
-                            <input type="text" class="form-control compact" placeholder="e.g. ABC123DEF4"
+                            <input type="text" class="form-control compact sherpa-input" placeholder="e.g. ABC123DEF4"
                                    @bind="config.NotarizationTeamIdManualValue" @bind:event="oninput" />
                         }
                         else
@@ -359,7 +359,7 @@
                         }
                     </div>
                 </div>
-                <label class="config-toggle" style="margin-top: 0.5rem;">
+                <label class="config-toggle notarization-toggle">
                     <input type="checkbox" @bind="config.IncludeNotarization" />
                     <span>Include notarization in key mappings</span>
                 </label>
@@ -433,12 +433,12 @@
 
     .step-indicator .step.active .step-number {
         background: var(--accent);
-        color: white;
+        color: var(--text-inverse);
     }
 
     .step-indicator .step.completed .step-number {
         background: var(--status-success-dot);
-        color: white;
+        color: var(--text-inverse);
     }
 
     .step-indicator .step-label {
@@ -502,9 +502,6 @@
         flex: 1;
         min-width: 120px;
         padding: 16px;
-        border-radius: var(--radius-lg);
-        background: var(--card-bg, white);
-        border: 1px solid var(--border-subtle);
         cursor: pointer;
         text-align: center;
         transition: all 0.15s;
@@ -546,9 +543,6 @@
         max-height: 300px;
         overflow: hidden auto;
         overscroll-behavior: contain;
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        background: var(--surface-card);
     }
 
     .cert-item {
@@ -556,17 +550,13 @@
         align-items: center;
         gap: 10px;
         padding: 10px 12px;
-        border-radius: 0;
-        background: var(--surface-card);
         border: 0;
         cursor: pointer;
         transition: background 0.15s;
     }
-    .cert-item + .cert-item { border-top: 1px solid var(--border-hairline); }
 
     .cert-item.selected {
         background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface-card));
-        border-radius: 0;
         box-shadow: none;
     }
 
@@ -603,36 +593,12 @@
     }
 
     .sync-badge {
-        display: inline-flex;
-        align-items: center;
         gap: 4px;
-        font-size: 10px;
-        font-weight: 500;
-        padding: 2px 8px;
-        border-radius: var(--radius-lg);
-        white-space: nowrap;
         flex-shrink: 0;
     }
 
     .sync-badge.synced {
-        color: var(--status-success-dot);
-        background: rgba(34, 197, 94, 0.1);
-    }
-
-    .sync-badge.local-only {
-        color: var(--accent);
-        background: var(--accent-soft);
-    }
-
-    .sync-badge.cloud-only {
-        color: var(--status-warning-dot);
-        background: rgba(245, 158, 11, 0.1);
-    }
-
-    .sync-badge.no-key {
-        color: var(--status-error-dot);
-        background: rgba(239, 68, 68, 0.08);
-        opacity: 0.7;
+        color: var(--status-success-fg);
     }
 
     .sync-badge i {
@@ -658,6 +624,14 @@
         display: flex;
         align-items: center;
         gap: 8px;
+        margin-top: 0.75rem;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .identity-icon {
+        color: var(--text-muted);
+        font-size: 14px;
     }
 
     /* Notarization fields */
@@ -718,8 +692,8 @@
         cursor: pointer;
     }
 
-    .config-toggle input[type="checkbox"] {
-        accent-color: var(--accent);
+    .notarization-toggle {
+        margin-top: 0.5rem;
     }
 
     .form-content :focus-visible {

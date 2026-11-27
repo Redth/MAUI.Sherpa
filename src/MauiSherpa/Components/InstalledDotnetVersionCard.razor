@@ -85,25 +85,18 @@
                                 <span class="sherpa-badge @ComponentBadgeClass(installation.Component)">@ComponentShort(installation.Component)</span>
                                 <span class="installed-dotnet-version-card__item-version mono">@installation.Version</span>
                                 <span class="installed-dotnet-version-card__item-name">@ComponentDisplay(installation.Component)</span>
+                                @if (!string.IsNullOrWhiteSpace(installation.Architecture))
+                                {
+                                    <span class="sherpa-badge sherpa-badge-neutral mono">@installation.Architecture</span>
+                                }
+                                @if (!installation.IsValid)
+                                {
+                                    <span class="sherpa-badge sherpa-badge-warning">
+                                        <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i>
+                                        <span>invalid</span>
+                                    </span>
+                                }
                             </div>
-
-                            @if (!string.IsNullOrWhiteSpace(installation.Architecture) || !installation.IsValid)
-                            {
-                                <div class="installed-dotnet-version-card__item-subline">
-                                    @if (!string.IsNullOrWhiteSpace(installation.Architecture))
-                                    {
-                                        <span>@installation.Architecture</span>
-                                    }
-
-                                    @if (!installation.IsValid)
-                                    {
-                                        <span class="sherpa-badge sherpa-badge-warning">
-                                            <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i>
-                                            <span>invalid</span>
-                                        </span>
-                                    }
-                                </div>
-                            }
                         </div>
 
                         @if (AllowMachineChanges)
@@ -237,6 +230,7 @@
 
     .installed-dotnet-version-card__body {
         padding: 0;
+        border-top: 0;
     }
 
     .installed-dotnet-version-card__state {
@@ -299,8 +293,18 @@
     }
 
     .installed-dotnet-version-card__workloads {
+        position: relative;
         margin-top: 0;
-        border-top: 1px solid var(--border-hairline);
+        border-top: 0;
+    }
+
+    .installed-dotnet-version-card__workloads::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        inset-inline: 40px var(--row-padding-x);
+        height: 1px;
+        background: var(--border-hairline);
     }
 
     @@media (max-width: 900px) {

@@ -16,10 +16,10 @@
     <div class="form-content">
         @if (step == 0)
         {
-            <div class="selection-list">
+            <div class="selection-list sherpa-list">
                 @foreach (var pub in publishers)
                 {
-                    <label class="selection-item" @onclick="@(() => SelectPublisher(pub))">
+                    <label class="selection-item sherpa-list-row sherpa-list-row-interactive" @onclick="@(() => SelectPublisher(pub))">
                         <div class="item-content">
                             <div class="item-name"><i class="@GetProviderIcon(pub.ProviderId)" style="margin-right: 6px;"></i>@pub.Name</div>
                             <div class="item-detail">@pub.ProviderId</div>
@@ -29,7 +29,7 @@
                 }
                 @if (!publishers.Any())
                 {
-                    <div class="empty-hint">
+                    <div class="empty-hint sherpa-card">
                         <i class="fa-solid fa-cloud-arrow-up"></i>
                         <p>No publishers configured. Add one in Settings.</p>
                     </div>
@@ -53,15 +53,15 @@
 
             @if (loadingRepos)
             {
-                <div class="loading-hint"><i class="fa-solid fa-spinner fa-spin"></i> Loading repositories...</div>
+                <div class="loading-hint sherpa-card"><i class="fa-solid fa-spinner fa-spin"></i> Loading repositories...</div>
             }
             else if (FilteredRepos.Any())
             {
-                <div class="selection-list">
+                <div class="selection-list sherpa-list">
                     @foreach (var repo in FilteredRepos.Take(30))
                     {
                         var isExisting = existingPublishers.Any(p => p.PublisherId == selectedPublisher!.Id && p.RepositoryFullName == repo.FullName);
-                        <label class="selection-item @(selectedRepo?.Id == repo.Id ? "selected" : "") @(isExisting ? "disabled" : "")"
+                        <label class="selection-item sherpa-list-row sherpa-list-row-interactive @(selectedRepo?.Id == repo.Id ? "selected" : "") @(isExisting ? "disabled" : "")"
                                @onclick="@(() => { if (!isExisting) SelectRepo(repo); })">
                             <div class="item-content">
                                 <div class="item-name">@repo.FullName</div>
@@ -86,7 +86,7 @@
             }
             else
             {
-                <div class="empty-hint">No repositories found</div>
+                <div class="empty-hint sherpa-card">No repositories found</div>
             }
         }
     </div>
@@ -94,28 +94,13 @@
 
 <style>
     .form-content { display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem 1.25rem; }
-    .search-box {
-        display: flex; align-items: center; gap: 0.5rem;
-        background: var(--surface-control); border-radius: var(--radius-sm); padding: 0.5rem 0.75rem;
-        border: 1px solid var(--border-subtle);
-    }
-    .search-box i { color: var(--text-muted); font-size: 0.8rem; flex-shrink: 0; }
-    .search-box input {
-        flex: 1; border: none; background: transparent; outline: none; font-size: 0.85rem;
-        color: var(--text-primary);
-    }
-    .clear-search {
-        background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem;
-        padding: 0 4px; line-height: 1;
-    }
     .selection-list {
-        display: flex; flex-direction: column; gap: 2px;
+        display: flex; flex-direction: column;
         max-height: 320px; overflow-y: auto; overscroll-behavior: contain;
     }
     .selection-item {
-        display: flex; align-items: center; gap: 0.75rem;
-        padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); cursor: pointer;
-        transition: background 0.15s;
+        align-items: center; gap: 0.75rem;
+        padding: 0.5rem 0.75rem;
     }
     .selection-item.selected { background: var(--accent-soft); }
     .selection-item.disabled { opacity: 0.5; cursor: not-allowed; }

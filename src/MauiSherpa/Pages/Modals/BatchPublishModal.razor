@@ -30,10 +30,10 @@
             </button>
         </div>
 
-        <div class="profile-checklist">
+        <div class="profile-checklist sherpa-list">
             @foreach (var run in runs)
             {
-                <label class="check-item @(run.CanPublish ? "" : "unavailable")">
+                <label class="check-item sherpa-list-row sherpa-list-row-interactive @(run.CanPublish ? "" : "unavailable")">
                     <input type="checkbox" checked="@run.Include" disabled="@(!run.CanPublish)"
                            @onchange="@(e => { run.Include = e.Value is bool on && on; UpdateWizardState(); })" />
                     <div class="profile-info">
@@ -70,10 +70,10 @@
             }
         </p>
 
-        <div class="run-list">
+        <div class="run-list sherpa-list">
             @foreach (var run in runs.Where(run => run.Include))
             {
-                <div class="run-row">
+                <div class="run-row sherpa-list-row">
                     <div class="status-icon">
                         <i class="@GetStatusIcon(run.Status)" style="@GetStatusStyle(run.Status)"></i>
                     </div>
@@ -96,7 +96,7 @@
 
         @if (publishComplete)
         {
-            <div class="publish-summary-bar">
+            <div class="publish-summary-bar sherpa-banner">
                 @if (FailureCount == 0)
                 {
                     <i class="fa-solid fa-circle-check" style="color: var(--status-success-dot);"></i>
@@ -173,34 +173,18 @@
         overflow-y: auto;
         overscroll-behavior: contain;
         max-height: 360px;
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        background: var(--surface-card);
     }
 
     .check-item {
-        display: flex;
         align-items: flex-start;
         gap: 8px;
         padding: 8px 12px;
-        border-bottom: 1px solid var(--border-hairline);
-        cursor: pointer;
     }
 
-    .check-item:last-child { border-bottom: none; }
-    .check-item:hover { background: var(--surface-card-hover); }
     .check-item:has(input:checked) {
         background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface-card));
     }
     .check-item.unavailable { cursor: default; opacity: 0.75; }
-
-    .check-item input[type="checkbox"] {
-        width: 16px;
-        height: 16px;
-        margin-top: 2px;
-        flex-shrink: 0;
-        accent-color: var(--accent);
-    }
 
     .profile-info {
         display: flex;
@@ -223,13 +207,9 @@
     .profile-detail.warning i { margin-right: 4px; }
 
     .run-row {
-        display: flex;
         gap: 8px;
         padding: 8px;
-        border-bottom: 1px solid var(--border-subtle);
     }
-
-    .run-row:last-child { border-bottom: none; }
 
     .status-icon {
         width: 16px;
@@ -288,9 +268,7 @@
         gap: 8px;
         margin-top: 10px;
         padding: 8px 12px;
-        border-radius: var(--radius-sm);
         background: var(--surface-well);
-        border: 1px solid var(--border-hairline);
         font-size: 12px;
         color: var(--text-secondary);
     }

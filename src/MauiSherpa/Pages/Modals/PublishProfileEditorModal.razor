@@ -50,17 +50,17 @@
         @if (activeTab == "general")
         {
             <div class="form-content">
-                <div class="form-group">
-                    <label>Profile Name</label>
-                    <input type="text" class="form-control" @bind="profileName" @bind:event="oninput"
+                <div class="form-group sherpa-field">
+                    <label class="sherpa-field-label">Profile Name</label>
+                    <input type="text" class="form-control sherpa-input" @bind="profileName" @bind:event="oninput"
                            @bind:after="ValidateForm" placeholder="e.g., My App - Production" />
                 </div>
-                <div class="form-group">
-                    <label>Description <span class="optional">(optional)</span></label>
-                    <input type="text" class="form-control" @bind="profileDescription" @bind:event="oninput"
+                <div class="form-group sherpa-field">
+                    <label class="sherpa-field-label">Description <span class="optional">(optional)</span></label>
+                    <input type="text" class="form-control sherpa-input" @bind="profileDescription" @bind:event="oninput"
                            placeholder="Brief description of this profile" />
                 </div>
-                <div class="form-group">
+                <div class="form-group sherpa-field">
                     <div class="section-header">
                         <span>Publishers</span>
                         @if (publishers.Any())
@@ -74,7 +74,7 @@
 
                     @if (!profilePublishers.Any())
                     {
-                        <div class="empty-state">
+                        <div class="empty-state sherpa-card">
                             <i class="fa-solid fa-cloud-arrow-up"></i>
                             <p>No publishers added — will choose at publish time</p>
                             @if (!publishers.Any())
@@ -87,12 +87,12 @@
                     {
                         @foreach (var pub in profilePublishers)
                         {
-                            <div class="config-card">
+                            <div class="config-card sherpa-card">
                                 <div class="config-header">
                                     <div class="config-badges">
                                         <i class="@GetProviderIcon(pub.ProviderId)"></i>
                                         <span class="config-label-text">@pub.RepositoryFullName</span>
-                                        <span class="badge platform">@pub.PublisherName</span>
+                                        <span class="badge platform sherpa-badge sherpa-badge-accent">@pub.PublisherName</span>
                                     </div>
                                     <div class="config-actions">
                                         <button class="btn-icon-action danger" @onclick="@(() => profilePublishers.Remove(pub))"
@@ -121,7 +121,7 @@
 
                 @if (!appleConfigs.Any())
                     {
-                        <div class="empty-state">
+                        <div class="empty-state sherpa-card">
                             <i class="fa-brands fa-apple"></i>
                             <p>No Apple configurations yet</p>
                         </div>
@@ -130,17 +130,17 @@
                     {
                         @foreach (var config in appleConfigs)
                         {
-                            <div class="config-card">
+                            <div class="config-card sherpa-card">
                                 <div class="config-header">
                                     <div class="config-badges">
                                         <span class="config-label-text">@config.Label</span>
                                         @if (config.Platform is not null)
                                         {
-                                            <span class="badge platform">@config.PlatformLabel</span>
+                                            <span class="badge platform sherpa-badge sherpa-badge-accent">@config.PlatformLabel</span>
                                         }
                                         @if (config.DistributionType is not null)
                                         {
-                                            <span class="badge distribution">@config.DistributionLabel</span>
+                                            <span class="badge distribution sherpa-badge sherpa-badge-success">@config.DistributionLabel</span>
                                         }
                                     </div>
                                     <div class="config-actions">
@@ -194,7 +194,7 @@
                                                             @foreach (var dest in destinations)
                                                             {
                                                                 <div class="destination-row">
-                                                                    <input type="text" class="dest-input" value="@dest"
+                                                                    <input type="text" class="dest-input sherpa-input" value="@dest"
                                                                            @onchange="@(e => UpdateDestination(config.KeyMappings, defaultKey, dest, e.Value?.ToString() ?? ""))" />
                                                                     @if (destinations.Count > 1)
                                                                     {
@@ -232,7 +232,7 @@
 
                 @if (!appleIdentityConfigs.Any())
                 {
-                    <div class="empty-state">
+                    <div class="empty-state sherpa-card">
                         <i class="fa-solid fa-id-badge"></i>
                         <p>No Apple identities added</p>
                         @if (!appleIdentities.Any())
@@ -246,14 +246,14 @@
                     @foreach (var config in appleIdentityConfigs)
                     {
                         var identity = appleIdentities.FirstOrDefault(i => i.Id == config.IdentityId);
-                        <div class="config-card">
+                        <div class="config-card sherpa-card">
                             <div class="config-header">
                                 <div class="config-badges">
                                     <i class="fa-solid fa-id-badge"></i>
                                     <span class="config-label-text">@config.Label</span>
                                     @if (identity is null)
                                     {
-                                        <span class="badge warning">Missing</span>
+                                        <span class="badge warning sherpa-badge sherpa-badge-warning">Missing</span>
                                     }
                                 </div>
                                 <div class="config-actions">
@@ -292,7 +292,7 @@
                                                         @foreach (var dest in destinations)
                                                         {
                                                             <div class="destination-row">
-                                                                <input type="text" class="dest-input" value="@dest"
+                                                                <input type="text" class="dest-input sherpa-input" value="@dest"
                                                                        @onchange="@(e => UpdateDestination(config.KeyMappings, defaultKey, dest, e.Value?.ToString() ?? ""))" />
                                                                 @if (destinations.Count > 1)
                                                                 {
@@ -334,7 +334,7 @@
 
                 @if (!androidConfigs.Any())
                 {
-                    <div class="empty-state">
+                    <div class="empty-state sherpa-card">
                         <i class="fa-brands fa-android"></i>
                         <p>No Android configurations yet</p>
                     </div>
@@ -343,9 +343,9 @@
                 {
                     @foreach (var config in androidConfigs)
                     {
-                        <div class="config-card">
+                        <div class="config-card sherpa-card">
                             <div class="config-header">
-                                <input type="text" class="config-label-input" @bind="config.Label" @bind:event="oninput"
+                                <input type="text" class="config-label-input sherpa-input" @bind="config.Label" @bind:event="oninput"
                                        placeholder="e.g., PlayStore, Debug" />
                                 <button class="btn-icon-action danger" @onclick="@(() => androidConfigs.Remove(config))"
                                         title="Remove config">
@@ -389,7 +389,7 @@
                                                         @foreach (var dest in destinations)
                                                         {
                                                             <div class="destination-row">
-                                                                <input type="text" class="dest-input" value="@dest"
+                                                                <input type="text" class="dest-input sherpa-input" value="@dest"
                                                                        @onchange="@(e => UpdateDestination(config.KeyMappings, defaultKey, dest, e.Value?.ToString() ?? ""))" />
                                                                 @if (destinations.Count > 1)
                                                                 {
@@ -428,7 +428,7 @@
 
                 @if (!googleIdentityConfigs.Any())
                 {
-                    <div class="empty-state">
+                    <div class="empty-state sherpa-card">
                         <i class="fa-brands fa-google"></i>
                         <p>No Google identities added</p>
                         @if (!googleIdentities.Any())
@@ -442,14 +442,14 @@
                     @foreach (var config in googleIdentityConfigs)
                     {
                         var identity = googleIdentities.FirstOrDefault(i => i.Id == config.IdentityId);
-                        <div class="config-card">
+                        <div class="config-card sherpa-card">
                             <div class="config-header">
                                 <div class="config-badges">
                                     <i class="fa-brands fa-google"></i>
                                     <span class="config-label-text">@config.Label</span>
                                     @if (identity is null)
                                     {
-                                        <span class="badge warning">Missing</span>
+                                        <span class="badge warning sherpa-badge sherpa-badge-warning">Missing</span>
                                     }
                                 </div>
                                 <div class="config-actions">
@@ -488,7 +488,7 @@
                                                         @foreach (var dest in destinations)
                                                         {
                                                             <div class="destination-row">
-                                                                <input type="text" class="dest-input" value="@dest"
+                                                                <input type="text" class="dest-input sherpa-input" value="@dest"
                                                                        @onchange="@(e => UpdateDestination(config.KeyMappings, defaultKey, dest, e.Value?.ToString() ?? ""))" />
                                                                 @if (destinations.Count > 1)
                                                                 {
@@ -530,7 +530,7 @@
 
                 @if (!secretMappings.Any())
                 {
-                    <div class="empty-state">
+                    <div class="empty-state sherpa-card">
                         <i class="fa-solid fa-key"></i>
                         <p>No secret mappings yet</p>
                     </div>
@@ -539,7 +539,7 @@
                 {
                     @foreach (var mapping in secretMappings)
                     {
-                        <div class="config-card">
+                        <div class="config-card sherpa-card">
                             <div class="config-header">
                                 <span class="mono">@mapping.SourceKey</span>
                                 <button class="btn-icon-action danger" @onclick="@(() => secretMappings.Remove(mapping))"
@@ -554,7 +554,7 @@
                                         @foreach (var dest in mapping.DestinationKeys)
                                         {
                                             <div class="destination-row">
-                                                <input type="text" class="dest-input" value="@dest"
+                                                <input type="text" class="dest-input sherpa-input" value="@dest"
                                                        @oninput="@(e => { var idx = mapping.DestinationKeys.IndexOf(dest); if (idx >= 0) mapping.DestinationKeys[idx] = e.Value?.ToString() ?? ""; })" />
                                                 @if (mapping.DestinationKeys.Count > 1)
                                                 {
@@ -634,7 +634,7 @@
         padding: 7px 12px;
         border: none;
         background: transparent;
-        border-radius: calc(var(--radius-md) - 2px);
+        border-radius: var(--radius-sm);
         cursor: pointer;
         font-size: var(--font-size-sm);
         font-weight: 500;
@@ -696,7 +696,7 @@
         border: 1px solid var(--border-control);
         border-radius: var(--radius-sm);
         font-size: 13px;
-        background: var(--input-bg, white);
+        background: var(--surface-control);
         color: var(--text-primary);
         outline: none;
         transition: border-color 0.15s, box-shadow 0.15s;
@@ -713,10 +713,6 @@
         padding: 6px 10px;
         font-size: 12px;
         margin-top: 4px;
-    }
-
-    select.form-control {
-        cursor: pointer;
     }
 
     .form-hint {
@@ -753,7 +749,7 @@
         gap: 6px;
         padding: 8px 16px;
         background: var(--accent);
-        color: white;
+        color: var(--text-inverse);
         border: none;
         border-radius: var(--radius-sm);
         font-size: 13px;
@@ -810,35 +806,42 @@
 
     /* Config card */
     .config-card {
-        background: var(--card-bg, white);
-        border-radius: var(--radius-lg);
         overflow: hidden;
     }
 
     .config-header {
+        position: relative;
         display: flex;
         align-items: center;
         justify-content: space-between;
         padding: 10px 14px;
         background: transparent;
-        border-bottom: 1px solid var(--border-subtle);
+        border: 0;
         gap: 8px;
+    }
+
+    .config-header::after {
+        position: absolute;
+        inset-block-end: 0;
+        inset-inline: 14px;
+        height: 1px;
+        background: var(--border-hairline);
+        content: "";
     }
 
     .config-label-input {
         flex: 1;
         border: none;
-        background: transparent;
+        background: var(--surface-control);
         font-size: 14px;
         font-weight: 600;
         color: var(--text-primary);
         outline: none;
-        padding: 2px 4px;
-        border-radius: var(--radius-xs);
+        padding: 0 8px;
     }
 
     .config-label-input:focus {
-        background: var(--input-bg, white);
+        background: var(--surface-control);
         outline: 2px solid var(--accent);
         outline-offset: 2px;
         box-shadow: 0 0 0 4px var(--accent-ring);
@@ -871,10 +874,6 @@
         color: var(--text-primary);
     }
 
-    .config-toggle input[type="checkbox"] {
-        accent-color: var(--accent);
-    }
-
     /* Key mappings */
     .key-mappings-section {
         margin-top: 4px;
@@ -897,15 +896,21 @@
     }
 
     .key-mapping-row {
+        position: relative;
         display: flex;
         flex-direction: column;
         gap: 3px;
         padding: 6px 0;
-        border-bottom: 1px solid var(--border-subtle);
+        border: 0;
     }
 
-    .key-mapping-row:last-child {
-        border-bottom: none;
+    .key-mapping-row + .key-mapping-row::before {
+        position: absolute;
+        inset-block-start: 0;
+        inset-inline: 14px;
+        height: 1px;
+        background: var(--border-hairline);
+        content: "";
     }
 
     .key-label {
@@ -930,13 +935,12 @@
     .dest-input {
         flex: 1;
         border: 1px solid var(--border-control);
-        background: var(--input-bg, white);
+        background: var(--surface-control);
         font-size: 11px;
         font-family: monospace;
         color: var(--text-primary);
         outline: none;
         padding: 4px 6px;
-        border-radius: var(--radius-xs);
         min-width: 0;
     }
 
@@ -1000,162 +1004,8 @@
         font-size: 13px;
     }
 
-    /* Search box */
-    .search-box {
-        position: relative;
-        display: flex;
-        align-items: center;
-        padding: 0;
-        gap: 0;
-        border: 1px solid var(--border-control);
-        border-radius: var(--radius-sm);
-        background: var(--input-bg, white);
-        transition: border-color 0.15s, box-shadow 0.15s;
-    }
-
-    .search-box:focus-within {
-        border-color: var(--accent);
-        outline: 2px solid var(--accent);
-        outline-offset: 2px;
-        box-shadow: 0 0 0 4px var(--accent-ring);
-    }
-
-    .search-box i {
-        position: absolute;
-        left: 8px;
-        color: var(--text-muted);
-        font-size: 12px;
-    }
-
-    .search-box input {
-        width: 100%;
-        padding: 4px 26px 4px 26px;
-        border: none;
-        border-radius: var(--radius-sm);
-        font-size: 13px;
-        background: transparent;
-        color: var(--text-primary);
-        outline: none;
-        -webkit-appearance: none;
-    }
-
-    .search-box input:focus {
-        outline: none;
-        box-shadow: none;
-    }
-
-    .clear-search {
-        position: absolute;
-        right: 8px;
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        cursor: pointer;
-        font-size: 16px;
-    }
-
-    /* Selection list */
-    .selection-list {
-        max-height: 200px;
-        overflow-y: auto;
-        overscroll-behavior: contain;
-        border: 1px solid var(--border-control);
-        border-radius: var(--radius-lg);
-        margin-top: 8px;
-    }
-
-    .selection-list.compact {
-        max-height: 160px;
-    }
-
-    .selection-item {
-        display: flex;
-        align-items: flex-start;
-        gap: 10px;
-        padding: 10px 14px;
-        cursor: pointer;
-        transition: background 0.1s;
-        border-bottom: 1px solid var(--surface-well);
-    }
-
-    .selection-item:last-child {
-        border-bottom: none;
-    }
-
-    .selection-item.selected {
-        background: var(--accent-soft);
-    }
-
-    .selection-item input[type="radio"] {
-        margin-top: 2px;
-        accent-color: var(--accent);
-    }
-
-    .item-content {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .item-name {
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--text-primary);
-    }
-
-    .item-detail {
-        font-size: 12px;
-        color: var(--text-muted);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
     .mono {
         font-family: monospace;
-    }
-
-    /* Secret picker dialog */
-    .secret-picker-overlay {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.4);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1100;
-    }
-
-    .secret-picker-dialog {
-        background: var(--card-bg, white);
-        border-radius: var(--radius-lg);
-        width: 460px;
-        max-height: 70vh;
-        display: flex;
-        flex-direction: column;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-        overflow: hidden;
-    }
-
-    .secret-picker-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 12px 16px;
-        border-bottom: 1px solid var(--border-subtle);
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    .secret-picker-header i {
-        margin-right: 6px;
-    }
-
-    .secret-picker-body {
-        padding: 12px;
-        overflow-y: auto;
-        overscroll-behavior: contain;
-        flex: 1;
     }
 
     .loading-hint {
@@ -1205,25 +1055,18 @@
 
     .badge {
         font-size: 10px;
-        font-weight: 600;
-        padding: 2px 6px;
-        border-radius: var(--radius-xs);
-        white-space: nowrap;
     }
 
     .badge.platform {
-        background: var(--accent-soft);
         color: var(--accent);
     }
 
     .badge.distribution {
-        background: rgba(34, 197, 94, 0.12);
-        color: var(--status-success-dot);
+        color: var(--status-success-fg);
     }
 
     .badge.warning {
-        background: rgba(245, 158, 11, 0.12);
-        color: var(--status-warning-dot);
+        color: var(--status-warning-fg);
     }
 
     .config-summary {

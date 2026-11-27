@@ -14,17 +14,14 @@
 <div class="project-context-modal">
     @if (isLoading)
     {
-        <div class="state-panel">
-            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-            <div>
-                <strong>Inspecting project .NET context</strong>
-                <span class="mono">@FolderPath</span>
-            </div>
+        <div class="project-context-loading">
+            <SherpaListSkeleton Rows="4" Label="Inspecting project .NET context..." />
+            <span class="project-loading-path mono">@FolderPath</span>
         </div>
     }
     else if (!string.IsNullOrWhiteSpace(errorMessage))
     {
-        <div class="state-panel state-panel--error">
+        <div class="state-panel sherpa-card sherpa-banner sherpa-banner-danger state-panel--error">
             <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
             <div>
                 <strong>Project inspection failed</strong>
@@ -37,7 +34,7 @@
     }
     else if (resolution is { } project)
     {
-        <section class="context-card context-card--identity">
+        <section class="context-card sherpa-card context-card--identity">
             <div class="identity-row">
                 <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
                 <div>
@@ -60,7 +57,7 @@
 
         @if (project.Status == GlobalJsonStatus.NoGlobalJson)
         {
-            <div class="state-panel">
+            <div class="state-panel sherpa-card">
                 <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                 <div>
                     <strong>No global.json found</strong>
@@ -70,7 +67,7 @@
         }
         else if (project.Status == GlobalJsonStatus.NoSdkVersion)
         {
-            <div class="state-panel">
+            <div class="state-panel sherpa-card">
                 <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                 <div>
                     <strong>No SDK version requested</strong>
@@ -80,7 +77,7 @@
         }
         else
         {
-            <section class="context-card">
+            <section class="context-card sherpa-card">
                 <div class="section-heading">
                     <div>
                         <span class="eyebrow">SDK requirement</span>
@@ -125,7 +122,7 @@
 
                 @if (project.UsesLegacyWorkloadSetProperty)
                 {
-                    <p class="inline-note">
+                    <p class="inline-note sherpa-banner sherpa-banner-warning">
                         <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                         This file uses the legacy workload-set shape. Sherpa writes the supported <code>sdk.workloadVersion</code> property.
                     </p>
@@ -179,7 +176,7 @@
 
             @if (resolvedGroup is { } group)
             {
-                <section class="resolved-section">
+                <section class="resolved-section sherpa-card">
                     <div class="section-heading">
                         <div>
                             <span class="eyebrow">Project-resolved installation</span>
@@ -197,7 +194,7 @@
             }
             else if (!project.Satisfied)
             {
-                <div class="state-panel">
+                <div class="state-panel sherpa-card">
                     <i class="fa-solid fa-box-open" aria-hidden="true"></i>
                     <div>
                         <strong>No matching SDK installation</strong>
@@ -207,7 +204,7 @@
             }
             else
             {
-                <div class="state-panel">
+                <div class="state-panel sherpa-card">
                     <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                     <div>
                         <strong>Installation target is ambiguous</strong>
@@ -218,7 +215,7 @@
 
             @if (projectWorkloads is { } inventory)
             {
-                <section class="context-card">
+                <section class="context-card sherpa-card">
                     <div class="section-heading">
                         <div>
                             <span class="eyebrow">Exact project target</span>
@@ -271,7 +268,7 @@
             }
             else if (project.Satisfied)
             {
-                <div class="state-panel">
+                <div class="state-panel sherpa-card">
                     <i class="fa-solid fa-puzzle-piece" aria-hidden="true"></i>
                     <div>
                         <strong>Workload target unavailable</strong>
@@ -283,7 +280,7 @@
     }
     else
     {
-        <div class="state-panel state-panel--error">
+        <div class="state-panel sherpa-card sherpa-banner sherpa-banner-danger state-panel--error">
             <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
             <div>
                 <strong>Missing project context</strong>
@@ -308,9 +305,19 @@
     .context-card,
     .resolved-section,
     .state-panel {
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
         background: var(--surface-card);
+    }
+
+    .project-context-loading {
+        padding-block: 0.25rem;
+    }
+
+    .project-loading-path {
+        display: block;
+        margin-top: var(--space-2);
+        overflow-wrap: anywhere;
+        color: var(--text-secondary);
+        font-size: var(--font-size-xs);
     }
 
     .context-card {
@@ -320,14 +327,27 @@
     .context-card--identity {
         display: flex;
         flex-direction: column;
-        gap: 0.8rem;
     }
 
     .identity-row,
     .state-panel {
+        position: relative;
         display: flex;
         align-items: flex-start;
         gap: 0.75rem;
+    }
+
+    .identity-row {
+        padding-block: 0.4rem;
+    }
+
+    .identity-row + .identity-row::before {
+        position: absolute;
+        inset-block-start: 0;
+        inset-inline: calc(1.1rem + 0.75rem) 0;
+        height: 1px;
+        background: var(--border-hairline);
+        content: "";
     }
 
     .identity-row > i,
@@ -354,7 +374,7 @@
 
     .state-panel {
         align-items: center;
-        padding: 1rem;
+        padding: var(--space-4);
         color: var(--text-secondary);
     }
 
@@ -364,6 +384,8 @@
 
     .state-panel--error {
         border-color: var(--status-error-border);
+        background: var(--status-error-bg);
+        color: var(--status-error-fg);
     }
 
     .state-panel--error > i {
@@ -407,7 +429,7 @@
         display: inline-flex;
         align-items: center;
         padding: 2px 0.5rem;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         font-size: 0.68rem;
         font-weight: 600;
         white-space: nowrap;
@@ -422,8 +444,9 @@
     .facts-grid > div {
         min-width: 0;
         padding: 0.65rem 0.75rem;
-        border-radius: var(--radius-lg);
+        border-radius: var(--radius-md);
         background: var(--surface-well);
+        corner-shape: squircle;
     }
 
     .facts-grid strong {
@@ -446,10 +469,6 @@
 
     .inline-note {
         margin: 0.75rem 0 0;
-        padding: 0.65rem 0.75rem;
-        border-radius: var(--radius-lg);
-        background: var(--surface-well);
-        color: var(--text-secondary);
         font-size: 0.78rem;
     }
 
@@ -477,6 +496,13 @@
 
     .resolved-section {
         padding: 1rem;
+    }
+
+    .platform-macos .context-card,
+    .platform-macos .resolved-section,
+    .platform-macos .state-panel {
+        border-color: transparent;
+        corner-shape: squircle;
     }
 
     @@media (max-width: 800px) {

@@ -22,12 +22,12 @@
         </p>
 
         <div class="search-box">
-            <i class="fa-solid fa-magnifying-glass"></i>
+            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
             <input type="search" placeholder="Filter workloads" @bind="search" @bind:event="oninput" />
         </div>
 
         <div class="workload-groups">
-            <section class="workload-group remove-group">
+            <section class="workload-group sherpa-card sherpa-list remove-group">
                 <div class="group-heading">
                     <div>
                         <i class="fa-solid fa-box-archive"></i>
@@ -84,7 +84,7 @@
                 </div>
             </section>
 
-            <section class="workload-group install-group">
+            <section class="workload-group sherpa-card sherpa-list install-group">
                 <div class="group-heading">
                     <div>
                         <i class="fa-solid fa-circle-plus"></i>
@@ -166,6 +166,12 @@
         </div>
     </div>
 }
+else
+{
+    <div class="workload-dialog workload-loading">
+        <SherpaListSkeleton Rows="5" Label="Loading workloads..." />
+    </div>
+}
 
 <style>
     .workload-dialog {
@@ -207,31 +213,8 @@
         line-height: 1.45;
     }
 
-    .search-box {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.5rem 0.7rem;
-        border: 1px solid var(--border-control, var(--border-subtle));
-        border-radius: var(--radius-md);
-        background: var(--surface-control);
-        color: var(--text-secondary);
-    }
-
-    .search-box input {
-        flex: 1;
-        min-width: 0;
-        border: 0;
-        outline: 0;
-        background: transparent;
-        color: var(--text-primary);
-        font-size: 0.875rem;
-    }
-    .search-box:focus-within {
-        border-color: var(--accent);
-        outline: 2px solid var(--accent);
-        outline-offset: 2px;
-        box-shadow: 0 0 0 4px var(--accent-ring);
+    .workload-loading {
+        justify-content: center;
     }
 
     .workload-groups {
@@ -247,22 +230,27 @@
         flex-direction: column;
         min-width: 0;
         min-height: 0;
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        overflow: hidden;
-        background: var(--surface-card);
     }
 
     .group-heading {
+        position: relative;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 0.75rem;
         padding: 0.7rem 0.8rem;
-        border-bottom: 1px solid var(--border-hairline);
         background: var(--surface-card);
         color: var(--text-primary);
         font-size: 0.82rem;
+    }
+
+    .group-heading::after {
+        position: absolute;
+        inset-inline: var(--row-padding-x);
+        inset-block-end: 0;
+        height: 1px;
+        background: var(--border-hairline);
+        content: "";
     }
 
     .group-heading > div:first-child {
@@ -307,7 +295,7 @@
     .count-badge {
         min-width: 1.65rem;
         padding: 0.1rem 0.4rem;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         background: var(--surface-well);
         color: var(--text-secondary);
         font-size: 0.7rem;
@@ -325,33 +313,36 @@
     }
 
     .workload-item {
+        position: relative;
         display: flex;
         align-items: flex-start;
         gap: 0.75rem;
         padding: 0.7rem 0.75rem;
         border: 0;
-        border-radius: 0;
         background: var(--surface-card);
         cursor: pointer;
-        transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+        transition: background var(--motion-fast) var(--ease-standard);
     }
-    .workload-item + .workload-item { border-top: 1px solid var(--border-hairline); }
+
+    .workload-item + .workload-item::before {
+        position: absolute;
+        inset-block-start: 0;
+        inset-inline: var(--row-padding-x);
+        height: 1px;
+        background: var(--border-hairline);
+        content: "";
+    }
 
     .workload-item:hover {
         background: var(--surface-card-hover);
-        box-shadow: none;
     }
 
     .workload-item.install.selected {
         background: var(--status-success-bg);
-        border-radius: 0;
-        box-shadow: none;
     }
 
     .workload-item.remove.selected {
         background: var(--status-error-bg);
-        border-radius: 0;
-        box-shadow: none;
     }
 
     .workload-item.included {
@@ -366,11 +357,6 @@
 
     .workload-item input {
         margin-top: 0.2rem;
-        accent-color: var(--accent);
-    }
-
-    .workload-item.remove input {
-        accent-color: var(--status-success-fg);
     }
 
     .workload-main {
@@ -414,7 +400,7 @@
 
     .include-chip {
         padding: 0.15rem 0.4rem;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         background: var(--surface-popover);
         color: var(--text-secondary);
         font-size: 0.7rem;
@@ -424,6 +410,9 @@
         display: flex;
         align-items: center;
         gap: 0.45rem;
+        padding: 0.55rem 0.7rem;
+        border-radius: var(--radius-md);
+        background: color-mix(in srgb, var(--status-info-bg) 65%, var(--surface-well));
         color: var(--text-secondary);
         font-size: 0.8rem;
     }
@@ -439,7 +428,7 @@
         display: inline-flex;
         align-items: center;
         padding: 2px 0.5rem;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         font-size: 0.68rem;
         font-weight: 500;
         white-space: nowrap;
@@ -448,6 +437,11 @@
     .badge-error {
         color: var(--status-error-fg);
         background: var(--status-error-bg);
+    }
+
+    .platform-macos .target-summary,
+    .platform-macos .selection-summary {
+        corner-shape: squircle;
     }
 
     @@media (max-width: 720px) {

@@ -7,7 +7,7 @@
 @inject IEncryptedSettingsService SettingsService
 
 <div class="form-content">
-    <div class="dialog-subheader">
+    <div class="dialog-subheader sherpa-badge sherpa-badge-accent">
         <span class="bundle-id-label"><span class="bundle-id-prefix">BUNDLE ID</span> <span class="@(demoMode ? "demo-blur" : "")">@bundleId?.Identifier</span></span>
     </div>
     <div class="capabilities-body">
@@ -23,31 +23,30 @@
             {
                 <div class="capability-category">
                     <h3 class="category-title">@category.Key</h3>
-                    <div class="capability-list">
+                    <div class="capability-list sherpa-list">
                         @foreach (var capType in category.Value)
                         {
                             var isEnabled = IsCapabilityEnabled(capType);
                             var capId = GetCapabilityId(capType);
                             var isToggleable = CapabilityCategories.IsToggleable(capType);
-                            <div class="capability-item @(isEnabled ? "enabled" : "") @(!isToggleable ? "read-only" : "")"
+                            <div class="capability-item sherpa-list-row sherpa-list-row-interactive @(isEnabled ? "enabled" : "") @(!isToggleable ? "read-only" : "")"
                                  @onclick="@(async () => { if (isToggleable && !isTogglingCapability) await ToggleCapability(capType, capId, !isEnabled); })">
                                 <div class="capability-info">
                                     <i class="fa-solid @CapabilityCategories.GetIcon(capType)"></i>
                                     <span class="capability-name">@CapabilityCategories.GetDisplayName(capType)</span>
                                     @if (!isToggleable)
                                     {
-                                        <span class="capability-readonly-badge" title="This capability cannot be toggled via the API. Use the Apple Developer Portal or Xcode.">
+                                        <span class="capability-readonly-badge sherpa-badge sherpa-badge-neutral" title="This capability cannot be toggled via the API. Use the Apple Developer Portal or Xcode.">
                                             <i class="fa-solid fa-lock"></i> Read-only
                                         </span>
                                     }
                                 </div>
-                                <label class="toggle-switch" @onclick:stopPropagation="true">
+                                <label class="capability-checkbox" @onclick:stopPropagation="true">
                                     <input type="checkbox"
                                            checked="@isEnabled"
                                            disabled="@(isTogglingCapability || !isToggleable)"
                                            @onclick:stopPropagation="true"
                                            @onchange="@(e => ToggleCapability(capType, capId, (bool)(e.Value ?? false)))" />
-                                    <span class="toggle-slider"></span>
                                 </label>
                             </div>
                         }
@@ -151,10 +150,6 @@
     .form-content { padding: 16px 24px; }
     .dialog-subheader {
         display: inline-block;
-        padding: 0.5rem 1rem;
-        background: var(--accent-soft);
-        border: none;
-        border-radius: var(--radius-lg);
         margin-bottom: 1.25rem;
     }
     .bundle-id-label {
@@ -189,29 +184,21 @@
         font-weight: 600;
         color: var(--text-secondary);
         margin: 0 0 0.75rem 0;
-        padding-bottom: 0.5rem;
-        border-bottom: 1px solid var(--border-subtle);
     }
     .capability-list {
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        background: var(--surface-card);
     }
     .capability-item {
         display: flex;
         justify-content: space-between;
         align-items: center;
         padding: 0.75rem 1rem;
-        background: transparent;
-        border-radius: 0;
         border: 0;
         cursor: pointer;
-        transition: all 0.15s;
+        transition: background 0.15s;
     }
-    .capability-item + .capability-item { border-top: 1px solid var(--border-hairline); }
     .capability-item.enabled {
         background: var(--status-success-bg);
     }
@@ -234,11 +221,6 @@
         cursor: default;
     }
     .capability-readonly-badge {
-        font-size: 0.7rem;
-        color: var(--text-muted);
-        background: var(--surface-card-hover);
-        padding: 0.1rem 0.4rem;
-        border-radius: var(--radius-xs);
         white-space: nowrap;
     }
     .capability-readonly-badge i {
@@ -249,49 +231,13 @@
         color: var(--text-primary);
     }
 
-    /* Toggle Switch */
-    .toggle-switch {
-        position: relative;
-        display: inline-block;
-        width: 44px;
-        height: 1.5rem;
-    }
-    .toggle-switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-    }
-    .toggle-slider {
-        position: absolute;
+    .capability-checkbox {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 32px;
+        min-height: 32px;
         cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: var(--border-control);
-        transition: 0.2s;
-        border-radius: var(--radius-pill);
-    }
-    .toggle-slider:before {
-        position: absolute;
-        content: "";
-        height: 18px;
-        width: 18px;
-        left: 3px;
-        bottom: 3px;
-        background-color: var(--surface-control);
-        transition: 0.2s;
-        border-radius: 50%;
-    }
-    .toggle-switch input:checked + .toggle-slider {
-        background-color: var(--status-success-fg);
-    }
-    .toggle-switch input:checked + .toggle-slider:before {
-        transform: translateX(20px);
-    }
-    .toggle-switch input:disabled + .toggle-slider {
-        opacity: 0.5;
-        cursor: not-allowed;
     }
 
 </style>

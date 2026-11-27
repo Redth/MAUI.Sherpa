@@ -19,7 +19,7 @@
     <p class="sdk-location-help">@(install ? "Install Android command-line tools in a new location." : "Choose which Android SDK Sherpa uses for packages, devices, and emulators, or remove ones you no longer need.")</p>
     @if (loading)
     {
-        <p role="status"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Checking SDK locations...</p>
+        <SherpaListSkeleton Rows="4" Label="Checking SDK locations..." />
     }
     else
     {
@@ -39,8 +39,8 @@
                     @if (confirmDelete == location.Path)
                     {
                         <span class="sdk-row-confirm">
-                            <button type="button" class="sdk-row-btn" disabled="@deleting" @onclick="CancelDelete" @onclick:preventDefault @onclick:stopPropagation>Cancel</button>
-                            <button type="button" class="sdk-row-btn is-danger" disabled="@deleting" @onclick="() => DeleteAsync(location.Path)" @onclick:preventDefault @onclick:stopPropagation>
+                            <button type="button" class="btn btn-secondary btn-sm sdk-row-btn" disabled="@deleting" @onclick="CancelDelete" @onclick:preventDefault @onclick:stopPropagation>Cancel</button>
+                            <button type="button" class="btn btn-ghost-danger btn-sm sdk-row-btn is-danger" disabled="@deleting" @onclick="() => DeleteAsync(location.Path)" @onclick:preventDefault @onclick:stopPropagation>
                                 @if (deleting) { <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> <span>Deleting...</span> } else { <span>Delete</span> }
                             </button>
                         </span>
@@ -114,9 +114,7 @@
     .sdk-row-icon:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-danger) 12%, transparent); color: var(--accent-danger); }
     .sdk-row-icon:disabled { opacity: .4; cursor: default; }
     .sdk-row-confirm { display: flex; flex: none; gap: 6px; }
-    .sdk-row-btn { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; border: 1px solid var(--border-control); border-radius: var(--radius-sm); background: var(--surface-control); color: var(--text-primary); font-size: 12px; font-weight: 500; cursor: pointer; }
-    .sdk-row-btn.is-danger { border-color: transparent; background: transparent; color: var(--status-error-fg); }
-    .sdk-row-btn.is-danger:hover:not(:disabled) { background: var(--status-error-bg); }
+    .sdk-row-btn { min-height: var(--control-height-sm); }
     .sdk-row-btn:disabled { opacity: .6; cursor: default; }
     .sdk-delete-warning { display: flex; align-items: baseline; gap: 7px; margin: 10px 2px 0; color: var(--status-warning-text); font-size: 11.5px; line-height: 1.45; }
     .sdk-custom-row { display: flex; }

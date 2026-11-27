@@ -49,13 +49,13 @@
             Select a runtime to enable the native <strong>Install</strong> button.
         </div>
 
-        <div class="selection-list">
+        <div class="selection-list sherpa-list">
             @foreach (var runtime in FilteredRuntimes)
             {
                 var isInstalled = installedRuntimeBuilds.Contains(runtime.Build);
-                <label class="runtime-item @(selectedRuntime?.Build == runtime.Build ? "selected" : "") @(isInstalled ? "disabled" : "")"
+                <label class="runtime-item sherpa-list-row sherpa-list-row-interactive @(selectedRuntime?.Build == runtime.Build ? "selected" : "") @(isInstalled ? "disabled" : "")"
                        @onclick="@(() => SelectRuntime(runtime, isInstalled))">
-                    <div class="runtime-icon">
+                    <div class="runtime-icon sherpa-icon-well">
                         <i class="@GetRuntimeIcon(runtime.PlatformIdentifier)"></i>
                     </div>
                     <div class="runtime-content">
@@ -63,11 +63,11 @@
                             @FormatRuntimeName(runtime)
                             @if (runtime.IsPrerelease)
                             {
-                                <span class="badge badge-beta">Prerelease</span>
+                                <span class="badge badge-beta sherpa-badge sherpa-badge-warning">Prerelease</span>
                             }
                             @if (isInstalled)
                             {
-                                <span class="badge badge-installed"><i class="fa-solid fa-check"></i> Installed</span>
+                                <span class="badge badge-installed sherpa-badge sherpa-badge-success"><i class="fa-solid fa-check"></i> Installed</span>
                             }
                         </div>
                         <div class="runtime-details">
@@ -117,11 +117,11 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        background: var(--surface-well);
-        border-radius: var(--radius-sm);
+        background: var(--surface-control);
+        border-radius: var(--radius-md);
         min-height: 40px;
         padding: 0 0.75rem;
-        border: 1px solid var(--border-subtle);
+        border: 1px solid var(--border-control);
         box-sizing: border-box;
     }
 
@@ -151,18 +151,6 @@
         line-height: 1;
     }
 
-    .platform-filter select {
-        width: 100%;
-        height: 40px;
-        padding: 0 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: var(--radius-sm);
-        background: var(--bg-secondary);
-        color: var(--text-primary);
-        font-size: 0.875rem;
-        box-sizing: border-box;
-    }
-
     .runtime-picker-options {
         display: flex;
         align-items: center;
@@ -179,10 +167,6 @@
         cursor: pointer;
     }
 
-    .toggle-label input[type="checkbox"] {
-        accent-color: var(--accent-primary);
-    }
-
     .results-count,
     .runtime-picker-hint {
         font-size: 0.8125rem;
@@ -195,9 +179,6 @@
         gap: 0;
         max-height: 420px;
         overflow: hidden auto;
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        background: var(--surface-card);
     }
 
     .runtime-item {
@@ -206,19 +187,12 @@
         gap: 0.875rem;
         padding: 0.875rem 1rem;
         border: 0;
-        border-radius: 0;
-        background: var(--surface-card);
         cursor: pointer;
         transition: background 0.15s;
     }
 
-    .runtime-item + .runtime-item {
-        border-top: 1px solid var(--border-hairline);
-    }
-
     .runtime-item.selected {
         background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface-card));
-        border-radius: 0;
         box-shadow: none;
     }
 
@@ -230,9 +204,6 @@
     .runtime-icon {
         width: 2rem;
         height: 2rem;
-        border-radius: var(--radius-pill);
-        background: var(--bg-tertiary);
-        color: var(--accent-primary);
         display: inline-flex;
         align-items: center;
         justify-content: center;

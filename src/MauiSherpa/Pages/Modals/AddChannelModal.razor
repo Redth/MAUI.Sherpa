@@ -12,11 +12,11 @@
             You can track several at once (e.g. <strong>Latest</strong> plus an older band like <strong>9.0.1xx</strong>).
         </p>
 
-        <div class="selection-list">
+        <div class="selection-list sherpa-list">
             @foreach (var ch in channelOptions)
             {
                 var tracked = IsTracked(ch.Value);
-                <label class="channel-item @(selectedChannel == ch.Value ? "selected" : "")"
+                <label class="channel-item sherpa-list-row sherpa-list-row-interactive @(selectedChannel == ch.Value ? "selected" : "")"
                        @onclick="@(() => SelectChannel(ch.Value))">
                     <div class="channel-content">
                         <div class="channel-title">
@@ -35,14 +35,14 @@
                 </label>
             }
 
-            <label class="channel-item @(selectedChannel == CustomValue ? "selected" : "")"
+            <label class="channel-item sherpa-list-row sherpa-list-row-interactive @(selectedChannel == CustomValue ? "selected" : "")"
                    @onclick="@(() => SelectChannel(CustomValue))">
                 <div class="channel-content">
                     <div class="channel-title">Custom…</div>
                     <div class="channel-desc">Enter an exact version or feature band (e.g. 10.0.203, 9.0.2xx).</div>
                     @if (selectedChannel == CustomValue)
                     {
-                        <input type="text" class="channel-input" placeholder="e.g. 9.0.1xx or 10.0.103"
+                        <input type="text" class="channel-input sherpa-input" placeholder="e.g. 9.0.1xx or 10.0.103"
                                @bind="customChannel" @bind:event="oninput" @bind:after="UpdateBridge"
                                @onclick:stopPropagation="true" />
                     }
@@ -54,7 +54,7 @@
             </label>
         </div>
 
-        <p class="note">
+        <p class="note sherpa-banner sherpa-banner-info">
             <i class="fa-solid fa-circle-info"></i>
             <span>
                 This won't change your default <code>dotnet</code>. How <code>dotnet</code> resolves on your
@@ -84,10 +84,6 @@
         display: flex;
         flex-direction: column;
         gap: 0;
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        background: var(--surface-card);
-        overflow: hidden;
     }
 
     .channel-item {
@@ -96,14 +92,9 @@
         gap: 0.875rem;
         padding: 0.75rem 1rem;
         border: 0;
-        border-radius: 0;
         background: var(--surface-card);
         cursor: pointer;
-        transition: background 0.15s;
-    }
-
-    .channel-item + .channel-item {
-        border-top: 1px solid var(--border-hairline);
+        transition: background var(--motion-fast) var(--ease-standard);
     }
 
     .channel-item:hover {
@@ -112,8 +103,6 @@
 
     .channel-item.selected {
         background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface-card));
-        border-radius: 0;
-        box-shadow: none;
     }
 
     .channel-content {
@@ -142,17 +131,6 @@
         margin-top: 0.5rem;
         width: 100%;
         box-sizing: border-box;
-        padding: 0.5rem 0.7rem;
-        border: 1px solid var(--border-control, var(--border-subtle));
-        border-radius: var(--radius-md);
-        background: var(--surface-control);
-        color: var(--text-primary);
-        font-size: 0.875rem;
-        outline: none;
-    }
-
-    .channel-input:focus {
-        border-color: var(--accent);
     }
 
     .selected-mark {
@@ -163,14 +141,7 @@
 
     .add-channel-dialog .note {
         margin: 0;
-        display: flex;
-        gap: 0.5rem;
         font-size: 0.8rem;
-        color: var(--text-secondary);
-        line-height: 1.45;
-        padding: 0.65rem 0.75rem;
-        background: var(--surface-well);
-        border-radius: var(--radius-lg);
     }
 
     .add-channel-dialog .note i {
@@ -193,7 +164,7 @@
         align-items: center;
         gap: 0.25rem;
         padding: 2px 0.55rem;
-        border-radius: var(--radius-lg);
+        border-radius: var(--radius-pill);
         font-size: 0.7rem;
         font-weight: 500;
         white-space: nowrap;

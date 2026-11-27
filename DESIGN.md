@@ -336,3 +336,33 @@ All modal creation/edit forms use **Native Hybrid (`HybridFormPage<T>`)** — na
 - **Don't** use thick colored `border-left` stripes (`3px`/`4px`) on cards, alerts, or list items; use status dots and tinted status pills instead.
 - **Don't** duplicate theme variable blocks inside `MainLayout.razor` or individual pages—`app.css` is the single source of truth.
 - **Don't** mix Font Awesome v5 (`fas`/`fab`/`far`) and v6 (`fa-solid`/`fa-brands`/`fa-regular`) prefixes or use raw `×` characters for close/clear icons.
+
+---
+
+## UI Surface & Dialog Inventory
+
+Keep this inventory up to date whenever a page, hybrid modal dialog, or inspector view is added, renamed, or removed. Every future design-system audit, theme refresh, or platform update MUST verify all four groups below so no surface is left behind.
+
+### Main Pages (`src/MauiSherpa/Pages/`)
+- **Core & Environment:** `Dashboard.razor`, `Doctor.razor`, `DotnetSdk.razor`, `Settings.razor`, `Debug.razor`, `CopilotModal.razor` (Copilot overlay/modal)
+- **Android:** `AndroidSdk.razor`, `Devices.razor` (`Emulators.razor` redirects), `Keystores.razor`
+- **Apple:** `AppleSimulators.razor`, `XcodeManagement.razor`, `Certificates.razor`, `ProvisioningProfiles.razor`, `BundleIds.razor`, `AppleDevices.razor`, `RootCertificates.razor`
+- **Push, Secrets & Diagnostics:** `PushTesting.razor`, `FirebasePush.razor`, `Secrets.razor`, `SecretsPublish.razor`, `Profiling.razor`, `DevFlow.razor`
+- **Inspectors & Viewers:** `AndroidInspector.razor`, `AppleInspector.razor`, `SpeedscopeViewer.razor`, `GcDumpViewer.razor`
+
+### Hybrid Modal Dialogs (`src/MauiSherpa/Pages/Modals/` — 53 dialogs)
+- **`.NET` SDK, Workloads & CLI Details:** `AddChannelModal.razor`, `DotnetUpDetailsModal.razor`, `MauiCliDetailsModal.razor`, `ProjectDotnetContextModal.razor`, `WorkloadSelectionModal.razor`, `WorkloadSetModal.razor`
+- **Android SDK, JDK & Devices:** `AndroidDevicePairingModal.razor`, `AndroidSdkLocationModal.razor`, `AndroidSdkPathModal.razor`, `CreateEmulatorModal.razor`, `CreateKeystoreModal.razor`, `KeystoreSignaturesModal.razor`, `OpenJdkModal.razor`, `PepkExportModal.razor`
+- **Apple Signing, Devices, Simulators & Xcode:** `AppleConfigWizardModal.razor`, `AppleDevicePairingModal.razor`, `AppleIdentityModal.razor`, `AppleIdentityPickerModal.razor`, `CreateBundleIdModal.razor`, `CreateCertificateModal.razor`, `CreateCertificateRequestModal.razor`, `CreateProfileModal.razor`, `CreateSimulatorModal.razor`, `EditProfileModal.razor`, `ExportCertificateModal.razor`, `ManageCapabilitiesModal.razor`, `ProvisioningProfileCleanupModal.razor`, `RegisterDeviceModal.razor`, `RenewCertificateModal.razor`, `RuntimePickerModal.razor`, `XcodeDownloadAuthModal.razor`
+- **Google, Push & Profiling:** `GoogleIdentityModal.razor`, `GoogleIdentityPickerModal.razor`, `ProfilingCaptureModal.razor`, `PushProjectModal.razor`
+- **Secrets, Vault, Cloud Providers & Publishing:** `AddPublisherModal.razor`, `BatchPublishModal.razor`, `CISecretsWizardModal.razor`, `CloudProviderModal.razor`, `EditSecretModal.razor`, `LocalVaultIntroModal.razor`, `PublisherModal.razor`, `PublishProfileEditorModal.razor`, `PublishReviewModal.razor`, `PublishSecretsModal.razor`, `SecretPickerModal.razor`
+- **Operations, Settings & Updates:** `ExportSettingsModal.razor`, `ImportSettingsModal.razor`, `MultiOperationModalPage.razor`, `OperationModalPage.razor`, `ProcessModal.razor`, `ReleaseNotesModal.razor`, `UpdateModal.razor`
+
+### Native Modal Chrome & Layouts
+- **Native modal hosts (`src/MauiSherpa/Pages/Forms/`):** `FormTheme.cs`, `HybridFormPage.cs`, `HybridViewPage.cs`, `HybridProgressPage.cs`, `ProgressModalPage.cs`, `SettingsPage.cs`, `WizardFormPage.cs`, plus `HybridLoadingView.cs` and `ThemedBlazorWebView.cs`
+- **Blazor layouts (`src/MauiSherpa/Components/`):** `MainLayout.razor`, `ModalLayout.razor`, `InspectorLayout.razor`
+- **Reusable primitives (`src/MauiSherpa/Components/UI/`):** `SherpaSelect.razor`, `SherpaActionMenu.razor`, `SherpaJsonEditor.razor`, `SherpaListSkeleton.razor`, `SherpaTabs.razor`, `SherpaSegmentedControl.razor`, `SherpaPageHeader.razor`, `SherpaSectionHeader.razor`, `SherpaExpandableGroup.razor`
+
+### App Inspector (`src/MauiSherpa.AppInspector/`)
+- **Shell & stylesheet:** `wwwroot/css/app.css`, `Components/InspectorLayout.razor`, `Components/DataGrid.razor`, `Pages/Inspector/DevFlowInspector.razor`
+- **Inspector tabs:** `DevFlowTreeTab.razor`, `DevFlowLogsTab.razor`, `DevFlowNetworkTab.razor`, `DevFlowPlatformTab.razor`, `DevFlowProfilingTab.razor`, `DevFlowWebViewTab.razor`

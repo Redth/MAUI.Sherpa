@@ -38,9 +38,10 @@
                     <h3>Sign in with your Apple ID</h3>
                     <p class="step-description">Authenticate with Apple Developer to download Xcode directly from Apple.</p>
 
-                    <div class="form-group">
-                        <label>Apple ID</label>
+                    <div class="form-group sherpa-field">
+                        <label class="sherpa-field-label">Apple ID</label>
                         <input type="email"
+                               class="sherpa-input"
                                @bind="authAppleId"
                                @bind:event="oninput"
                                @bind:after="OnFieldChanged"
@@ -48,9 +49,10 @@
                                disabled="@isAuthenticating" />
                     </div>
 
-                    <div class="form-group">
-                        <label>Password</label>
+                    <div class="form-group sherpa-field">
+                        <label class="sherpa-field-label">Password</label>
                         <input type="password"
+                               class="sherpa-input"
                                @bind="authPassword"
                                @bind:event="oninput"
                                @bind:after="OnFieldChanged"
@@ -61,7 +63,7 @@
 
                     @if (fastlaneSessions.Count > 0)
                     {
-                        <div class="fastlane-import">
+                        <div class="fastlane-import sherpa-card">
                             <p class="fastlane-import-hint">
                                 Found an existing fastlane session on disk. Importing it avoids a fresh sign-in.
                             </p>
@@ -96,8 +98,8 @@
 
                     @if (twoFactorOptions?.TrustedPhoneNumbers.Count > 0)
                     {
-                        <div class="form-group">
-                            <label>Verification method</label>
+                        <div class="form-group sherpa-field">
+                            <label class="sherpa-field-label">Verification method</label>
                             <SherpaSelect TValue="int"
                                           Value="@selectedPhoneIndex"
                                           ValueChanged="OnPhoneSelectionChanged"
@@ -108,8 +110,8 @@
                         </div>
                     }
 
-                    <div class="form-group otp-group">
-                        <label>Verification Code</label>
+                    <div class="form-group otp-group sherpa-field">
+                        <label class="sherpa-field-label">Verification Code</label>
                         <div class="otp-digits">
                             @for (var i = 0; i < OtpLength; i++)
                             {
@@ -120,7 +122,7 @@
                                        pattern="[0-9]*"
                                        autocomplete="one-time-code"
                                        maxlength="1"
-                                       class="otp-digit"
+                                       class="otp-digit sherpa-input"
                                        value="@otpDigits[index]"
                                        @oninput="e => OnOtpDigitInput(index, e)"
                                        @onkeydown="e => OnOtpDigitKeyDown(index, e)"
@@ -153,7 +155,7 @@
 
                     @if (!string.IsNullOrEmpty(authError))
                     {
-                        <div class="apple-said">
+                        <div class="apple-said sherpa-card">
                             <i class="fa-solid fa-quote-left" aria-hidden="true"></i>
                             <span>@authError</span>
                         </div>
@@ -161,7 +163,7 @@
 
                     @if (supportsWebSignIn)
                     {
-                        <div class="web-signin-callout">
+                        <div class="web-signin-callout sherpa-banner sherpa-banner-info">
                             <div class="web-signin-callout-text">
                                 <strong>Recommended: Unlock &amp; Sign In with Apple Web Sign-In</strong>
                                 <span>
@@ -175,8 +177,9 @@
                         </div>
                     }
 
-                    <ol class="unlock-steps">
-                        <li>
+                    <ol class="unlock-steps sherpa-list">
+                        <li class="sherpa-list-row">
+                            <span class="unlock-step-number" aria-hidden="true">1</span>
                             <div class="unlock-step-text">
                                 <strong>Sign in at Apple ID</strong>
                                 <span>Open <code>appleid.apple.com</code> and sign in with the same Apple ID and password.</span>
@@ -185,7 +188,8 @@
                                 <i class="fa-solid fa-arrow-up-right-from-square"></i> appleid.apple.com
                             </button>
                         </li>
-                        <li>
+                        <li class="sherpa-list-row">
+                            <span class="unlock-step-number" aria-hidden="true">2</span>
                             <div class="unlock-step-text">
                                 <strong>Complete any prompt you see</strong>
                                 <span>
@@ -195,7 +199,8 @@
                                 </span>
                             </div>
                         </li>
-                        <li>
+                        <li class="sherpa-list-row">
+                            <span class="unlock-step-number" aria-hidden="true">3</span>
                             <div class="unlock-step-text">
                                 <strong>Confirm the developer portal too</strong>
                                 <span>Also sign in at <code>developer.apple.com</code> to make sure that surface is unlocked as well.</span>
@@ -204,7 +209,8 @@
                                 <i class="fa-solid fa-arrow-up-right-from-square"></i> developer.apple.com
                             </button>
                         </li>
-                        <li>
+                        <li class="sherpa-list-row">
+                            <span class="unlock-step-number" aria-hidden="true">4</span>
                             <div class="unlock-step-text">
                                 <strong>Come back and sign in here again</strong>
                                 <span>Once both sites let you sign in normally, return to this dialog and try again.</span>
@@ -212,7 +218,7 @@
                         </li>
                     </ol>
 
-                    <div class="unlock-note">
+                    <div class="unlock-note sherpa-banner sherpa-banner-info">
                         <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                         <span>
                             Only use <code>iforgot.apple.com</code> / a full password reset as a last resort &mdash; it's not always
@@ -224,7 +230,7 @@
 
             @if (currentStep != AuthStep.AccountLocked && !string.IsNullOrEmpty(authError))
             {
-                <div class="auth-error">
+                <div class="auth-error sherpa-banner sherpa-banner-danger">
                     <i class="fa-solid fa-exclamation-circle"></i>
                     <span>@authError</span>
                 </div>
@@ -774,12 +780,12 @@
 
     .step.active .step-number {
         background: var(--accent-primary);
-        color: white;
+        color: var(--text-inverse);
     }
 
     .step.completed .step-number {
         background: var(--status-success-dot);
-        color: white;
+        color: var(--text-inverse);
     }
 
     .step-label {
@@ -837,27 +843,7 @@
         color: var(--text-secondary);
     }
 
-    .form-group input,
-    .form-group select {
-        width: 100%;
-        padding: 10px 12px;
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-sm);
-        background: var(--input-bg, white);
-        color: var(--text-primary);
-        font-size: 14px;
-        box-sizing: border-box;
-    }
-
-    .form-group input:focus,
-    .form-group select:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.12);
-    }
-
-    .form-group input:disabled,
-    .form-group select:disabled {
+    .form-group input:disabled {
         opacity: 0.7;
         cursor: not-allowed;
     }
@@ -876,10 +862,6 @@
         width: 42px;
         height: 52px;
         padding: 0;
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-md);
-        background: var(--input-bg, white);
-        color: var(--text-primary);
         font-size: 22px;
         font-weight: 600;
         font-family: var(--font-mono, ui-monospace, monospace);
@@ -889,9 +871,8 @@
     }
 
     .otp-digits .otp-digit:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.16);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-ring);
     }
 
     .otp-digits .otp-digit:disabled {
@@ -915,9 +896,6 @@
         margin-top: -4px;
         margin-bottom: 16px;
         padding: 12px 14px;
-        border-radius: var(--radius-lg);
-        border: 1px dashed var(--border-color);
-        background: var(--surface-card);
     }
 
     .fastlane-import-hint {
@@ -946,10 +924,6 @@
         align-items: flex-start;
         gap: 8px;
         margin-top: 8px;
-        padding: 12px 14px;
-        border-radius: var(--radius-lg);
-        background: var(--status-error-bg);
-        color: var(--status-error-text);
         font-size: 13px;
     }
 
@@ -974,7 +948,7 @@
         align-items: center;
         justify-content: center;
         font-size: 18px;
-        background: var(--status-warning-bg, rgba(245, 158, 11, 0.15));
+        background: var(--status-warning-bg);
         color: var(--status-warning-fg);
     }
 
@@ -984,8 +958,6 @@
         gap: 8px;
         margin: 0 0 12px 0;
         padding: 8px 12px;
-        border-radius: var(--radius-md);
-        background: var(--surface-card);
         color: var(--text-secondary);
         font-size: 12px;
         font-style: italic;
@@ -998,9 +970,6 @@
         gap: 10px;
         margin: 0 0 14px 0;
         padding: 12px 14px;
-        border-radius: var(--radius-lg);
-        border: 1px solid var(--accent);
-        background: var(--surface-card);
         text-align: left;
     }
 
@@ -1030,7 +999,7 @@
         border-radius: var(--radius-sm);
         border: none;
         background: var(--accent);
-        color: white;
+        color: var(--text-inverse);
         font-size: 13px;
         font-weight: 600;
         cursor: pointer;
@@ -1038,28 +1007,20 @@
 
     .unlock-steps {
         list-style: none;
-        counter-reset: unlock-step;
         margin: 0 0 12px 0;
         padding: 0;
         text-align: left;
     }
 
     .unlock-steps li {
-        counter-increment: unlock-step;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
         padding: 8px 0;
-        border-bottom: 1px solid var(--border-color);
     }
 
-    .unlock-steps li:last-child {
-        border-bottom: none;
-    }
-
-    .unlock-steps li::before {
-        content: counter(unlock-step);
+    .unlock-step-number {
         flex-shrink: 0;
         width: 22px;
         height: 22px;
@@ -1070,7 +1031,7 @@
         font-size: 11px;
         font-weight: 700;
         background: var(--accent-primary);
-        color: white;
+        color: var(--text-inverse);
         margin-right: 10px;
     }
 
@@ -1106,9 +1067,6 @@
         display: flex;
         align-items: flex-start;
         gap: 8px;
-        padding: 10px 12px;
-        border-radius: var(--radius-md);
-        background: var(--surface-card);
         color: var(--text-muted);
         font-size: 12px;
         text-align: left;

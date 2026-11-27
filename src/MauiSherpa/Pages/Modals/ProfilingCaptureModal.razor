@@ -1379,7 +1379,7 @@
         color: var(--text-primary);
         text-align: left;
         background: var(--surface-card);
-        border: 1px solid var(--border-subtle);
+        border: 1.5px solid var(--border-subtle);
         border-radius: var(--radius-lg);
         cursor: pointer;
         transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
@@ -1454,9 +1454,20 @@
     }
 
     .capture-disclosure .sherpa-disclosure-body {
+        position: relative;
         display: flex;
         flex-direction: column;
         gap: 12px;
+        border-top: 0;
+    }
+
+    .capture-disclosure .sherpa-disclosure-body::before {
+        position: absolute;
+        inset-block-start: 0;
+        inset-inline: var(--row-padding-x);
+        height: 1px;
+        background: var(--border-hairline);
+        content: "";
     }
 
     .capture-span-2 {
@@ -1608,6 +1619,7 @@
     }
 
     .capture-meta-grid > div {
+        position: relative;
         display: flex;
         flex-direction: column;
         gap: 3px;
@@ -1616,7 +1628,16 @@
     }
 
     .capture-meta-grid > div + div {
-        border-left: 1px solid var(--border-hairline);
+        border-left: 0;
+    }
+
+    .capture-meta-grid > div + div::before {
+        position: absolute;
+        inset-block: 10px;
+        inset-inline-start: 0;
+        width: 1px;
+        background: var(--border-hairline);
+        content: "";
     }
 
     .capture-meta-grid span {
@@ -1672,6 +1693,22 @@
     .capture-result-view > .capture-meta-grid {
         background: var(--surface-card);
         border-color: var(--border-subtle);
+    }
+
+    .platform-macos .sherpa-choice-card,
+    .platform-macos .sherpa-choice-card:hover,
+    .platform-macos .capture-toggle,
+    .platform-macos .capture-meta-grid,
+    .platform-macos .capture-result-view > .capture-meta-grid,
+    .platform-macos .capture-flow-card {
+        border-color: transparent;
+        box-shadow: none;
+        corner-shape: squircle;
+    }
+
+    .platform-macos .sherpa-choice-card.selected {
+        border-color: var(--accent);
+        background: var(--accent-soft);
     }
 
     .capture-result-header {
@@ -1756,8 +1793,14 @@
         }
 
         .capture-meta-grid > div + div {
-            border-top: 1px solid var(--border-hairline);
             border-left: 0;
+        }
+
+        .capture-meta-grid > div + div::before {
+            inset-block: 0 auto;
+            inset-inline: var(--row-padding-x);
+            width: auto;
+            height: 1px;
         }
 
         .sherpa-empty-inline,

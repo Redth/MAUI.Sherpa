@@ -195,6 +195,10 @@ styles is `src/MauiSherpa/wwwroot/css/app.css`.
   `wwwroot/vendor/monaco`, hosted via `wwwroot/js/monacoInterop.js`) for multi-line JSON
   or code editing (push payloads, simulator push payloads, service-account JSON). Rebuild
   the vendored Monaco bundle when updating with `cd build/monaco && npm ci && npm run build`.
+- **Surface & Dialog Inventory:** `DESIGN.md` maintains the full inventory of all main
+  pages, hybrid modal dialogs (`Pages/Modals/`), native modal hosts (`Pages/Forms/`), and
+  `MauiSherpa.AppInspector` views. Update that inventory whenever you add/rename/remove a
+  page or dialog, and check every group when making design-system or theme changes.
 - **Cross-platform adaptation:** Never add ad-hoc platform CSS to individual pages.
   Platform differences are centralized in `app.css` through `.platform-macos`
   (macOS 26/27: Apple Blue, SF Pro at 13px, borderless tonal `16px` squircle cards with `corner-shape: squircle`, flat tonal buttons, `ellipsis.circle` row menus, elongated switches, and Liquid Glass frosted popovers), `.platform-windows` (Sherpa Violet,

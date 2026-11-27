@@ -3029,11 +3029,12 @@ main:focus-visible,
     box-shadow: none !important;
 }
 
-/* Crisp custom checkboxes inside Sherpa lists, selection bars, and forms (excluding switches). */
+/* Crisp custom checkboxes inside Sherpa lists, selection bars, forms, and modals (excluding switches). */
 .sherpa-list input[type="checkbox"],
 .sherpa-selection-bar input[type="checkbox"],
 .sherpa-selection-inline input[type="checkbox"],
-.sherpa-form input[type="checkbox"] {
+.sherpa-form input[type="checkbox"],
+.modal-layout input[type="checkbox"] {
     width: 15px;
     height: 15px;
     margin: 0;
@@ -3052,7 +3053,8 @@ main:focus-visible,
 .sherpa-list input[type="checkbox"]::before,
 .sherpa-selection-bar input[type="checkbox"]::before,
 .sherpa-selection-inline input[type="checkbox"]::before,
-.sherpa-form input[type="checkbox"]::before {
+.sherpa-form input[type="checkbox"]::before,
+.modal-layout input[type="checkbox"]::before {
     content: "";
     width: 7.5px;
     height: 4px;
@@ -3065,7 +3067,8 @@ main:focus-visible,
 .sherpa-list input[type="checkbox"]:checked,
 .sherpa-selection-bar input[type="checkbox"]:checked,
 .sherpa-selection-inline input[type="checkbox"]:checked,
-.sherpa-form input[type="checkbox"]:checked {
+.sherpa-form input[type="checkbox"]:checked,
+.modal-layout input[type="checkbox"]:checked {
     background: var(--accent);
     border-color: var(--accent);
 }
@@ -3073,16 +3076,36 @@ main:focus-visible,
 .sherpa-list input[type="checkbox"]:checked::before,
 .sherpa-selection-bar input[type="checkbox"]:checked::before,
 .sherpa-selection-inline input[type="checkbox"]:checked::before,
-.sherpa-form input[type="checkbox"]:checked::before {
+.sherpa-form input[type="checkbox"]:checked::before,
+.modal-layout input[type="checkbox"]:checked::before {
     transform: translateY(-1px) rotate(-45deg) scale(1);
 }
 
 .sherpa-list input[type="checkbox"]:disabled,
 .sherpa-selection-bar input[type="checkbox"]:disabled,
 .sherpa-selection-inline input[type="checkbox"]:disabled,
-.sherpa-form input[type="checkbox"]:disabled {
+.sherpa-form input[type="checkbox"]:disabled,
+.modal-layout input[type="checkbox"]:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+}
+
+/* Keep .sherpa-switch inputs hidden even inside modals/forms */
+.modal-layout .sherpa-switch input[type="checkbox"],
+.sherpa-form .sherpa-switch input[type="checkbox"],
+.sherpa-list .sherpa-switch input[type="checkbox"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    border: 0;
+    background: transparent;
+}
+
+.modal-layout .sherpa-switch input[type="checkbox"]::before,
+.sherpa-form .sherpa-switch input[type="checkbox"]::before,
+.sherpa-list .sherpa-switch input[type="checkbox"]::before {
+    display: none;
 }
 
 /* ============================================================================
@@ -3155,7 +3178,36 @@ main:focus-visible,
 .platform-macos .add-dest-section,
 .platform-macos .empty-state,
 .platform-macos .loading-state,
-.platform-macos .capture-meta-grid {
+.platform-macos .capture-meta-grid,
+.platform-macos .workload-group,
+.platform-macos .selection-list,
+.platform-macos .profile-checklist,
+.platform-macos .run-list,
+.platform-macos .secrets-checklist,
+.platform-macos .destinations-checklist,
+.platform-macos .jdk-option-list,
+.platform-macos .context-card,
+.platform-macos .resolved-section,
+.platform-macos .cleanup-profile-card,
+.platform-macos .platform-group,
+.platform-macos .info-grid,
+.platform-macos .selection-summary,
+.platform-macos .trust-card,
+.platform-macos .sdk-path-tools,
+.platform-macos .modal-layout .search-box,
+.platform-macos .modal-layout .form-control,
+.platform-macos .modal-layout .channel-input,
+.platform-macos .modal-layout .dest-input,
+.platform-macos .sherpa-choice-card,
+.platform-macos .capture-toggle,
+.platform-macos .capture-disclosure,
+.platform-macos .option-card,
+.platform-macos .provider-type-card,
+.platform-macos .sdk-row-btn,
+.platform-macos .jdk-row-btn,
+.platform-macos .fastlane-import,
+.platform-macos .web-signin-callout,
+.platform-macos .editor-tabs {
     corner-shape: squircle;
 }
 
@@ -3177,6 +3229,21 @@ main:focus-visible,
 .platform-macos .tdc-card,
 .platform-macos .installed-dotnet-version-card,
 .platform-macos .workload-card,
+.platform-macos .workload-group,
+.platform-macos .selection-list,
+.platform-macos .profile-checklist,
+.platform-macos .run-list,
+.platform-macos .secrets-checklist,
+.platform-macos .destinations-checklist,
+.platform-macos .jdk-option-list,
+.platform-macos .context-card,
+.platform-macos .resolved-section,
+.platform-macos .cleanup-profile-card,
+.platform-macos .platform-group,
+.platform-macos .info-grid,
+.platform-macos .selection-summary,
+.platform-macos .trust-card,
+.platform-macos .sdk-path-tools,
 .platform-macos .sdk-list,
 .platform-macos .dep-group,
 .platform-macos .skeleton-list,
@@ -3204,7 +3271,15 @@ main:focus-visible,
 .platform-macos .publish-summary,
 .platform-macos .add-dest-section,
 .platform-macos .empty-state,
-.platform-macos .loading-state {
+.platform-macos .loading-state,
+.platform-macos .sherpa-choice-card,
+.platform-macos .capture-toggle,
+.platform-macos .capture-disclosure,
+.platform-macos .capture-meta-grid,
+.platform-macos .option-card,
+.platform-macos .provider-type-card,
+.platform-macos .fastlane-import,
+.platform-macos .web-signin-callout {
     border-color: transparent;
     box-shadow: none;
 }
@@ -3213,14 +3288,22 @@ main:focus-visible,
 .platform-macos .sherpa-card.selected,
 .platform-macos .sherpa-card[aria-checked="true"],
 .platform-macos .sherpa-choice-card.selected,
-.platform-macos .option-card.selected {
+.platform-macos .option-card.selected,
+.platform-macos .provider-type-card.selected {
     border-color: var(--accent);
 }
 
-/* Editable text inputs stay clearly distinguishable inside soft tonal cards */
+/* Editable text inputs & modal search boxes stay clearly distinguishable inside soft tonal cards */
 .platform-macos .sherpa-input,
 .platform-macos .sherpa-textarea,
-.platform-macos .sherpa-input-group {
+.platform-macos .sherpa-input-group,
+.platform-macos .modal-layout .search-box,
+.platform-macos .modal-layout .form-control,
+.platform-macos .modal-layout .channel-input,
+.platform-macos .modal-layout .dest-input,
+.platform-macos .modal-layout .form-group input[type="text"],
+.platform-macos .modal-layout .form-group input[type="password"],
+.platform-macos .modal-layout .form-group input[type="email"] {
     background: #ffffff;
     border-color: rgba(0, 0, 0, 0.12);
     border-bottom-color: rgba(0, 0, 0, 0.16);
@@ -3229,7 +3312,14 @@ main:focus-visible,
 
 .platform-macos.theme-dark .sherpa-input,
 .platform-macos.theme-dark .sherpa-textarea,
-.platform-macos.theme-dark .sherpa-input-group {
+.platform-macos.theme-dark .sherpa-input-group,
+.platform-macos.theme-dark .modal-layout .search-box,
+.platform-macos.theme-dark .modal-layout .form-control,
+.platform-macos.theme-dark .modal-layout .channel-input,
+.platform-macos.theme-dark .modal-layout .dest-input,
+.platform-macos.theme-dark .modal-layout .form-group input[type="text"],
+.platform-macos.theme-dark .modal-layout .form-group input[type="password"],
+.platform-macos.theme-dark .modal-layout .form-group input[type="email"] {
     background: rgba(0, 0, 0, 0.24);
     border-color: rgba(255, 255, 255, 0.14);
     border-bottom-color: rgba(255, 255, 255, 0.16);

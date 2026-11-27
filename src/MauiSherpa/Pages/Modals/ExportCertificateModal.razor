@@ -18,7 +18,7 @@
     <div class="form-content">
         @if (exportCertificates.Count > 0)
         {
-            <div class="cert-export-info">
+            <div class="cert-export-info sherpa-card sherpa-card-pad">
                 @if (exportCertificates.Count == 1)
                 {
                     <strong>@exportCertificates[0].Name</strong>
@@ -38,17 +38,17 @@
 
             @if (exportCertificates.Count == 1)
             {
-                <div class="form-group">
-                    <label>Export Type</label>
-                    <div class="export-type-options">
-                        <label class="radio-option">
+                <div class="form-group sherpa-field">
+                    <label class="sherpa-field-label">Export Type</label>
+                    <div class="export-type-options sherpa-list">
+                        <label class="radio-option sherpa-list-row sherpa-list-row-interactive">
                             <input type="radio" name="exportType" value="p12" checked="@(exportType == "p12")" @onchange="@(() => { exportType = "p12"; OnFieldChanged(); })" />
                             <span class="radio-label">
                                 <strong>P12 / PFX (with private key)</strong>
                                 <small>Includes both public and private key - can be used for signing</small>
                             </span>
                         </label>
-                        <label class="radio-option">
+                        <label class="radio-option sherpa-list-row sherpa-list-row-interactive">
                             <input type="radio" name="exportType" value="cer" checked="@(exportType == "cer")" @onchange="@(() => { exportType = "cer"; OnFieldChanged(); })" />
                             <span class="radio-label">
                                 <strong>CER (public key only)</strong>
@@ -63,7 +63,7 @@
             {
                 if (MissingCertificates.Count > 0)
                 {
-                    <div class="alert alert-warning">
+                    <div class="alert alert-warning sherpa-banner sherpa-banner-warning">
                         <i class="fa-solid fa-exclamation-triangle"></i>
                         <span>
                             Private keys were not found locally for:
@@ -73,8 +73,8 @@
                 }
                 else
                 {
-                    <div class="form-group">
-                        <label class="checkbox-label">
+                    <div class="form-group sherpa-field">
+                        <label class="checkbox-label sherpa-field-label">
                             <input type="checkbox" @bind="exportWithPassword" @bind:after="OnFieldChanged" />
                             <span>Protect with passphrase</span>
                         </label>
@@ -82,13 +82,13 @@
 
                     @if (exportWithPassword)
                     {
-                        <div class="form-group">
-                            <label>Passphrase</label>
-                            <input type="password" @bind="exportPassword" @bind:after="OnFieldChanged" class="form-control" placeholder="Enter passphrase" />
+                        <div class="form-group sherpa-field">
+                            <label class="sherpa-field-label">Passphrase</label>
+                            <input type="password" @bind="exportPassword" @bind:after="OnFieldChanged" class="form-control sherpa-input" placeholder="Enter passphrase" />
                         </div>
-                        <div class="form-group">
-                            <label>Confirm Passphrase</label>
-                            <input type="password" @bind="exportPasswordConfirm" @bind:after="OnFieldChanged" class="form-control" placeholder="Confirm passphrase" />
+                        <div class="form-group sherpa-field">
+                            <label class="sherpa-field-label">Confirm Passphrase</label>
+                            <input type="password" @bind="exportPasswordConfirm" @bind:after="OnFieldChanged" class="form-control sherpa-input" placeholder="Confirm passphrase" />
                             @if (!string.IsNullOrEmpty(exportPassword) && !string.IsNullOrEmpty(exportPasswordConfirm) && exportPassword != exportPasswordConfirm)
                             {
                                 <small class="form-error">Passphrases do not match</small>
@@ -98,17 +98,17 @@
                 }
             }
 
-            <div class="form-group">
-                <label>Destination</label>
-                <div class="destination-options">
-                    <label class="checkbox-label destination-option">
+            <div class="form-group sherpa-field">
+                <label class="sherpa-field-label">Destination</label>
+                <div class="destination-options sherpa-list">
+                    <label class="checkbox-label destination-option sherpa-list-row sherpa-list-row-interactive">
                         <input type="checkbox" @bind="saveToFile" @bind:after="OnFieldChanged" />
                         <span>
                             <strong>Save to file</strong>
                             <small>Choose where to save the @(IsP12Export ? "P12 bundle" : "certificate")</small>
                         </span>
                     </label>
-                    <label class="checkbox-label destination-option">
+                    <label class="checkbox-label destination-option sherpa-list-row sherpa-list-row-interactive">
                         <input type="checkbox" @bind="copyAsBase64" @bind:after="OnFieldChanged" />
                         <span>
                             <strong>Copy as Base64</strong>
@@ -285,9 +285,7 @@
     .text-muted { color: var(--text-muted); font-size: 13px; }
 
     .cert-export-info {
-        background: var(--surface-card);
         padding: 0.75rem 1rem;
-        border-radius: var(--radius-lg);
     }
     .selected-certificates {
         display: flex;
@@ -301,14 +299,12 @@
     }
     .selected-certificates i { width: 1rem; color: var(--accent); }
 
-    .export-type-options { display: flex; flex-direction: column; gap: 0.75rem; }
+    .export-type-options { display: flex; flex-direction: column; }
 
     .radio-option {
         display: flex; align-items: flex-start; gap: 0.75rem;
         padding: 0.75rem 1rem;
-        background: var(--surface-card);
         border: none;
-        border-radius: var(--radius-lg);
         cursor: pointer;
         transition: background 0.15s;
     }
@@ -324,41 +320,22 @@
     .radio-label small { font-size: 0.75rem; color: var(--text-muted); }
 
     .checkbox-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
-    .checkbox-label input[type="checkbox"] { width: 18px; height: 18px; }
-    .destination-options { display: flex; flex-direction: column; gap: 0.5rem; }
+    .destination-options { display: flex; flex-direction: column; }
     .destination-option {
         align-items: flex-start;
         padding: 0.625rem 0.75rem;
-        background: var(--surface-card);
-        border-radius: var(--radius-lg);
     }
     .destination-option > span { display: flex; flex-direction: column; gap: 0.125rem; }
     .destination-option strong { color: var(--text-primary); font-size: 0.875rem; }
     .destination-option small { color: var(--text-muted); font-size: 0.75rem; }
 
     .form-group { margin-bottom: 0; }
-    .form-group label { display: block; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-secondary); }
-    .form-group label.checkbox-label { display: flex; }
-    .form-control {
-        width: 100%; padding: 0.625rem 0.75rem;
-        border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
-        font-size: 0.875rem; box-sizing: border-box;
-        background: var(--surface-control); color: var(--text-primary);
-    }
-    .form-control:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
     .form-error { display: block; margin-top: 0.25rem; font-size: 0.75rem; color: var(--status-error-fg); }
 
     .alert {
-        padding: 0.75rem 1rem;
-        border-radius: var(--radius-lg);
         margin-bottom: 0;
         display: flex;
         align-items: center;
         gap: 0.625rem;
-        border: none;
-    }
-    .alert-warning {
-        background: var(--status-warning-bg);
-        color: var(--status-warning-fg);
     }
 </style>

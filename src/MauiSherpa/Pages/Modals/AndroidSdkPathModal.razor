@@ -34,28 +34,28 @@
                           Disabled="@busy"
                           Class="sherpa-select-full" />
         </label>
-        <button type="button" class="sdk-path-button" @onclick="CheckAsync" disabled="@busy"><i class="fa-solid fa-rotate @(busy ? "fa-spin" : "")" aria-hidden="true"></i> Check Again</button>
+        <button type="button" class="sdk-path-button btn btn-secondary btn-sm" @onclick="CheckAsync" disabled="@busy"><i class="fa-solid fa-rotate @(busy ? "fa-spin" : "")" aria-hidden="true"></i> Check Again</button>
     </div>
     <label class="sdk-path-build-tools"><input type="checkbox" checked="@includeBuildTools" @onchange="BuildToolsChangedAsync" disabled="@busy" /> Include build tools (aapt, aapt2, apksigner, zipalign)</label>
     @if (busy && plan == null)
     {
-        <p role="status"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Inspecting Android tools and shell PATH...</p>
+        <SherpaListSkeleton Rows="4" Label="Inspecting Android tools and shell PATH..." />
     }
     @if (!string.IsNullOrEmpty(error))
     {
-        <p class="sdk-path-error" role="alert">@error</p>
+        <p class="sdk-path-error sherpa-banner sherpa-banner-danger" role="alert">@error</p>
     }
     @if (!string.IsNullOrEmpty(notice))
     {
-        <p class="sdk-path-notice" role="status">@notice</p>
+        <p class="sdk-path-notice sherpa-banner sherpa-banner-success" role="status">@notice</p>
     }
     @if (plan is { } current)
     {
         <h3>Android Tools @(!string.IsNullOrEmpty(notice) ? "(last PATH check)" : "")</h3>
-        <div class="sdk-path-tools">
+        <div class="sdk-path-tools sherpa-list">
             @foreach (var tool in current.Tools)
             {
-                <div class="sdk-path-tool">
+                <div class="sdk-path-tool sherpa-list-row">
                     <span class="sdk-path-icon" aria-hidden="true"><i class="fa-solid @(IsCorrect(tool) ? "fa-check" : "fa-terminal")"></i></span>
                     <div>
                         <strong class="mono">@tool.Name</strong>
@@ -76,16 +76,16 @@
         </div>
         @if (current.Warning != null)
         {
-            <p class="sdk-path-warning" role="status"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> @current.Warning</p>
+            <p class="sdk-path-warning sherpa-banner sherpa-banner-warning" role="status"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> @current.Warning</p>
         }
         <details class="sdk-path-preview">
             <summary>Proposed PATH update @(current.NeedsUpdate ? "" : "(already configured)")</summary>
             <pre class="text-selectable"><code @key="(current.Preview, current.Options.Shell)" id="@previewId" class="@(current.Options.Shell == AndroidPathShell.Windows ? "language-diff" : "language-bash")">@(current.Options.Shell == AndroidPathShell.Windows ? $"- {current.OriginalContent}\n+ {current.UpdatedContent}" : current.Preview)</code></pre>
             @if (highlightError != null)
             {
-                <p class="sdk-path-error" role="alert">@highlightError</p>
+                <p class="sdk-path-error sherpa-banner sherpa-banner-danger" role="alert">@highlightError</p>
             }
-            <button type="button" class="sdk-path-button" @onclick="CopyPreviewAsync"><i class="fa-solid fa-copy" aria-hidden="true"></i> Copy Preview</button>
+            <button type="button" class="sdk-path-button btn btn-secondary btn-sm" @onclick="CopyPreviewAsync"><i class="fa-solid fa-copy" aria-hidden="true"></i> Copy Preview</button>
         </details>
         <p class="sdk-path-footnote">Open a new terminal after applying. Existing terminals and running apps keep their previous environment. SDK switching does not silently update shell configuration; use this dialog again after switching.</p>
     }
@@ -97,17 +97,15 @@
     .sdk-path-intro { margin: 0 0 16px; color: var(--text-secondary); line-height: 1.45; }
     .sdk-path-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
     .sdk-path-controls label { display: flex; flex: 1; min-width: 130px; flex-direction: column; gap: 6px; font-size: var(--font-size-xs); font-weight: 600; color: var(--text-primary); }
-    .sdk-path-controls select, .sdk-path-button { height: 28px; padding: 0 9px; border: 1px solid var(--input-border); border-radius: var(--radius-sm); color: var(--text-primary); background: var(--input-bg); font: inherit; font-size: 12px; }
+    .sdk-path-button { min-height: var(--control-height-sm); font-size: 12px; }
     .sdk-path-button { cursor: pointer; white-space: nowrap; }
     .sdk-path-button i { margin-right: 4px; }
     .sdk-path-button:hover:not(:disabled) { border-color: var(--text-muted); }
     .sdk-path-dialog :disabled { opacity: .5; cursor: default; }
     .sdk-path-dialog :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 4px var(--accent-ring); }
     .sdk-path-build-tools { display: flex; align-items: center; gap: 7px; font-size: 12px; margin: 14px 0; }
-    .sdk-path-build-tools input { appearance: auto; accent-color: var(--accent-purple); }
-    .sdk-path-tools { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); overflow: hidden; background: var(--card-bg); }
-    .sdk-path-tool { display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
-    .sdk-path-tool + .sdk-path-tool { border-top: 1px solid var(--border-hairline); }
+    .sdk-path-tools { overflow: hidden; }
+    .sdk-path-tool { padding: 10px 12px; }
     .sdk-path-icon { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius-md); color: var(--text-secondary); background: var(--bg-tertiary); }
     .sdk-path-tool > div { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
     .sdk-path-tool > div span { color: var(--text-secondary); font-size: 11.5px; overflow-wrap: anywhere; }
@@ -124,10 +122,7 @@
     .sdk-path-preview .hljs-subst { color: var(--text-primary); }
     .sdk-path-preview .hljs-addition { color: var(--status-success-text); background: var(--status-success-bg); }
     .sdk-path-preview .hljs-deletion { color: var(--status-error-text); background: var(--status-error-bg); }
-    .sdk-path-warning, .sdk-path-error, .sdk-path-notice { padding: 10px 12px; border: 1px solid; border-radius: var(--radius-lg); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
-    .sdk-path-warning { border-color: var(--status-warning-border); background: var(--status-warning-bg); color: var(--status-warning-text); }
-    .sdk-path-error { border-color: var(--status-error-border); background: var(--status-error-bg); color: var(--status-error-text); }
-    .sdk-path-notice { border-color: var(--status-success-border); background: var(--status-success-bg); color: var(--status-success-text); }
+    .sdk-path-warning, .sdk-path-error, .sdk-path-notice { font-size: 12px; overflow-wrap: anywhere; }
     .sdk-path-footnote { margin-top: 18px; }
     @@media (max-width: 560px) { .sdk-path-tool { flex-wrap: wrap; } .sdk-path-status { margin-left: 40px; } }
 </style>

@@ -25,14 +25,14 @@
     <div class="form-content">
         @if (isLoadingData)
         {
-            <div class="loading-state">
+            <div class="loading-state sherpa-card">
                 <i class="fa-solid fa-spinner fa-spin"></i>
                 <span>Loading data...</span>
             </div>
         }
         else if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="error-message">
+            <div class="error-message sherpa-banner sherpa-banner-danger">
                 <i class="fa-solid fa-circle-exclamation"></i>
                 @errorMessage
             </div>
@@ -114,14 +114,14 @@
         <div class="profile-type-groups">
             @foreach (var group in ProfileTypeGroups)
             {
-                <div class="platform-group">
+                <div class="platform-group sherpa-list">
                     <div class="platform-header">
                         <i class="@group.Icon"></i> @group.Platform
                     </div>
                     <div class="type-options">
                         @foreach (var type in group.Types)
                         {
-                            <label class="type-option @(selectedProfileType == type.Value ? "selected" : "")">
+                            <label class="type-option sherpa-list-row sherpa-list-row-interactive @(selectedProfileType == type.Value ? "selected" : "")">
                                 <input type="radio" name="profileType" value="@type.Value"
                                        checked="@(selectedProfileType == type.Value)"
                                        @onchange="@(() => SelectProfileType(type.Value))" />
@@ -155,17 +155,17 @@
             }
         </div>
 
-        <div class="selection-list">
+        <div class="selection-list sherpa-list">
             @foreach (var bundleId in FilteredBundleIds)
             {
-                <label class="selection-item @(selectedBundleId == bundleId.Id ? "selected" : "")">
+                <label class="selection-item sherpa-list-row sherpa-list-row-interactive @(selectedBundleId == bundleId.Id ? "selected" : "")">
                     <input type="radio" name="bundleId" value="@bundleId.Id"
                            checked="@(selectedBundleId == bundleId.Id)"
                            @onchange="@(() => SelectBundleId(bundleId))" />
                     <div class="item-content">
                         <div class="item-name"><span class="@(demoMode ? "demo-blur" : "")">@bundleId.Name</span></div>
                         <div class="item-detail"><span class="@(demoMode ? "demo-blur" : "")">@bundleId.Identifier</span></div>
-                        <span class="badge">@bundleId.Platform</span>
+                        <span class="badge sherpa-badge sherpa-badge-neutral">@bundleId.Platform</span>
                     </div>
                 </label>
             }
@@ -188,11 +188,11 @@
             Choose the @(IsDevelopmentProfile ? "development" : "distribution") certificate(s) to include in this profile.
         </p>
 
-        <div class="selection-list">
+        <div class="selection-list sherpa-list">
             @foreach (var cert in FilteredCertificates)
             {
                 var isSelected = selectedCertificateIds.Contains(cert.Id);
-                <label class="selection-item checkbox @(isSelected ? "selected" : "")">
+                <label class="selection-item checkbox sherpa-list-row sherpa-list-row-interactive @(isSelected ? "selected" : "")">
                     <input type="checkbox" value="@cert.Id"
                            checked="@isSelected"
                            @onchange="@(e => ToggleCertificate(cert.Id, (bool)(e.Value ?? false)))" />
@@ -202,7 +202,7 @@
                             @if (CloudSecretsService.ActiveProvider != null)
                             {
                                 var syncStatus = GetSyncStatus(cert);
-                                <span class="badge @GetSyncBadgeClass(syncStatus)" title="@GetSyncStatusTooltip(syncStatus)">
+                                <span class="badge sherpa-badge @GetSyncBadgeClass(syncStatus)" title="@GetSyncStatusTooltip(syncStatus)">
                                     <i class="@GetSyncStatusIcon(syncStatus)"></i> @GetSyncStatusText(syncStatus)
                                 </span>
                             }
@@ -211,7 +211,7 @@
                             <span class="@(demoMode ? "demo-blur" : "")">@cert.SerialNumber</span>
                             <span>Expires: @cert.ExpirationDate.ToString("MMM dd, yyyy")</span>
                         </div>
-                        <span class="badge">@FormatCertType(cert.CertificateType)</span>
+                        <span class="badge sherpa-badge sherpa-badge-neutral">@FormatCertType(cert.CertificateType)</span>
                     </div>
                 </label>
             }
@@ -226,7 +226,7 @@
 
         @if (selectedCertificateIds.Any())
         {
-            <div class="selection-summary">
+            <div class="selection-summary sherpa-banner sherpa-banner-success">
                 <i class="fa-solid fa-circle-check"></i> @selectedCertificateIds.Count certificate(s) selected
             </div>
         }
@@ -260,12 +260,12 @@
             </label>
         </div>
 
-        <div class="selection-list devices">
+        <div class="selection-list devices sherpa-list">
             @foreach (var device in FilteredDevices)
             {
                 var isSelected = selectedDeviceIds.Contains(device.Id);
                 var isDisabled = device.Status != "ENABLED";
-                <label class="selection-item checkbox @(isSelected ? "selected" : "") @(isDisabled ? "disabled" : "")">
+                <label class="selection-item checkbox sherpa-list-row sherpa-list-row-interactive @(isSelected ? "selected" : "") @(isDisabled ? "disabled" : "")">
                     <input type="checkbox" value="@device.Id"
                            checked="@isSelected"
                            disabled="@isDisabled"
@@ -278,7 +278,7 @@
                         <div class="item-detail"><span class="@(demoMode ? "demo-blur" : "")">@device.Udid</span></div>
                         @if (isDisabled)
                         {
-                            <span class="badge badge-warning">Disabled</span>
+                            <span class="badge badge-warning sherpa-badge sherpa-badge-warning">Disabled</span>
                         }
                     </div>
                 </label>
@@ -294,13 +294,13 @@
 
         @if (selectedDeviceIds.Any())
         {
-            <div class="selection-summary">
+            <div class="selection-summary sherpa-banner sherpa-banner-success">
                 <i class="fa-solid fa-circle-check"></i> @selectedDeviceIds.Count device(s) selected
             </div>
         }
         else
         {
-            <div class="selection-summary warning">
+            <div class="selection-summary warning sherpa-banner sherpa-banner-warning">
                 <i class="fa-solid fa-triangle-exclamation"></i> At least 1 device is required
             </div>
         }
@@ -313,9 +313,9 @@
         <h3>Profile Name</h3>
         <p class="step-description">Enter a name for your provisioning profile.</p>
 
-        <div class="form-group">
-            <label>Profile Name</label>
-            <input type="text" @bind="profileName" @bind:event="oninput" placeholder="My App Development" class="form-input" />
+        <div class="form-group sherpa-field">
+            <label class="sherpa-field-label">Profile Name</label>
+            <input type="text" @bind="profileName" @bind:event="oninput" placeholder="My App Development" class="form-input sherpa-input" />
             @if (!string.IsNullOrEmpty(suggestedName) && profileName != suggestedName)
             {
                 <button class="btn-suggestion" @onclick="@(() => { profileName = suggestedName; UpdateWizardState(); })">
@@ -326,7 +326,7 @@
 
         <div class="summary-section">
             <h4>Profile Summary</h4>
-            <div class="summary-grid">
+            <div class="summary-grid sherpa-well">
                 <div class="summary-item">
                     <span class="summary-label">Type</span>
                     <span class="summary-value">@FormatProfileTypeDisplay(selectedProfileType)</span>
@@ -375,7 +375,7 @@
     .step-number {
         width: 28px;
         height: 28px;
-        border-radius: 50%;
+        border-radius: var(--radius-pill);
         background: var(--surface-control);
         color: var(--text-muted);
         border: 1px solid var(--border-control);
@@ -427,22 +427,28 @@
     }
 
     .platform-group {
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
         overflow: hidden;
-        background: var(--surface-card);
     }
 
     .platform-header {
+        position: relative;
         padding: 0.625rem 0.875rem;
         background: var(--surface-well);
-        border-bottom: 1px solid var(--border-hairline);
         font-weight: 600;
         font-size: 0.8125rem;
         display: flex;
         align-items: center;
         gap: 0.5rem;
         color: var(--text-secondary);
+    }
+
+    .type-options .type-option:first-child::before {
+        position: absolute;
+        inset-inline: 14px;
+        inset-block-start: 0;
+        height: 1px;
+        background: var(--border-hairline);
+        content: "";
     }
 
     .type-options { display: flex; flex-direction: column; }
@@ -453,18 +459,13 @@
         gap: 0.75rem;
         padding: 0.75rem 0.875rem;
         border: 0;
-        border-bottom: 1px solid var(--border-hairline);
-        border-radius: 0;
-        background: var(--surface-card);
         cursor: pointer;
         transition: background 0.15s;
     }
 
-    .type-option:last-child { border-bottom: none; }
     .type-option:hover { background: var(--surface-card-hover); }
     .type-option.selected {
         background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface-card));
-        border-radius: 0;
         box-shadow: none;
     }
     .type-option input[type="radio"] { margin-top: 2px; accent-color: var(--accent); }
@@ -475,12 +476,9 @@
 
     /* Selection List */
     .selection-list {
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
         max-height: 280px;
         overflow: hidden auto;
         overscroll-behavior: contain;
-        background: var(--surface-card);
     }
 
     .selection-list.devices { max-height: 240px; }
@@ -491,21 +489,16 @@
         gap: 0.75rem;
         padding: 0.75rem 0.875rem;
         border: 0;
-        border-bottom: 1px solid var(--border-hairline);
-        border-radius: 0;
-        background: var(--surface-card);
         cursor: pointer;
         transition: background 0.15s;
     }
 
-    .selection-item:last-child { border-bottom: none; }
     .selection-item.selected {
         background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface-card));
-        border-radius: 0;
         box-shadow: none;
     }
     .selection-item.disabled { opacity: 0.5; cursor: not-allowed; }
-    .selection-item input { margin-top: 2px; accent-color: var(--accent); }
+    .selection-item input { margin-top: 2px; }
 
     .item-content { flex: 1; min-width: 0; }
     .item-name { font-weight: 500; font-size: 0.875rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; }
@@ -514,7 +507,6 @@
     .badge {
         display: inline-block;
         padding: 2px 0.5rem;
-        border-radius: var(--radius-lg);
         font-size: 0.6875rem;
         font-weight: 500;
         background: var(--surface-well);
@@ -543,18 +535,11 @@
 
     .selection-summary {
         margin-top: 0.75rem;
-        padding: 0.5rem 0.75rem;
-        background: var(--status-success-bg);
-        border: 1px solid var(--status-success-border);
-        border-radius: var(--radius-xl);
         font-size: 0.8125rem;
-        color: var(--status-success-fg);
         display: flex;
         align-items: center;
         gap: 0.5rem;
     }
-
-    .selection-summary.warning { background: var(--status-warning-bg); border-color: var(--status-warning-border); color: var(--status-warning-fg); }
 
     /* Device Toolbar */
     .device-toolbar {
@@ -574,24 +559,8 @@
         color: var(--text-secondary);
     }
 
-    .select-all-checkbox input { accent-color: var(--accent); }
-
     /* Form Elements */
     .form-group { margin-bottom: 1.25rem; }
-    .form-group label { display: block; font-size: 0.8125rem; font-weight: 500; color: var(--text-secondary); margin-bottom: 0.375rem; }
-
-    .form-input {
-        width: 100%;
-        padding: 0.625rem 0.875rem;
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-sm);
-        font-size: 0.875rem;
-        box-sizing: border-box;
-        background: var(--surface-control);
-        color: var(--text-primary);
-    }
-
-    .form-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
     .btn-suggestion {
         background: none;
@@ -615,9 +584,6 @@
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 0.75rem;
-        background: var(--surface-well);
-        border: 1px solid var(--border-hairline);
-        border-radius: var(--radius-xl);
         padding: 1rem;
     }
 
@@ -638,10 +604,6 @@
     .loading-state i { font-size: 1.5rem; color: var(--status-warning-dot); }
 
     .error-message {
-        padding: 0.75rem 1rem;
-        background: var(--status-error-bg);
-        border-radius: var(--radius-lg);
-        color: var(--status-error-fg);
         display: flex;
         align-items: center;
         gap: 0.625rem;
