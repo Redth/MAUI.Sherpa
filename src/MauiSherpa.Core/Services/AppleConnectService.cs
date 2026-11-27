@@ -407,7 +407,7 @@ public class AppleConnectService : IAppleConnectService
                     {
                         if (!string.IsNullOrEmpty(c.Attributes?.CertificateContent))
                         {
-                            using var x509 = new System.Security.Cryptography.X509Certificates.X509Certificate2(
+                            using var x509 = System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadCertificate(
                                 Convert.FromBase64String(c.Attributes.CertificateContent));
                             expirationDate = x509.NotAfter;
                         }
@@ -474,7 +474,7 @@ public class AppleConnectService : IAppleConnectService
             
             // Combine Apple's signed certificate with our private key into a PFX
             var certContent = response.Data.Attributes.CertificateContent;
-            var cert = new X509Certificate2(Convert.FromBase64String(certContent));
+            var cert = X509CertificateLoader.LoadCertificate(Convert.FromBase64String(certContent));
             using var certWithKey = cert.CopyWithPrivateKey(rsa);
             
             var pfxData = certWithKey.Export(X509ContentType.Pfx, passphrase);

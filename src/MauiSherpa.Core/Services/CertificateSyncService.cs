@@ -796,8 +796,8 @@ public class CertificateSyncService : ICertificateSyncService
 
             // Import the full P12 payload so the platform-backed user store gets the
             // certificate and private key material together instead of only a transient cert instance.
-            var collection = new System.Security.Cryptography.X509Certificates.X509Certificate2Collection();
-            collection.Import(p12Data, password,
+            var collection = System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadPkcs12Collection(
+                p12Data, password,
                 System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.PersistKeySet
                 | System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.UserKeySet
                 | System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.Exportable);

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
@@ -191,7 +192,11 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
     {
         try
         {
-            var result = await FilePicker.Default.PickAsync();
+            // FilePicker.Default is MAUI's portable stub on AppKit; the macOS implementation lives in DI.
+            var filePicker = Handler?.MauiContext?.Services.GetService<IFilePicker>()
+                ?? IPlatformApplication.Current?.Services.GetService<IFilePicker>()
+                ?? throw new InvalidOperationException("No file picker is registered.");
+            var result = await filePicker.PickAsync();
             if (result != null)
             {
                 _fileName = result.FileName;
