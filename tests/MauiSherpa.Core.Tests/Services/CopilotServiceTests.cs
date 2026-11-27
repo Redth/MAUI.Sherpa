@@ -42,4 +42,14 @@ public class CopilotServiceTests
             Directory.Delete(tempDir, recursive: true);
         }
     }
+
+    [Fact]
+    public void IsProtocolMismatch_DetectsWrappedSdkError()
+    {
+        var inner = new InvalidOperationException(
+            "SDK protocol version mismatch: SDK supports versions 3-3, but server reports version 4. Please update your SDK or server to ensure compatibility.");
+
+        CopilotService.IsProtocolMismatch(new Exception("Start failed", inner)).Should().BeTrue();
+        CopilotService.IsProtocolMismatch(new Exception("Not authenticated")).Should().BeFalse();
+    }
 }
