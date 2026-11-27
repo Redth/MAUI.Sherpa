@@ -13,33 +13,44 @@
 
 @if (isLoading)
 {
-    <div class="loading-inline"><i class="fas fa-spinner fa-spin"></i> Loading projects...</div>
+    <SherpaListSkeleton Rows="3" Label="Loading push projects..." ShowTrailingPill="false" />
 }
 else if (ActiveProject == null)
 {
-    <div class="push-project-empty">
-        <div class="empty-icon"><i class="fas fa-paper-plane"></i></div>
-        <h2>@(projects.Count == 0 ? "No Push Projects" : "Select a Push Project")</h2>
-        <p>@(projects.Count == 0
+    <div class="empty-state push-project-empty">
+        <div class="empty-icon"><i class="fa-solid fa-fw fa-paper-plane" aria-hidden="true"></i></div>
+        <h2 class="empty-title">@(projects.Count == 0 ? "No push projects" : "Select a push project")</h2>
+        <p class="empty-description">@(projects.Count == 0
             ? "Create a project to configure credentials and start sending test notifications."
-            : "Open a recent project below, or select a project from the toolbar.")</p>
+            : "Open a recent project, or pick one from the toolbar.")</p>
         @if (projects.Count > 0)
         {
-            <ul class="push-recent-projects" aria-label="Recent projects">
+            <ul class="sherpa-list push-recent-projects" aria-label="Recent projects">
                 @foreach (var project in projects.Take(5))
                 {
-                    <li>
+                    <li class="sherpa-list-row sherpa-list-row-interactive" @key="project.Id">
                         <button type="button" class="push-project-link" @onclick="@(() => RunAction($"push-project:{project.Id}"))"
                                 disabled="@(isActing || IsBusy)" title="@project.Name">
-                            <i class="fas fa-folder-open" aria-hidden="true"></i>
-                            <span>@project.Name</span>
-                            <i class="fas fa-arrow-right" aria-hidden="true"></i>
+                            <span class="sherpa-icon-well sherpa-icon-well-sm sherpa-icon-well-neutral">
+                                <i class="fa-solid fa-fw fa-folder" aria-hidden="true"></i>
+                            </span>
+                            <span class="sherpa-row-stack">
+                                <span class="sherpa-row-title">@project.Name</span>
+                                @if (!string.IsNullOrWhiteSpace(project.Description))
+                                {
+                                    <span class="sherpa-row-sub">@project.Description</span>
+                                }
+                            </span>
+                            <i class="fa-solid fa-fw fa-chevron-right push-project-chevron" aria-hidden="true"></i>
                         </button>
                     </li>
                 }
-                <li class="push-create-link">
-                    <button type="button" class="push-project-link" @onclick="CreateProject" disabled="@(isActing || IsBusy)">
-                        <i class="fas fa-plus" aria-hidden="true"></i> Create Project
+                <li class="sherpa-list-row sherpa-list-row-interactive">
+                    <button type="button" class="push-project-link push-create-link" @onclick="CreateProject" disabled="@(isActing || IsBusy)">
+                        <span class="sherpa-icon-well sherpa-icon-well-sm sherpa-icon-well-accent">
+                            <i class="fa-solid fa-fw fa-plus" aria-hidden="true"></i>
+                        </span>
+                        <span class="sherpa-row-title">Create Project</span>
                     </button>
                 </li>
             </ul>
@@ -47,25 +58,23 @@ else if (ActiveProject == null)
         else
         {
             <button class="btn btn-primary" @onclick="CreateProject" disabled="@(isActing || IsBusy)">
-                <i class="fas fa-plus"></i> Create Project
+                <i class="fa-solid fa-fw fa-plus" aria-hidden="true"></i> Create Project
             </button>
         }
     </div>
 }
 
 <style>
-    .push-project-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3.75rem 2.5rem; text-align: center; background: var(--card-bg); border-radius: var(--card-radius); }
-    .push-project-empty .empty-icon { font-size: 3rem; color: var(--text-muted); opacity: 0.3; margin-bottom: 1rem; }
-    .push-project-empty h2 { margin: 0 0 0.5rem; font-size: 1.25rem; color: var(--text-primary); }
-    .push-project-empty p { margin: 0 0 1.5rem; font-size: 0.875rem; color: var(--text-muted); max-width: 400px; }
-    .push-recent-projects { list-style: none; padding: 0; margin: 0; width: 100%; max-width: 360px; }
-    .push-project-link { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.625rem 0.75rem; border: 0; border-radius: 0.375rem; background: transparent; color: var(--accent-primary); font-size: 0.875rem; text-align: left; cursor: pointer; }
-    .push-project-link span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .push-project-link .fa-arrow-right { font-size: 0.75rem; }
-    .push-project-link:hover:not(:disabled) { background: var(--bg-hover); }
-    .push-project-link:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+    .push-project-empty { padding: 40px 24px; }
+    .push-project-empty .empty-description { margin-bottom: 8px; }
+    .push-recent-projects { list-style: none; width: 100%; max-width: 380px; margin: 0; padding: 0; text-align: left; }
+    .push-recent-projects > .sherpa-list-row { padding: 0; }
+    .push-project-link { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-width: 0; padding: var(--row-padding-y) var(--row-padding-x); border: 0; border-radius: inherit; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+    .push-project-link .sherpa-row-stack { flex: 1; min-width: 0; }
+    .push-project-chevron { color: var(--text-muted); font-size: var(--font-size-xs); }
+    .push-create-link .sherpa-row-title { color: var(--accent); }
+    .push-project-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
     .push-project-link:disabled { opacity: 0.5; cursor: default; }
-    .push-create-link { border-top: 1px solid var(--border-color); margin-top: 0.375rem; padding-top: 0.375rem; }
 </style>
 
 @code {
