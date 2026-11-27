@@ -187,6 +187,10 @@ styles is `src/MauiSherpa/wwwroot/css/app.css`.
   consistent primary actions/indicators on the row (e.g. Cloud Sync picker or Boot/Start)
   and place secondary, conditional, and destructive actions inside `<SherpaActionMenu>` (`⋮`)
   rather than rendering jagged walls of conditional icon buttons.
+- **Structured JSON / code editors:** Use `<SherpaJsonEditor>` (lazy-loaded Monaco in
+  `wwwroot/vendor/monaco`, hosted via `wwwroot/js/monacoInterop.js`) for multi-line JSON
+  or code editing (push payloads, simulator push payloads, service-account JSON). Rebuild
+  the vendored Monaco bundle when updating with `cd build/monaco && npm ci && npm run build`.
 - **Cross-platform adaptation:** Never add ad-hoc platform CSS to individual pages.
   Platform differences are centralized in `app.css` through `.platform-macos`
   (Apple Blue, SF Pro at 13px, 12px cards), `.platform-windows` (Sherpa Violet,
