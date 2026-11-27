@@ -199,7 +199,7 @@ public sealed class MauiProfilingCliService : IMauiProfilingCliService
                 error?.Message ?? processResult.Error,
                 new MauiCliRemediation(
                     "command",
-                    "dotnet tool update -g Microsoft.Maui.Cli",
+                    "dotnet tool update -g Microsoft.Maui.Cli --prerelease",
                     [
                         "This is a defect in the installed Microsoft.Maui.Cli build.",
                         "Update the MAUI CLI, then run the capture again."

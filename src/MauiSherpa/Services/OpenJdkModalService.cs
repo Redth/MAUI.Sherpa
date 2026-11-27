@@ -45,10 +45,16 @@ public sealed class OpenJdkModalService(
                     $"Install the latest Microsoft OpenJDK {major} release for this computer.",
                     async ctx =>
                     {
-                        var progress = new Progress<string>(message => { ctx.LogInfo(message); ctx.SetStatus(message); });
+                        var progress = new Progress<OpenJdkInstallProgress>(update =>
+                        {
+                            ctx.SetStatus(update.Message);
+                            ctx.SetProgress(update.Percent);
+                            if (update.LogToOutput)
+                                ctx.LogInfo(update.Message);
+                        });
                         path = await jdks.InstallAsync(major, progress, ctx.CancellationToken);
                         return true;
-                    });
+                    }, canCancel: true);
                 if (!result.Success) return;
             }
             if (path == null) throw new InvalidOperationException("No JDK was selected.");

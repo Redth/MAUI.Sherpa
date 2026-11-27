@@ -139,7 +139,7 @@ public sealed class MauiCliToolService : IMauiCliToolService
             var nugetClient = GetOrCreateNuGetClient(feedUrl);
             var versions = await nugetClient.GetPackageVersionsAsync(
                 PackageId,
-                includePrerelease: installed?.IsPrerelease ?? true,
+                includePrerelease: true,
                 timeout.Token);
 
             var latest = versions.Count == 0 ? null : versions.Max();

@@ -589,6 +589,12 @@ public interface IOpenJdkSettingsService
 public record OpenJdkRelease(int MajorVersion, string Version, Uri DownloadUrl);
 public record OpenJdkInstallation(string Path, string Version, bool IsMicrosoft, bool IsManaged, bool IsActive);
 public record OpenJdkUpdate(OpenJdkInstallation Installed, OpenJdkRelease Available);
+public record OpenJdkInstallProgress(
+    string Message,
+    int? Percent = null,
+    long? BytesDownloaded = null,
+    long? TotalBytes = null,
+    bool LogToOutput = true);
 
 public interface IOpenJdkService
 {
@@ -598,6 +604,11 @@ public interface IOpenJdkService
     Task<IReadOnlyList<OpenJdkRelease>> GetReleasesAsync(bool forceRefresh = false, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<OpenJdkInstallation>> GetInstallationsAsync(CancellationToken cancellationToken = default);
     Task<string> InstallAsync(int majorVersion, IProgress<string>? progress = null, CancellationToken cancellationToken = default);
+    Task<string> InstallAsync(int majorVersion, IProgress<OpenJdkInstallProgress>? progress, CancellationToken cancellationToken = default) =>
+        InstallAsync(
+            majorVersion,
+            progress is null ? null : new Progress<string>(message => progress.Report(new OpenJdkInstallProgress(message))),
+            cancellationToken);
     Task UninstallAsync(string path, CancellationToken cancellationToken = default);
     Task CheckForUpdatesAsync(CancellationToken cancellationToken = default);
     void StartUpdateChecks();

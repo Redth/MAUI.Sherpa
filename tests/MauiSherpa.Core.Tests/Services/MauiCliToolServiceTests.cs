@@ -119,6 +119,39 @@ public class MauiCliToolServiceTests
     }
 
     [Fact]
+    public async Task GetUpdateInfoAsync_IncludesPrereleasesEvenWhenStableVersionInstalled()
+    {
+        var service = CreateService(
+            new QueueProcessExecutionService(),
+            () => "/fake/maui",
+            new StubNuGetClient("1.0.0", "1.1.0-preview.1"));
+
+        var info = await service.GetUpdateInfoAsync(
+            new MauiCliToolStatus(MauiCliToolState.Available, "/fake/maui", "1.0.0"));
+
+        info.UpdateAvailable.Should().BeTrue();
+        info.LatestVersion.Should().Be("1.1.0-preview.1");
+    }
+
+    [Fact]
+    public async Task UpdateAsync_UsesPrereleaseWhenVersionIsUnknown()
+    {
+        var process = new QueueProcessExecutionService(Completed("updated"));
+        var service = CreateService(process, () => "/fake/maui");
+
+        var result = await service.UpdateAsync();
+
+        result.Success.Should().BeTrue();
+        process.Requests.Should().ContainSingle()
+            .Which.Arguments.Should().Equal(
+                "tool",
+                "update",
+                "--global",
+                "Microsoft.Maui.Cli",
+                "--prerelease");
+    }
+
+    [Fact]
     public async Task GetUpdateInfoAsync_ReportsUpToDateOnLatestVersion()
     {
         var service = CreateService(

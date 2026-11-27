@@ -161,7 +161,7 @@ public class MauiProfilingCliServiceTests
 
         result.Success.Should().BeFalse();
         result.Error!.Code.Should().Be("SHERPA_PROFILE_CLI_RESULT_SERIALIZATION");
-        result.Error.Remediation!.Command.Should().Be("dotnet tool update -g Microsoft.Maui.Cli");
+        result.Error.Remediation!.Command.Should().Be("dotnet tool update -g Microsoft.Maui.Cli --prerelease");
         service.State.Should().Be(MauiProfileRunState.Failed);
     }
 

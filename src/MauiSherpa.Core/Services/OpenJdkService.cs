@@ -160,7 +160,13 @@ public sealed class OpenJdkService : IOpenJdkService, IDisposable
         return homes[0]!;
     }
 
-    public async Task<string> InstallAsync(int majorVersion, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+    public Task<string> InstallAsync(int majorVersion, IProgress<string>? progress = null, CancellationToken cancellationToken = default) =>
+        InstallAsync(
+            majorVersion,
+            progress is null ? null : new Progress<OpenJdkInstallProgress>(p => { if (p.LogToOutput) progress.Report(p.Message); }),
+            cancellationToken);
+
+    public async Task<string> InstallAsync(int majorVersion, IProgress<OpenJdkInstallProgress>? progress, CancellationToken cancellationToken = default)
     {
         await installGate.WaitAsync(cancellationToken);
         string? staging = null;
@@ -181,23 +187,18 @@ public sealed class OpenJdkService : IOpenJdkService, IDisposable
             staging = Path.Combine(root, $".install-{Guid.NewGuid():N}");
             Directory.CreateDirectory(staging);
             var archive = Path.Combine(staging, release.DownloadUrl.AbsolutePath.EndsWith(".zip") ? "jdk.zip" : "jdk.tar.gz");
-            progress?.Report($"Downloading Microsoft OpenJDK {release.Version}...");
-            using (var response = await http.GetAsync(release.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
-            {
-                response.EnsureSuccessStatusCode();
-                await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
-                await using var output = File.Create(archive);
-                await input.CopyToAsync(output, cancellationToken);
-            }
-            progress?.Report("Verifying Microsoft's SHA-256 checksum...");
+            progress?.Report(new OpenJdkInstallProgress($"Downloading Microsoft OpenJDK {release.Version}...", Percent: 0));
+            await DownloadArchiveAsync(release, archive, progress, cancellationToken);
+            progress?.Report(new OpenJdkInstallProgress("Verifying Microsoft's SHA-256 checksum...", Percent: 88));
             var checksum = await http.GetStringAsync(new Uri(release.DownloadUrl + ".sha256sum.txt"), cancellationToken);
             await VerifyChecksumAsync(archive, checksum, cancellationToken);
             var unpacked = Path.Combine(staging, "unpacked");
             Directory.CreateDirectory(unpacked);
-            progress?.Report("Extracting OpenJDK...");
+            progress?.Report(new OpenJdkInstallProgress("Extracting OpenJDK...", Percent: 92));
             await Task.Run(async () =>
             {
-                if (archive.EndsWith(".zip")) ZipFile.ExtractToDirectory(archive, unpacked);
+                if (archive.EndsWith(".zip"))
+                    ExtractZipWithCancellation(archive, unpacked, cancellationToken);
                 else
                 {
                     await using var file = File.OpenRead(archive);
@@ -212,7 +213,7 @@ public sealed class OpenJdkService : IOpenJdkService, IDisposable
             cancellationToken.ThrowIfCancellationRequested();
             Directory.Move(unpacked, target);
             var installedHome = Path.GetFullPath(Path.Combine(target, relativeHome));
-            progress?.Report($"Microsoft OpenJDK {release.Version} installed at {installedHome}");
+            progress?.Report(new OpenJdkInstallProgress($"Microsoft OpenJDK {release.Version} installed at {installedHome}", Percent: 100));
             logger.LogInformation($"Installed Microsoft OpenJDK {release.Version} at {installedHome}");
             return installedHome;
         }
@@ -230,6 +231,102 @@ public sealed class OpenJdkService : IOpenJdkService, IDisposable
                 { logger.LogWarning($"Could not clean OpenJDK staging folder {staging}: {ex.Message}"); }
             }
             installGate.Release();
+        }
+    }
+
+    private async Task DownloadArchiveAsync(
+        OpenJdkRelease release,
+        string archivePath,
+        IProgress<OpenJdkInstallProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        using var response = await http.GetAsync(release.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var totalBytes = response.Content.Headers.ContentLength is > 0 ? response.Content.Headers.ContentLength : null;
+
+        // Disposing the response on cancellation aborts a stalled socket read immediately.
+        using var cancelRegistration = cancellationToken.Register(() => response.Dispose());
+        try
+        {
+            await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
+            await using var output = File.Create(archivePath);
+
+            var buffer = new byte[64 * 1024];
+            long downloaded = 0;
+            var lastReportedPercent = -1;
+            var lastReportedAt = Environment.TickCount64;
+
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var read = await input.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+                if (read == 0)
+                    break;
+
+                await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                downloaded += read;
+
+                if (progress is null)
+                    continue;
+
+                var now = Environment.TickCount64;
+                int? downloadPercent = totalBytes is > 0
+                    ? Math.Clamp((int)(downloaded * 100L / totalBytes.Value), 0, 100)
+                    : null;
+                int? overallPercent = downloadPercent is { } dp
+                    ? Math.Clamp((int)(dp * 85L / 100L), 0, 85)
+                    : null;
+
+                var percentChanged = downloadPercent is { } p && p != lastReportedPercent;
+                var intervalElapsed = now - lastReportedAt >= 150;
+                if (percentChanged || intervalElapsed || (totalBytes is > 0 && downloaded >= totalBytes.Value))
+                {
+                    if (downloadPercent is { } pct)
+                        lastReportedPercent = pct;
+                    lastReportedAt = now;
+
+                    var status = totalBytes is > 0
+                        ? $"Downloading Microsoft OpenJDK {release.Version}... {downloadPercent}% ({FormatMegabytes(downloaded)} / {FormatMegabytes(totalBytes.Value)} MB)"
+                        : $"Downloading Microsoft OpenJDK {release.Version}... {FormatMegabytes(downloaded)} MB";
+                    progress.Report(new OpenJdkInstallProgress(status, overallPercent, downloaded, totalBytes, LogToOutput: false));
+                }
+            }
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+    }
+
+    private static string FormatMegabytes(long bytes) =>
+        (bytes / (1024d * 1024d)).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static void ExtractZipWithCancellation(string archivePath, string destinationDirectory, CancellationToken cancellationToken)
+    {
+        var fullDestination = Path.GetFullPath(destinationDirectory);
+        var destinationWithSep = fullDestination.EndsWith(Path.DirectorySeparatorChar)
+            ? fullDestination
+            : fullDestination + Path.DirectorySeparatorChar;
+
+        using var zip = ZipFile.OpenRead(archivePath);
+        foreach (var entry in zip.Entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var entryPath = Path.GetFullPath(Path.Combine(fullDestination, entry.FullName));
+            if (!entryPath.StartsWith(destinationWithSep, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+                throw new InvalidDataException($"Archive entry '{entry.FullName}' points outside the destination directory.");
+
+            if (string.IsNullOrEmpty(entry.Name))
+            {
+                Directory.CreateDirectory(entryPath);
+            }
+            else
+            {
+                var parent = Path.GetDirectoryName(entryPath);
+                if (!string.IsNullOrEmpty(parent))
+                    Directory.CreateDirectory(parent);
+                entry.ExtractToFile(entryPath, overwrite: true);
+            }
         }
     }
 
