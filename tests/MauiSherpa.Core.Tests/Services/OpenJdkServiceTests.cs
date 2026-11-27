@@ -205,20 +205,22 @@ public class OpenJdkServiceTests : IDisposable
     {
         handler.Catalog = Catalog("21.0.10.1");
         using var cts = new CancellationTokenSource();
-        var chunkReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var progressReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         handler.CustomArchiveContent = () => new StallingStreamContent(
             chunkSize: 64 * 1024,
             totalLength: 256 * 1024,
-            onFirstChunkRead: () => chunkReceived.TrySetResult());
+            onFirstChunkRead: () => { });
 
         var updates = new List<OpenJdkInstallProgress>();
         var progress = new ImmediateProgress<OpenJdkInstallProgress>(u =>
         {
             lock (updates) updates.Add(u);
+            if (u.BytesDownloaded > 0)
+                progressReceived.TrySetResult();
         });
 
         var installTask = service.InstallAsync(21, progress, cts.Token);
-        await chunkReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await progressReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
         cts.Cancel();
 
         await FluentActions.Awaiting(() => installTask.WaitAsync(TimeSpan.FromSeconds(5)))
