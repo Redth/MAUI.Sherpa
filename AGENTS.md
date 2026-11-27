@@ -335,6 +335,8 @@ When making or reviewing UI changes, always verify:
 
 **Duplicate native libraries:** The app heads reference both `MauiSherpa.AppInspector` and `MauiSherpa.Core`, and AppInspector also references Core, so `GitHub.Copilot.SDK` stages `libcopilot_runtime.dylib` several times over. The Apple SDK's `InstallNameTool` task runs its items in parallel against a shared `.tmp` path and crashes on duplicates, so `build/DedupeNativeReferences.targets` collapses each destination to one entry. Import it from any new Apple app head.
 
+**Universal release startup:** Keep `GenerateTrustedPlatformAssemblies=false` in the macOS head. CI merges separate RID builds and moves architecture-specific assemblies into `MonoBundle/.xamarin/<RID>/`; .NET 11's precomputed single-RID assembly paths do not follow that relocation. Runtime discovery checks both locations. Run `python3 build/verify_macos_launch.py "<app path>"` after packaging/signing; add `--architecture x86_64` to test the Intel slice on a Mac with Rosetta.
+
 **Logging:** Logs saved to `~/Library/Application Support/MauiSherpa/logs/maui-sherpa-{yyyy-MM-dd}.log`.
 
 ### Blazor WebView Gotchas

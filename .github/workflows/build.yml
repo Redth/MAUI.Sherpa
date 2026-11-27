@@ -36,8 +36,8 @@ jobs:
           sudo xcode-select -s "$XCODE_PATH"
           xcodebuild -version
 
-      - name: Test macOS release signing
-        run: python3 -B tests/native/test_macos_release_signing.py
+      - name: Test macOS release packaging
+        run: python3 -B -m unittest discover -s tests/native -p 'test_macos_release_*.py'
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -493,6 +493,11 @@ jobs:
               fi
             done
           fi
+
+      - name: Smoke-test macOS release startup
+        run: |
+          APP_PATH=$(find ./artifacts/macos -name "*.app" -type d | head -1)
+          python3 build/verify_macos_launch.py "$APP_PATH"
 
       - name: Create ZIP archive
         run: |
