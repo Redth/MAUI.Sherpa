@@ -284,7 +284,13 @@ public class MauiCliToolServiceTests
     [InlineData(null, true, null)]
     [InlineData("   ", true, null)]
     [InlineData("https://api.nuget.org/v3/index.json", true, null)]
+    [InlineData("https://api.nuget.org", true, null)]
+    [InlineData("https://nuget.example.com", true, "https://nuget.example.com/v3/index.json")]
+    [InlineData("https://nuget.example.com/", true, "https://nuget.example.com/v3/index.json")]
+    [InlineData("https://nuget.example.com/v3", true, "https://nuget.example.com/v3/index.json")]
+    [InlineData("https://pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/", true, "https://pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json")]
     [InlineData("  https://pkgs.example.com/nuget/v3/index.json  ", true, "https://pkgs.example.com/nuget/v3/index.json")]
+    [InlineData("https://myget.example.com/F/feed/api/v2", true, "https://myget.example.com/F/feed/api/v2")]
     [InlineData("ftp://pkgs.example.com/feed", false, "ftp://pkgs.example.com/feed")]
     [InlineData("not-a-url", false, "not-a-url")]
     public void DotnetToolNuGetFeedOptions_ValidatesAndNormalizes(string? input, bool expectedValid, string? expectedNormalized)

@@ -4955,6 +4955,26 @@ public static class DotnetToolNuGetFeedOptions
             return null;
 
         var trimmed = value.Trim();
+
+        // NuGet.Protocol and `dotnet tool --source` treat HTTP(S) URLs that don't end with .json as v2 OData feeds.
+        // Auto-expand bare host URLs (e.g. https://nuget.example.com) and /v3 paths to their v3 service index.
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) &&
+            (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) &&
+            string.IsNullOrEmpty(uri.Query) &&
+            string.IsNullOrEmpty(uri.Fragment))
+        {
+            var path = uri.AbsolutePath.TrimEnd('/');
+            if (path.Length == 0)
+            {
+                trimmed = new UriBuilder(uri) { Path = "/v3/index.json" }.Uri.AbsoluteUri;
+            }
+            else if (path.EndsWith("/v3", StringComparison.OrdinalIgnoreCase))
+            {
+                trimmed = new UriBuilder(uri) { Path = path + "/index.json" }.Uri.AbsoluteUri;
+            }
+        }
+
         return string.Equals(trimmed, DefaultFeedUrl, StringComparison.OrdinalIgnoreCase)
             ? null
             : trimmed;
