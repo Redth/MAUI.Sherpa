@@ -98,7 +98,7 @@ else
     </div>
 }
 
-<div class="device-section-heading device-section-heading-spaced">
+<div class="device-section-heading device-section-heading-spaced sherpa-list-header-row">
     <h2 class="device-section-label">
         <i class="fa-solid fa-desktop fa-fw" aria-hidden="true"></i>
         <span>Emulators</span>
@@ -106,13 +106,40 @@ else
         {
             <span class="sherpa-badge sherpa-badge-neutral">@emulators.Count</span>
         }
+        @if (HasActiveFilters)
+        {
+            <span class="sherpa-filter-pill"><i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i> @FilteredEmulators.Count() of @emulators.Count</span>
+        }
     </h2>
-    @if (!isSelectionMode)
-    {
-        <button class="btn btn-secondary btn-sm" @onclick="BeginSelectionMode" disabled="@(IsBusy || emulators.Count == 0)">
-            <i class="fa-solid fa-check-square fa-fw"></i> Select
-        </button>
-    }
+    <div class="sherpa-list-header-actions">
+        @if (!isSelectionMode)
+        {
+            <button class="btn btn-secondary btn-sm" @onclick="BeginSelectionMode" disabled="@(IsBusy || emulators.Count == 0)">
+                <i class="fa-solid fa-check-square fa-fw"></i> Select
+            </button>
+        }
+        else
+        {
+            <div class="sherpa-selection-inline">
+                <div class="sherpa-selection-pill">
+                    <label>
+                        <input type="checkbox" checked="@AllVisibleEmulatorsSelected" disabled="@(IsBusy || !SelectableEmulators.Any())" @onchange="ToggleAllVisibleEmulators" />
+                        <span>All</span>
+                    </label>
+                    <span class="sherpa-selection-sep" aria-hidden="true"></span>
+                    <span class="sherpa-selection-count" role="status">@selectedEmulators.Count selected</span>
+                    @if (HiddenSelectionCount > 0)
+                    {
+                        <span class="sherpa-selection-hidden">(@HiddenSelectionCount hidden)</span>
+                    }
+                </div>
+                <button data-screenshot-external class="btn btn-danger btn-sm" @onclick="DeleteSelectedEmulators" disabled="@(IsBusy || selectedEmulators.Count == 0 || !CanVerifyEmulatorState)">
+                    <i class="fa-solid fa-trash-can fa-fw"></i> Delete
+                </button>
+                <button class="btn btn-secondary btn-sm" @onclick="CancelSelectionMode" disabled="@isOperating">Done</button>
+            </div>
+        }
+    </div>
 </div>
 
 @if (!PlatformInfo.HasNativeToolbar)
@@ -159,28 +186,6 @@ else
     <div class="device-warning sherpa-banner sherpa-banner-warning" role="status">
         <i class="fa-solid fa-exclamation-triangle"></i>
         <span>A connected emulator could not be identified. Wait for it to finish starting or stop it before deleting an emulator.</span>
-    </div>
-}
-
-@if (isSelectionMode)
-{
-    <div class="selection-bar sherpa-selection-bar">
-        <div class="sherpa-selection-lead">
-            <label class="select-all">
-                <input type="checkbox" checked="@AllVisibleEmulatorsSelected" disabled="@(IsBusy || !SelectableEmulators.Any())" @onchange="ToggleAllVisibleEmulators" />
-                <span>Select all shown</span>
-            </label>
-            <span class="selection-count sherpa-badge sherpa-badge-accent" role="status">
-                @selectedEmulators.Count selected
-                @if (HiddenSelectionCount > 0) { <span>(@HiddenSelectionCount hidden by filters)</span> }
-            </span>
-        </div>
-        <div class="selection-actions">
-            <button class="btn btn-secondary btn-sm" @onclick="CancelSelectionMode" disabled="@isOperating">Cancel</button>
-            <button data-screenshot-external class="btn btn-danger btn-sm" @onclick="DeleteSelectedEmulators" disabled="@(IsBusy || selectedEmulators.Count == 0 || !CanVerifyEmulatorState)">
-                <i class="fa-solid fa-trash-can fa-fw"></i> Delete Selected
-            </button>
-        </div>
     </div>
 }
 
@@ -395,6 +400,11 @@ else
     }
 
     private bool IsBusy => isLoadingEmulators || isOperating;
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(searchQuery) ||
+        !string.IsNullOrEmpty(filterState) ||
+        !string.IsNullOrEmpty(filterFamily) ||
+        !string.IsNullOrEmpty(filterTarget);
     private bool HasUnknownEmulatorIdentities => runningEmulators.Any(e => string.IsNullOrEmpty(e.AvdName));
     private bool CanVerifyEmulatorState => hasAdbSnapshot && !HasUnknownEmulatorIdentities;
     private IEnumerable<DeviceInfo> PhysicalDevices => devices.Where(d => !d.IsEmulator);

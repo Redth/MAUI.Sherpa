@@ -9,6 +9,7 @@
 @inject IAlertService AlertService
 @inject IDialogService DialogService
 @inject OperationModalService OperationModal
+@inject MultiOperationModalService MultiOpModal
 @inject BlazorToastService ToastService
 @inject IEncryptedSettingsService SettingsService
 @implements IDisposable
@@ -19,7 +20,53 @@
 @inject MauiSherpa.Pages.Forms.HybridFormBridgeHolder BridgeHolder
 @inject ILocalVaultAccessService LocalVaultAccess
 
-<h1><i class="fa-solid fa-fingerprint"></i> Bundle IDs</h1>
+<div class="sherpa-list-header-row">
+    <div class="sherpa-list-header-lead">
+        <h1><i class="fa-solid fa-fingerprint"></i> Bundle IDs</h1>
+        @if (HasActiveFilters)
+        {
+            <span class="sherpa-filter-pill">
+                <i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i>
+                @FilteredBundleIds.Count() of @bundleIds.Count
+            </span>
+        }
+    </div>
+    @if (IdentityState.SelectedIdentity != null && !RequiresLocalVaultAccess)
+    {
+        <div class="sherpa-list-header-actions">
+            @if (!isSelectionMode)
+            {
+                <button class="btn btn-secondary btn-sm" @onclick="BeginSelectionMode" disabled="@(isRefreshing || !FilteredBundleIds.Any())">
+                    <i class="fa-solid fa-check-square fa-fw"></i> Select
+                </button>
+            }
+            else
+            {
+                <div class="sherpa-selection-inline">
+                    <div class="sherpa-selection-pill">
+                        <label>
+                            <input type="checkbox"
+                                   checked="@AllVisibleBundlesSelected"
+                                   disabled="@isRefreshing"
+                                   @onchange="ToggleAllVisibleBundles" />
+                            <span>All</span>
+                        </label>
+                        <span class="sherpa-selection-sep"></span>
+                        <span class="sherpa-selection-count">@selectedBundleIds.Count selected</span>
+                        @if (HiddenSelectionCount > 0)
+                        {
+                            <span class="sherpa-selection-hidden">(@HiddenSelectionCount hidden)</span>
+                        }
+                    </div>
+                    <button class="btn btn-danger btn-sm" @onclick="DeleteSelectedBundlesAsync" disabled="@(isRefreshing || selectedBundleIds.Count == 0)">
+                        <i class="fa-solid fa-trash-can fa-fw"></i> Delete
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="CancelSelectionMode">Done</button>
+                </div>
+            }
+        </div>
+    }
+</div>
 
 <AppleIdentityPicker />
 
@@ -74,10 +121,6 @@
             <div class="error-bar">@errorMessage</div>
         }
 
-        <div class="results-info">
-            Showing @FilteredBundleIds.Count() of @bundleIds.Count bundle IDs
-        </div>
-
         <div class="bundle-list sherpa-list">
         
         @if (!hasLoaded || (isRefreshing && bundleIds.Count == 0))
@@ -97,7 +140,19 @@
             @foreach (var bundle in FilteredBundleIds)
             {
                 var capabilities = GetCapabilities(bundle.Id);
-                <div class="bundle-card sherpa-list-row">
+                <div class="bundle-card sherpa-list-row @(selectedBundleIds.Contains(bundle.Id) ? "selected" : "") @(isSelectionMode ? "sherpa-list-row-interactive" : "")"
+                     @onclick="@(() => { if (isSelectionMode) ToggleBundleSelection(bundle.Id, !selectedBundleIds.Contains(bundle.Id)); })">
+                    @if (isSelectionMode)
+                    {
+                        <label class="bundle-select" @onclick:stopPropagation="true">
+                            <input type="checkbox"
+                                   aria-label="@($"Select {bundle.Name}")"
+                                   checked="@selectedBundleIds.Contains(bundle.Id)"
+                                   disabled="@isRefreshing"
+                                   @onclick:stopPropagation="true"
+                                   @onchange="@(e => ToggleBundleSelection(bundle.Id, e.Value is bool selected && selected))" />
+                        </label>
+                    }
                     <div class="bundle-icon sherpa-icon-well sherpa-icon-well-apple">
                         <i class="fa-solid fa-fingerprint"></i>
                         <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
@@ -115,7 +170,7 @@
                         </div>
                         <div class="bundle-identifier sherpa-row-sub mono">
                             <span>Bundle ID: @bundle.Identifier</span>
-                            <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(bundle.Identifier))" title="Copy Bundle ID" aria-label="@($"Copy bundle identifier for {bundle.Name}")">
+                            <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(bundle.Identifier))" @onclick:stopPropagation="true" title="Copy Bundle ID" aria-label="@($"Copy bundle identifier for {bundle.Name}")">
                                 <i class="fa-regular fa-copy"></i>
                             </button>
                         @if (capabilities.Any())
@@ -135,14 +190,17 @@
                         }
                         </div>
                     </div>
-                    <div class="bundle-actions sherpa-row-actions">
-                        <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => ShowEditCapabilitiesDialog(bundle))" disabled="@isRefreshing" title="Capabilities">
-                            <i class="fa-solid fa-puzzle-piece"></i>
-                        </button>
-                        <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="@(() => DeleteBundle(bundle))" disabled="@isRefreshing" title="Delete">
-                            <i class="fa-solid fa-trash"></i>
-                        </button>
-                    </div>
+                    @if (!isSelectionMode)
+                    {
+                        <div class="bundle-actions sherpa-row-actions">
+                            <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => ShowEditCapabilitiesDialog(bundle))" disabled="@isRefreshing" title="Capabilities">
+                                <i class="fa-solid fa-puzzle-piece"></i>
+                            </button>
+                            <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="@(() => DeleteBundle(bundle))" disabled="@isRefreshing" title="Delete">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    }
                 </div>
             }
         }
@@ -225,8 +283,6 @@
 
     .clear-filters-btn:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
 
-    .results-info { font-size: var(--font-size-xs); color: var(--text-muted); margin: 0 0 8px; }
-
     .bundle-list { margin-bottom: 1.25rem; }
 
     .bundle-card {
@@ -240,6 +296,7 @@
     .bundle-details { min-width: 0; }
     .bundle-name { display: flex; align-items: center; gap: 6px; }
     .bundle-identifier { display: flex; align-items: center; gap: 6px; }
+    .bundle-select { display: flex; align-items: center; align-self: center; cursor: pointer; }
 
     .btn-copy {
         width: 20px;
@@ -298,6 +355,8 @@
     private bool isBackgroundRefreshing = false;
     private bool demoMode = false;
     private string errorMessage = "";
+    private bool isSelectionMode;
+    private readonly HashSet<string> selectedBundleIds = new(StringComparer.Ordinal);
 
     // Filter state
     private string searchQuery = "";
@@ -322,6 +381,26 @@
                     b.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
         .Where(b => string.IsNullOrEmpty(filterPlatform) || (b.Platform?.Equals(filterPlatform, StringComparison.OrdinalIgnoreCase) ?? false))
         .OrderBy(b => b.Identifier);
+
+    private bool AllVisibleBundlesSelected
+    {
+        get
+        {
+            var visibleIds = FilteredBundleIds.Select(bundle => bundle.Id).ToList();
+            return visibleIds.Count > 0 && visibleIds.All(selectedBundleIds.Contains);
+        }
+    }
+
+    private int HiddenSelectionCount
+    {
+        get
+        {
+            var visibleIds = FilteredBundleIds
+                .Select(bundle => bundle.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            return selectedBundleIds.Count(id => !visibleIds.Contains(id));
+        }
+    }
 
     private void ClearFilters()
     {
@@ -362,6 +441,7 @@
 
         InvokeAsync(async () =>
         {
+            CancelSelectionMode();
             UpdateToolbarItemStates();
             if (RequiresLocalVaultAccess)
             {
@@ -458,6 +538,7 @@
             var request = new GetBundleIdsRequest(identityId);
             var (_, result) = await Mediator.Request(request);
             bundleIds = result.ToList();
+            selectedBundleIds.IntersectWith(bundleIds.Select(bundle => bundle.Id));
         }
         catch (Exception ex)
         {
@@ -498,6 +579,82 @@
         {
             await RefreshData(forceRefresh: true);
         }
+    }
+
+    private void BeginSelectionMode()
+    {
+        selectedBundleIds.Clear();
+        isSelectionMode = true;
+    }
+
+    private void CancelSelectionMode()
+    {
+        selectedBundleIds.Clear();
+        isSelectionMode = false;
+    }
+
+    private void ToggleBundleSelection(string id, bool selected)
+    {
+        if (!isSelectionMode || isRefreshing)
+            return;
+
+        if (selected)
+            selectedBundleIds.Add(id);
+        else
+            selectedBundleIds.Remove(id);
+    }
+
+    private void ToggleAllVisibleBundles(ChangeEventArgs args)
+    {
+        if (!isSelectionMode || isRefreshing)
+            return;
+
+        var visibleIds = FilteredBundleIds.Select(bundle => bundle.Id).ToList();
+        if (args.Value is bool selected && selected)
+            selectedBundleIds.UnionWith(visibleIds);
+        else
+            selectedBundleIds.ExceptWith(visibleIds);
+    }
+
+    private async Task DeleteSelectedBundlesAsync()
+    {
+        var selected = bundleIds
+            .Where(bundle => selectedBundleIds.Contains(bundle.Id))
+            .ToList();
+        if (selected.Count == 0)
+            return;
+
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Delete Bundle IDs",
+            $"Are you sure you want to delete {selected.Count} bundle ID(s)? This cannot be undone.");
+        if (!confirmed)
+            return;
+
+        var operations = selected.Select(bundle => new OperationItem(
+            Id: bundle.Id,
+            Name: bundle.Name,
+            Description: bundle.Identifier,
+            Execute: async ctx =>
+            {
+                ctx.LogInfo($"Deleting {bundle.Identifier}...");
+                await AppleService.DeleteBundleIdAsync(bundle.Id);
+                ctx.LogSuccess("Bundle ID deleted");
+                return true;
+            })).ToList();
+
+        var result = await MultiOpModal.RunAsync(
+            "Delete Bundle IDs",
+            $"Deleting {selected.Count} bundle ID(s)...",
+            operations);
+
+        await Mediator.FlushStores("apple:bundleids");
+        CancelSelectionMode();
+        await RefreshData(forceRefresh: true);
+
+        var summary = result.Failed == 0
+            ? $"Deleted {result.Completed} bundle ID(s)"
+            : $"Deleted {result.Completed} bundle ID(s); {result.Failed} failed";
+        await AlertService.ShowToastAsync(summary);
     }
 
     private async Task DeleteBundle(AppleBundleId bundle)

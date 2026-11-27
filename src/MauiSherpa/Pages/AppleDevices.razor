@@ -25,7 +25,56 @@
 @inject ICloudSecretsService CloudSecretsService
 @inject ISecretSyncCoordinator SecretSyncCoordinator
 
-<h1><i class="fa-solid fa-mobile-screen-button"></i> Registered Devices</h1>
+<div class="sherpa-list-header-row">
+    <div class="sherpa-list-header-lead">
+        <h1><i class="fa-solid fa-mobile-screen-button"></i> Registered Devices</h1>
+        @if (HasActiveFilters)
+        {
+            <span class="sherpa-filter-pill">
+                <i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i>
+                @FilteredDevices.Count() of @devices.Count
+            </span>
+        }
+    </div>
+    @if (IdentityState.SelectedIdentity != null && !LocalVaultAccess.GetState().RequiresUserAction)
+    {
+        <div class="sherpa-list-header-actions">
+            @if (!isSelectionMode)
+            {
+                <button class="btn btn-secondary btn-sm" @onclick="BeginSelectionMode" disabled="@(isLoading || !FilteredDevices.Any())">
+                    <i class="fa-solid fa-check-square fa-fw"></i> Select
+                </button>
+            }
+            else
+            {
+                <div class="sherpa-selection-inline">
+                    <div class="sherpa-selection-pill">
+                        <label>
+                            <input type="checkbox"
+                                   checked="@AllVisibleDevicesSelected"
+                                   disabled="@isLoading"
+                                   @onchange="ToggleAllVisibleDevices" />
+                            <span>All</span>
+                        </label>
+                        <span class="sherpa-selection-sep"></span>
+                        <span class="sherpa-selection-count">@selectedDeviceIds.Count selected</span>
+                        @if (HiddenSelectionCount > 0)
+                        {
+                            <span class="sherpa-selection-hidden">(@HiddenSelectionCount hidden)</span>
+                        }
+                    </div>
+                    <button class="btn btn-success btn-sm" @onclick="EnableSelectedDevicesAsync" disabled="@(isLoading || !CanEnableSelectedDevices)">
+                        <i class="fa-solid fa-check fa-fw"></i> Enable
+                    </button>
+                    <button class="btn btn-warning btn-sm" @onclick="DisableSelectedDevicesAsync" disabled="@(isLoading || !CanDisableSelectedDevices)">
+                        <i class="fa-solid fa-ban fa-fw"></i> Disable
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="CancelSelectionMode">Done</button>
+                </div>
+            }
+        </div>
+    }
+</div>
 
 <AppleIdentityPicker />
 
@@ -87,10 +136,6 @@
         <div class="error-bar">@errorMessage</div>
     }
 
-    <div class="results-info">
-        Showing @FilteredDevices.Count() of @devices.Count devices
-    </div>
-
     <div class="device-list sherpa-list">
         @if (!hasLoaded || (isLoading && devices.Count == 0))
         {
@@ -109,7 +154,19 @@
             @foreach (var device in FilteredDevices)
             {
                 var isEnabled = device.Status == "ENABLED";
-                <div class="device-card sherpa-list-row @(isEnabled ? "" : "disabled")">
+                <div class="device-card sherpa-list-row @(isEnabled ? "" : "disabled") @(selectedDeviceIds.Contains(device.Id) ? "selected" : "") @(isSelectionMode ? "sherpa-list-row-interactive" : "")"
+                     @onclick="@(() => { if (isSelectionMode) ToggleDeviceSelection(device.Id, !selectedDeviceIds.Contains(device.Id)); })">
+                    @if (isSelectionMode)
+                    {
+                        <label class="device-select" @onclick:stopPropagation="true">
+                            <input type="checkbox"
+                                   aria-label="@($"Select {device.Name}")"
+                                   checked="@selectedDeviceIds.Contains(device.Id)"
+                                   disabled="@isLoading"
+                                   @onclick:stopPropagation="true"
+                                   @onchange="@(e => ToggleDeviceSelection(device.Id, e.Value is bool selected && selected))" />
+                        </label>
+                    }
                     <div class="device-icon sherpa-icon-well sherpa-icon-well-apple">
                         <i class="fa-solid @GetDeviceIcon(device.DeviceClass)"></i>
                         <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
@@ -129,28 +186,31 @@
                         </div>
                         <div class="device-udid sherpa-row-sub mono">
                             <span class="@(demoMode ? "demo-blur" : "")">@device.Udid</span>
-                            <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(device.Udid))" title="Copy UDID" aria-label="@($"Copy UDID for {device.Name}")">
+                            <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(device.Udid))" @onclick:stopPropagation="true" title="Copy UDID" aria-label="@($"Copy UDID for {device.Name}")">
                                 <i class="fa-regular fa-copy"></i>
                             </button>
                         </div>
                     </div>
-                    <div class="device-actions sherpa-row-actions">
-                        @if (isEnabled)
-                        {
-                            <button class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => AddDeviceToProfilesAsync(device))" disabled="@isLoading" title="Add to Provisioning Profiles">
-                                <i class="fa-solid fa-id-card"></i>
-                            </button>
-                            <button class="btn btn-warning btn-icon btn-sm" @onclick="@(() => ToggleDevice(device, false))" disabled="@isLoading" title="Disable">
-                                <i class="fa-solid fa-ban"></i>
-                            </button>
-                        }
-                        else
-                        {
-                            <button class="btn btn-success btn-icon btn-sm" @onclick="@(() => ToggleDevice(device, true))" disabled="@isLoading" title="Enable">
-                                <i class="fa-solid fa-check"></i>
-                            </button>
-                        }
-                    </div>
+                    @if (!isSelectionMode)
+                    {
+                        <div class="device-actions sherpa-row-actions">
+                            @if (isEnabled)
+                            {
+                                <button class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => AddDeviceToProfilesAsync(device))" disabled="@isLoading" title="Add to Provisioning Profiles">
+                                    <i class="fa-solid fa-id-card"></i>
+                                </button>
+                                <button class="btn btn-warning btn-icon btn-sm" @onclick="@(() => ToggleDevice(device, false))" disabled="@isLoading" title="Disable">
+                                    <i class="fa-solid fa-ban"></i>
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-success btn-icon btn-sm" @onclick="@(() => ToggleDevice(device, true))" disabled="@isLoading" title="Enable">
+                                    <i class="fa-solid fa-check"></i>
+                                </button>
+                            }
+                        </div>
+                    }
                 </div>
             }
         }
@@ -230,8 +290,6 @@
 
     .clear-filters-btn:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
 
-    .results-info { font-size: var(--font-size-xs); color: var(--text-muted); margin: 0 0 8px; }
-
     .device-list { margin-bottom: 1.25rem; }
 
     .device-card {
@@ -247,6 +305,7 @@
     .device-details { min-width: 0; }
     .device-name { display: flex; align-items: center; gap: 6px; }
     .device-udid { display: flex; align-items: center; gap: 6px; }
+    .device-select { display: flex; align-items: center; align-self: center; cursor: pointer; }
     .btn-copy {
         width: 20px;
         min-width: 20px;
@@ -277,6 +336,8 @@
     private string? activeIdentityId;
     private bool demoMode = false;
     private string errorMessage = "";
+    private bool isSelectionMode;
+    private readonly HashSet<string> selectedDeviceIds = new(StringComparer.Ordinal);
 
     // Filter state
     private string searchQuery = "";
@@ -308,6 +369,34 @@
         .Where(d => string.IsNullOrEmpty(filterStatus) || (d.Status?.Equals(filterStatus, StringComparison.OrdinalIgnoreCase) ?? false))
         .OrderByDescending(d => d.Status == "ENABLED") // Enabled first
         .ThenBy(d => d.Name);
+
+    private bool AllVisibleDevicesSelected
+    {
+        get
+        {
+            var visibleIds = FilteredDevices.Select(device => device.Id).ToList();
+            return visibleIds.Count > 0 && visibleIds.All(selectedDeviceIds.Contains);
+        }
+    }
+
+    private int HiddenSelectionCount
+    {
+        get
+        {
+            var visibleIds = FilteredDevices
+                .Select(device => device.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            return selectedDeviceIds.Count(id => !visibleIds.Contains(id));
+        }
+    }
+
+    private bool CanEnableSelectedDevices => devices.Any(device =>
+        selectedDeviceIds.Contains(device.Id) &&
+        !string.Equals(device.Status, "ENABLED", StringComparison.OrdinalIgnoreCase));
+
+    private bool CanDisableSelectedDevices => devices.Any(device =>
+        selectedDeviceIds.Contains(device.Id) &&
+        string.Equals(device.Status, "ENABLED", StringComparison.OrdinalIgnoreCase));
 
     private void ClearFilters()
     {
@@ -356,6 +445,7 @@
 
         InvokeAsync(async () =>
         {
+            CancelSelectionMode();
             UpdateToolbarItemStates();
             await RefreshData(forceRefresh: false); // Use cache when identity changes (different identity = different cache key)
             StateHasChanged();
@@ -450,6 +540,7 @@
             var request = new GetAppleDevicesRequest(identityId);
             var (_, result) = await Mediator.Request(request);
             devices = result.ToList();
+            selectedDeviceIds.IntersectWith(devices.Select(device => device.Id));
         }
         catch (Exception ex)
         {
@@ -705,6 +796,83 @@
     private sealed class ActionProgress(Action<string> report) : IProgress<string>
     {
         public void Report(string value) => report(value);
+    }
+
+    private void BeginSelectionMode()
+    {
+        selectedDeviceIds.Clear();
+        isSelectionMode = true;
+    }
+
+    private void CancelSelectionMode()
+    {
+        selectedDeviceIds.Clear();
+        isSelectionMode = false;
+    }
+
+    private void ToggleDeviceSelection(string id, bool selected)
+    {
+        if (!isSelectionMode || isLoading)
+            return;
+
+        if (selected)
+            selectedDeviceIds.Add(id);
+        else
+            selectedDeviceIds.Remove(id);
+    }
+
+    private void ToggleAllVisibleDevices(ChangeEventArgs args)
+    {
+        if (!isSelectionMode || isLoading)
+            return;
+
+        var visibleIds = FilteredDevices.Select(device => device.Id).ToList();
+        if (args.Value is bool selected && selected)
+            selectedDeviceIds.UnionWith(visibleIds);
+        else
+            selectedDeviceIds.ExceptWith(visibleIds);
+    }
+
+    private Task EnableSelectedDevicesAsync() => UpdateSelectedDeviceStatusAsync(enable: true);
+
+    private Task DisableSelectedDevicesAsync() => UpdateSelectedDeviceStatusAsync(enable: false);
+
+    private async Task UpdateSelectedDeviceStatusAsync(bool enable)
+    {
+        var selected = devices
+            .Where(device => selectedDeviceIds.Contains(device.Id))
+            .Where(device => string.Equals(device.Status, "ENABLED", StringComparison.OrdinalIgnoreCase) != enable)
+            .ToList();
+        if (selected.Count == 0)
+            return;
+
+        var action = enable ? "Enable" : "Disable";
+        var actionInProgress = enable ? "Enabling" : "Disabling";
+        var operations = selected.Select(device => new OperationItem(
+            Id: device.Id,
+            Name: device.Name,
+            Description: device.Udid,
+            Execute: async ctx =>
+            {
+                ctx.LogInfo($"{action} {device.Name}...");
+                await AppleService.UpdateDeviceStatusAsync(device.Id, enable);
+                ctx.LogSuccess($"Device {(enable ? "enabled" : "disabled")}");
+                return true;
+            })).ToList();
+
+        var result = await MultiOpModal.RunAsync(
+            $"{action} Devices",
+            $"{actionInProgress} {selected.Count} device(s)...",
+            operations);
+
+        await Mediator.FlushStores("apple:devices");
+        CancelSelectionMode();
+        await RefreshData(forceRefresh: true);
+
+        var summary = result.Failed == 0
+            ? $"{action}d {result.Completed} device(s)"
+            : $"{action}d {result.Completed} device(s); {result.Failed} failed";
+        await AlertService.ShowToastAsync(summary);
     }
 
     private async Task ToggleDevice(AppleDevice device, bool enable)

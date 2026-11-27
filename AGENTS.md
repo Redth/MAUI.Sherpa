@@ -176,10 +176,14 @@ styles is `src/MauiSherpa/wwwroot/css/app.css`.
   and `.sherpa-icon-well` for entity and device icons.
 - **Headers, dividers, and lists:** Use `<SherpaPageHeader>`,
   `<SherpaSectionHeader>`, `.sherpa-divider`, and `.sherpa-list` /
-  `.sherpa-list-row` rather than recreating these patterns per page. In any
-  multi-select list or selection mode, clicking anywhere on the entire card or row
-  must toggle selection (using `@onclick:stopPropagation` on the checkbox and nested
-  buttons to avoid double-toggling).
+  `.sherpa-list-row` rather than recreating these patterns per page.
+- **Multi-select & filter counts:** Never put `Select` or bulk selection actions in native
+  toolbars. Keep `Select` on the right side of the page/section heading row (`.sherpa-list-header-row`
+  or `.device-section-heading`) and swap it in place with a compact, borderless `.sherpa-selection-inline`
+  so the list below never shifts vertically. Clicking anywhere on a selectable card/row must toggle
+  selection (`@onclick:stopPropagation` on checkboxes and nested buttons). Omit `"Showing N of N"`
+  text when unfiltered; show a succinct `.sherpa-filter-pill` (`filtered of total`) beside the
+  title/selection controls only while search or filters are active.
 - **Loading & empty states:** Never show a "none found" empty state before the first
   load has completed and confirmed zero items. Track initial load completion (`hasLoaded` /
   `hasInitialized`) and render `<SherpaListSkeleton />` until data is ready.

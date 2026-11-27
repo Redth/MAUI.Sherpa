@@ -189,7 +189,10 @@ else
         @if (hasLoadedAvailable && !(ViewModel.IsLoadingAvailable && filteredReleases.Count == 0))
         {
             <div class="results-info available-results-info">
-                <span>Showing @filteredReleases.Count releases</span>
+                @if (HasActiveAvailableFilters)
+                {
+                    <span class="sherpa-filter-pill"><i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i> @filteredReleases.Count of @ViewModel.AvailableReleases.Count</span>
+                }
                 <label class="toggle-label available-toggle-label">
                     <input type="checkbox" @bind="showBetas" @bind:event="oninput" />
                     <span>Show Betas &amp; RCs</span>
@@ -344,8 +347,11 @@ else
         {
             <div class="results-info runtime-results-info">
                 <div class="runtime-results-summary">
-                    <span>Showing @filteredRuntimeStorage.Count of @ViewModel.RuntimeStorage.Count runtime(s)</span>
-                    <span>&bull;</span>
+                    @if (HasActiveRuntimeFilters)
+                    {
+                        <span class="sherpa-filter-pill"><i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i> @filteredRuntimeStorage.Count of @ViewModel.RuntimeStorage.Count</span>
+                        <span>&bull;</span>
+                    }
                     <span>@FormatBytes(filteredRuntimeStorageBytes) in view</span>
                     @if (filteredRuntimeStorageBytes != ViewModel.TotalRuntimeStorageBytes)
                     {
@@ -753,6 +759,12 @@ else
         ViewModel.RuntimeStorage
             .Where(MatchesSearch)
             .ToList();
+
+    private bool HasActiveAvailableFilters =>
+        !string.IsNullOrWhiteSpace(searchQuery) || showBetas;
+
+    private bool HasActiveRuntimeFilters =>
+        !string.IsNullOrWhiteSpace(searchQuery);
 
     private IReadOnlyList<DownloadableSimulatorRuntime> downloadableRuntimeCatalog =>
         ViewModel.DownloadableRuntimes

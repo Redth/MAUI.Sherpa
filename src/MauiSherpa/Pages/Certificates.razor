@@ -32,7 +32,59 @@
 @inject IPublishProfileService PublishProfileService
 @inject IPublishProfileHealthService PublishProfileHealth
 
-<h1><i class="fa-solid fa-certificate"></i> Certificates</h1>
+<div class="sherpa-list-header-row">
+    <div class="sherpa-list-header-lead">
+        <h1><i class="fa-solid fa-certificate"></i> Certificates</h1>
+        @if (HasActiveFilters)
+        {
+            <span class="sherpa-filter-pill">
+                <i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i>
+                @FilteredCertificates.Count() of @certificates.Count
+            </span>
+        }
+    </div>
+    @if (IdentityState.SelectedIdentity != null && !LocalVaultAccess.GetState().RequiresUserAction)
+    {
+        <div class="sherpa-list-header-actions">
+            @if (!isSelectionMode)
+            {
+                <button class="btn btn-secondary btn-sm" @onclick="BeginSelectionModeAsync" disabled="@(isLoading || !FilteredCertificates.Any())">
+                    <i class="fa-solid fa-check-square fa-fw"></i> Select
+                </button>
+            }
+            else
+            {
+                <div class="sherpa-selection-inline">
+                    <div class="sherpa-selection-pill">
+                        <label>
+                            <input type="checkbox"
+                                   checked="@AllVisibleSelected"
+                                   disabled="@isLoading"
+                                   @onchange="ToggleAllVisible" />
+                            <span>All</span>
+                        </label>
+                        <span class="sherpa-selection-sep"></span>
+                        <span class="sherpa-selection-count">@selectedCertificateIds.Count selected</span>
+                        @if (HiddenSelectionCount > 0)
+                        {
+                            <span class="sherpa-selection-hidden">(@HiddenSelectionCount hidden)</span>
+                        }
+                    </div>
+                    <button class="btn btn-primary btn-sm" @onclick="BackUpSelectedAsync" disabled="@(isLoading || selectedCertificateIds.Count == 0)">
+                        <i class="fa-solid fa-cloud-arrow-up fa-fw"></i> Back Up
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="InstallSelectedAsync" disabled="@(isLoading || selectedCertificateIds.Count == 0)">
+                        <i class="fa-solid fa-download fa-fw"></i> Install
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="ExportSelectedAsync" disabled="@(isLoading || selectedCertificateIds.Count == 0)">
+                        <i class="fa-solid fa-file-export fa-fw"></i> Export
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="CancelSelectionMode">Done</button>
+                </div>
+            }
+        </div>
+    }
+</div>
 
 <AppleIdentityPicker />
 
@@ -46,33 +98,12 @@
     @if (!PlatformInfo.HasNativeToolbar)
     {
     <div class="toolbar">
-        @if (isSelectionMode)
-        {
-            <button data-screenshot-external class="btn btn-primary" @onclick="BackUpSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
-                <i class="fa-solid fa-cloud-arrow-up"></i> Back Up
-            </button>
-            <button data-screenshot-external class="btn btn-secondary" @onclick="InstallSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
-                <i class="fa-solid fa-download"></i> Install
-            </button>
-            <button data-screenshot-external class="btn btn-secondary" @onclick="ExportSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)" title="Export">
-                <i class="fa-solid fa-file-export"></i> Export Selected...
-            </button>
-            <button class="btn btn-secondary" @onclick="CancelSelectionMode">
-                <i class="fa-solid fa-times"></i> Cancel
-            </button>
-        }
-        else
-        {
-            <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
-                <i class="fa-solid @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
-            </button>
-            <button data-screenshot-external class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
-                <i class="fa-solid fa-plus"></i> Create Certificate
-            </button>
-            <button class="btn btn-secondary" @onclick="BeginSelectionModeAsync" disabled="@isLoading">
-                <i class="fa-solid fa-check-square"></i> Select
-            </button>
-        }
+        <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
+            <i class="fa-solid @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+        </button>
+        <button data-screenshot-external class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
+            <i class="fa-solid fa-plus"></i> Create Certificate
+        </button>
     </div>
     }
 
@@ -145,24 +176,6 @@
         <div class="error-bar">@errorMessage</div>
     }
 
-    <div class="results-info">
-        Showing @FilteredCertificates.Count() of @certificates.Count certificates
-    </div>
-
-    @if (isSelectionMode)
-    {
-        <div class="sherpa-selection-bar">
-            <label class="select-all-checkbox">
-                <input type="checkbox"
-                       checked="@AllVisibleSelected"
-                       disabled="@isLoading"
-                       @onchange="ToggleAllVisible" />
-                <span>Select all certificates shown</span>
-            </label>
-            <span class="selection-count sherpa-badge sherpa-badge-accent">@selectedCertificateIds.Count selected</span>
-        </div>
-    }
-
     <div class="cert-list sherpa-list">
         @if (!hasLoaded || (isLoading && certificates.Count == 0))
         {
@@ -185,7 +198,7 @@
                 var syncStatus = GetSyncStatus(cert);
                 
                 <div @key="cert.Id"
-                     class="cert-card sherpa-list-row @(isExpired ? "expired" : isExpiringSoon ? "expiring" : "") @(selectedCertificateIds.Contains(cert.Id) ? "selected" : "") @(isSelectionMode && !isLoading ? "selectable sherpa-list-row-interactive" : "")"
+                     class="cert-card sherpa-list-row @(isExpired ? "expired" : isExpiringSoon ? "expiring" : "") @(selectedCertificateIds.Contains(cert.Id) ? "selected" : "") @(isSelectionMode ? "selectable sherpa-list-row-interactive" : "")"
                      @onclick="() => { if (isSelectionMode) ToggleCertificateSelection(cert.Id, !selectedCertificateIds.Contains(cert.Id)); }">
                     @if (isSelectionMode)
                     {
@@ -194,6 +207,7 @@
                                    aria-label="@($"Select {cert.Name}")"
                                    checked="@selectedCertificateIds.Contains(cert.Id)"
                                    disabled="@isLoading"
+                                   @onclick:stopPropagation="true"
                                    @onchange="@(e => ToggleCertificateSelection(cert.Id, e.Value is bool selected && selected))" />
                         </label>
                     }
@@ -372,12 +386,6 @@
         color: var(--text-secondary);
     }
 
-    .results-info {
-        font-size: var(--font-size-xs);
-        color: var(--text-muted);
-        margin: 0 0 8px;
-    }
-
     .cert-list { margin-bottom: 1.25rem; }
 
     .cert-card {
@@ -410,21 +418,6 @@
         width: 18px;
         height: 18px;
         accent-color: var(--accent-primary);
-    }
-
-    .select-all-checkbox {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        color: var(--text-secondary);
-        cursor: pointer;
-        font-size: 0.875rem;
-    }
-    .select-all-checkbox input { accent-color: var(--accent-primary); }
-    .selection-count {
-        color: var(--text-muted);
-        font-size: 0.8125rem;
-        white-space: nowrap;
     }
 
     .btn-copy {
@@ -492,6 +485,7 @@
     private List<AppleCertificate> certificates = new();
     private bool isLoading = true;
     private bool hasLoaded;
+    private bool isDisposed;
     private bool demoMode = false;
     private string errorMessage = "";
     private string cloudSecretsErrorMessage = "";
@@ -553,6 +547,17 @@
         {
             var visibleIds = FilteredCertificates.Select(certificate => certificate.Id).ToList();
             return visibleIds.Count > 0 && visibleIds.All(selectedCertificateIds.Contains);
+        }
+    }
+
+    private int HiddenSelectionCount
+    {
+        get
+        {
+            var visibleIds = FilteredCertificates
+                .Select(certificate => certificate.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            return selectedCertificateIds.Count(id => !visibleIds.Contains(id));
         }
     }
 
@@ -631,6 +636,8 @@
 
         InvokeAsync(async () =>
         {
+            isSelectionMode = false;
+            selectedCertificateIds.Clear();
             UpdateToolbarItemStates();
             await RefreshData();
             StateHasChanged();
@@ -726,6 +733,7 @@
 
     public void Dispose()
     {
+        isDisposed = true;
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
@@ -755,11 +763,6 @@
             {
                 case "refresh": await RefreshData(forceRefresh: true); break;
                 case "create": await ShowCreateDialog(); break;
-                case "select": await BeginSelectionModeAsync(); break;
-                case "backup-selected": await BackUpSelectedAsync(); break;
-                case "install-selected": await InstallSelectedAsync(); break;
-                case "export-selected": await ExportSelectedAsync(); break;
-                case "cancel-selection": CancelSelectionMode(); break;
             }
             StateHasChanged();
         });
@@ -1100,24 +1103,11 @@
 
     private void ConfigureToolbar()
     {
-        if (isSelectionMode)
-        {
-            ToolbarService.SetItems(
-                new ToolbarAction("backup-selected", "Back Up", "icloud.and.arrow.up"),
-                new ToolbarAction("install-selected", "Install", "square.and.arrow.down"),
-                new ToolbarAction("export-selected", "Export Selected...", "square.and.arrow.up", ToolTip: "Export"),
-                new ToolbarAction("cancel-selection", "Cancel", "xmark", IsPrimary: false));
-        }
-        else
-        {
-            ToolbarService.SetItems(
-                new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
-                new ToolbarAction("create", "Create Certificate", "plus"),
-                new ToolbarAction("select", "Select", "checkmark.circle"));
-        }
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Create Certificate", "plus"));
         UpdateToolbarItemStates();
 
-        // SetItems resets the native search field and filters; restore the current values.
         ToolbarService.SetSearch("Search certificates...");
         if (!string.IsNullOrEmpty(searchQuery))
             ToolbarService.NotifySearchTextChanged(searchQuery);
@@ -1137,14 +1127,12 @@
 
         isSelectionMode = true;
         selectedCertificateIds.Clear();
-        ConfigureToolbar();
     }
 
     private void CancelSelectionMode()
     {
         isSelectionMode = false;
         selectedCertificateIds.Clear();
-        ConfigureToolbar();
     }
 
     private void ToggleCertificateSelection(string certificateId, bool selected)
@@ -1174,23 +1162,15 @@
 
     private void UpdateToolbarItemStates()
     {
+        if (isDisposed)
+            return;
+
         var ready = IdentityState.SelectedIdentity != null &&
             !LocalVaultAccess.GetState().RequiresUserAction &&
             !isLoading;
 
-        if (isSelectionMode)
-        {
-            var hasSelection = ready && selectedCertificateIds.Count > 0;
-            ToolbarService.SetItemEnabled("backup-selected", hasSelection);
-            ToolbarService.SetItemEnabled("install-selected", hasSelection);
-            ToolbarService.SetItemEnabled("export-selected", hasSelection);
-        }
-        else
-        {
-            ToolbarService.SetItemEnabled("refresh", ready);
-            ToolbarService.SetItemEnabled("create", ready);
-            ToolbarService.SetItemEnabled("select", ready && certificates.Count > 0);
-        }
+        ToolbarService.SetItemEnabled("refresh", ready);
+        ToolbarService.SetItemEnabled("create", ready);
     }
 
     private List<AppleCertificate> GetSelectedCertificates() => certificates

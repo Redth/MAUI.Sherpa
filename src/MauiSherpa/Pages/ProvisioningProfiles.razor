@@ -22,7 +22,59 @@
 @inject ICloudSecretsService CloudSecretsService
 @implements IDisposable
 
-<h1><i class="fa-solid fa-id-card"></i> Provisioning Profiles</h1>
+<div class="sherpa-list-header-row">
+    <div class="sherpa-list-header-lead">
+        <h1><i class="fa-solid fa-id-card"></i> Provisioning Profiles</h1>
+        @if (HasActiveFilters)
+        {
+            <span class="sherpa-filter-pill">
+                <i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i>
+                @FilteredProfiles.Count() of @profiles.Count
+            </span>
+        }
+    </div>
+    @if (IdentityState.SelectedIdentity != null && !LocalVaultAccess.GetState().RequiresUserAction)
+    {
+        <div class="sherpa-list-header-actions">
+            @if (!isSelectionMode)
+            {
+                <button class="btn btn-secondary btn-sm" @onclick="BeginSelectionMode" disabled="@(isLoading || !FilteredProfiles.Any())">
+                    <i class="fa-solid fa-check-square fa-fw"></i> Select
+                </button>
+            }
+            else
+            {
+                <div class="sherpa-selection-inline">
+                    <div class="sherpa-selection-pill">
+                        <label>
+                            <input type="checkbox"
+                                   checked="@AllVisibleSelected"
+                                   disabled="@isLoading"
+                                   @onchange="ToggleAllVisible" />
+                            <span>All</span>
+                        </label>
+                        <span class="sherpa-selection-sep"></span>
+                        <span class="sherpa-selection-count">@selectedProfileIds.Count selected</span>
+                        @if (HiddenSelectionCount > 0)
+                        {
+                            <span class="sherpa-selection-hidden">(@HiddenSelectionCount hidden)</span>
+                        }
+                    </div>
+                    <button class="btn btn-primary btn-sm" @onclick="BackUpSelectedAsync" disabled="@(isLoading || selectedProfileIds.Count == 0)">
+                        <i class="fa-solid fa-cloud-arrow-up fa-fw"></i> Back Up
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="InstallSelectedAsync" disabled="@(isLoading || selectedProfileIds.Count == 0)">
+                        <i class="fa-solid fa-download fa-fw"></i> Install
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="ExportSelectedAsync" disabled="@(isLoading || selectedProfileIds.Count == 0)">
+                        <i class="fa-solid fa-file-export fa-fw"></i> Export
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="CancelSelectionMode">Done</button>
+                </div>
+            }
+        </div>
+    }
+</div>
 
 <AppleIdentityPicker />
 
@@ -31,23 +83,6 @@
     @if (!PlatformInfo.HasNativeToolbar)
     {
     <div class="toolbar">
-        @if (isSelectionMode)
-        {
-        <button data-screenshot-external class="btn btn-primary" @onclick="BackUpSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
-            <i class="fa-solid fa-cloud-arrow-up"></i> Back Up
-        </button>
-        <button data-screenshot-external class="btn btn-secondary" @onclick="InstallSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
-            <i class="fa-solid fa-download"></i> Install
-        </button>
-        <button data-screenshot-external class="btn btn-secondary" @onclick="ExportSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
-            <i class="fa-solid fa-file-export"></i> Export
-        </button>
-        <button class="btn btn-secondary" @onclick="CancelSelectionMode">
-            <i class="fa-solid fa-times"></i> Cancel
-        </button>
-        }
-        else
-        {
         <button data-screenshot-external class="btn btn-purple" @onclick="ShowCreateDialog" disabled="@isLoading">
             <i class="fa-solid fa-plus"></i> Create Profile
         </button>
@@ -65,10 +100,6 @@
             <button data-screenshot-external class="btn btn-success" @onclick="InstallAllProfiles" disabled="@isLoading">
                 <i class="fa-solid fa-download"></i> Install All (@GetInstallableProfiles().Count())
             </button>
-        }
-        <button class="btn btn-secondary" @onclick="BeginSelectionMode" disabled="@isLoading">
-            <i class="fa-solid fa-check-square"></i> Select
-        </button>
         }
         <div class="toolbar-spacer"></div>
     </div>
@@ -126,23 +157,6 @@
         <div class="error-bar">@errorMessage</div>
     }
 
-    <div class="results-info">
-        Showing @FilteredProfiles.Count() of @profiles.Count profiles
-    </div>
-
-    @if (isSelectionMode)
-    {
-        <div class="sherpa-selection-bar">
-            <label class="select-all-checkbox">
-                <input type="checkbox"
-                       checked="@AllVisibleSelected"
-                       @onchange="ToggleAllVisible" />
-                <span>Select all profiles shown</span>
-            </label>
-            <span class="selection-count sherpa-badge sherpa-badge-accent">@selectedProfileIds.Count selected</span>
-        </div>
-    }
-
     <div class="profile-list sherpa-list">
         @if (!hasLoaded || (isLoading && profiles.Count == 0))
         {
@@ -184,6 +198,8 @@
                             <input type="checkbox"
                                    aria-label="@($"Select {profile.Name}")"
                                    checked="@selectedProfileIds.Contains(profile.Id)"
+                                   disabled="@isLoading"
+                                   @onclick:stopPropagation="true"
                                    @onchange="@(e => ToggleProfileSelection(profile.Id, e.Value is bool selected && selected))" />
                         </label>
                     }
@@ -342,12 +358,6 @@
         color: var(--text-secondary);
     }
 
-    .results-info {
-        font-size: var(--font-size-xs);
-        color: var(--text-muted);
-        margin: 0 0 8px;
-    }
-
     /* ── Dropdown ── */
     .prof-dropdown { position: relative; }
     .prof-dropdown-menu {
@@ -397,20 +407,6 @@
         accent-color: var(--accent-primary);
     }
 
-    .select-all-checkbox {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        color: var(--text-secondary);
-        cursor: pointer;
-        font-size: 0.875rem;
-    }
-    .select-all-checkbox input { accent-color: var(--accent-primary); }
-    .selection-count {
-        color: var(--text-muted);
-        font-size: 0.8125rem;
-        white-space: nowrap;
-    }
     .profile-details { min-width: 0; }
     .profile-name {
         display: flex;
@@ -449,6 +445,7 @@
     private int identitySelectionVersion;
     private bool isLoading = true;
     private bool hasLoaded;
+    private bool isDisposed;
     private bool demoMode = false;
     private string errorMessage = "";
     private bool isSelectionMode;
@@ -625,6 +622,7 @@
 
     public void Dispose()
     {
+        isDisposed = true;
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
@@ -642,11 +640,6 @@
                 case "create": await ShowCreateDialog(); break;
                 case "profiles-folder": await RevealProfilesFolder(); break;
                 case "cleanup": await ShowCleanupDialog(); break;
-                case "select": BeginSelectionMode(); break;
-                case "backup-selected": await BackUpSelectedAsync(); break;
-                case "install-selected": await InstallSelectedAsync(); break;
-                case "export-selected": await ExportSelectedAsync(); break;
-                case "cancel-selection": CancelSelectionMode(); break;
             }
             StateHasChanged();
         });
@@ -937,27 +930,13 @@
 
     private void ConfigureToolbarItems()
     {
-        if (isSelectionMode)
-        {
-            ToolbarService.SetItems(
-                new ToolbarAction("backup-selected", "Back Up", "icloud.and.arrow.up"),
-                new ToolbarAction("install-selected", "Install", "square.and.arrow.down"),
-                new ToolbarAction("export-selected", "Export", "square.and.arrow.up"),
-                new ToolbarAction("cancel-selection", "Cancel", "xmark", IsPrimary: false));
-        }
-        else
-        {
-            ToolbarService.SetItems(
-                new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
-                new ToolbarAction("create", "Create Profile", "plus"),
-                new ToolbarAction("profiles-folder", "Profiles Folder", "folder"),
-                new ToolbarAction("cleanup", "Clean Up", "trash"),
-                new ToolbarAction("select", "Select", "checkmark.circle"));
-        }
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Create Profile", "plus"),
+            new ToolbarAction("profiles-folder", "Profiles Folder", "folder"),
+            new ToolbarAction("cleanup", "Clean Up", "trash"));
         UpdateToolbarItemStates();
 
-        // SetItems resets the native search field and filters; put them back with the
-        // page's current values so switching modes doesn't strand active filters.
         ToolbarService.SetSearch("Search profiles...");
         if (!string.IsNullOrEmpty(searchQuery))
             ToolbarService.NotifySearchTextChanged(searchQuery);
@@ -979,22 +958,34 @@
         }
     }
 
+    private int HiddenSelectionCount
+    {
+        get
+        {
+            var visibleIds = FilteredProfiles
+                .Select(profile => profile.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            return selectedProfileIds.Count(id => !visibleIds.Contains(id));
+        }
+    }
+
     private void BeginSelectionMode()
     {
         isSelectionMode = true;
         selectedProfileIds.Clear();
-        ConfigureToolbarItems();
     }
 
     private void CancelSelectionMode()
     {
         isSelectionMode = false;
         selectedProfileIds.Clear();
-        ConfigureToolbarItems();
     }
 
     private void ToggleProfileSelection(string profileId, bool selected)
     {
+        if (!isSelectionMode || isLoading)
+            return;
+
         if (selected)
             selectedProfileIds.Add(profileId);
         else
@@ -1004,6 +995,9 @@
 
     private void ToggleAllVisible(ChangeEventArgs args)
     {
+        if (!isSelectionMode || isLoading)
+            return;
+
         var visibleIds = FilteredProfiles.Select(profile => profile.Id).ToList();
         if (args.Value is bool selected && selected)
             selectedProfileIds.UnionWith(visibleIds);
@@ -1014,24 +1008,17 @@
 
     private void UpdateToolbarItemStates()
     {
+        if (isDisposed)
+            return;
+
         var ready = IdentityState.SelectedIdentity != null &&
             !LocalVaultAccess.GetState().RequiresUserAction &&
             !isLoading;
 
-        if (isSelectionMode)
-        {
-            var hasSelection = ready && selectedProfileIds.Count > 0;
-            ToolbarService.SetItemEnabled("backup-selected", hasSelection);
-            ToolbarService.SetItemEnabled("install-selected", hasSelection);
-            ToolbarService.SetItemEnabled("export-selected", hasSelection);
-        }
-        else
-        {
-            ToolbarService.SetItemEnabled("refresh", ready);
-            ToolbarService.SetItemEnabled("create", ready);
-            ToolbarService.SetItemEnabled("cleanup", ready && profiles.Count > 0);
-            ToolbarService.SetItemEnabled("select", ready && profiles.Count > 0);
-        }
+        ToolbarService.SetItemEnabled("refresh", ready);
+        ToolbarService.SetItemEnabled("create", ready);
+        ToolbarService.SetItemEnabled("profiles-folder", ready);
+        ToolbarService.SetItemEnabled("cleanup", ready && profiles.Count > 0);
     }
 
     private List<AppleProfile> GetSelectedProfiles() => profiles

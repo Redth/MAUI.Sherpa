@@ -2896,16 +2896,121 @@ main:focus-visible,
     line-height: 1.3;
 }
 
-.sherpa-selection-bar {
+/* Unified page/section header row supporting zero-shift inline multi-select & filter counts */
+.sherpa-list-header-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 10px;
-    padding: 9px var(--row-padding-x);
+    min-height: 30px;
+    margin-bottom: var(--space-3);
+}
+
+.sherpa-list-header-row > h1,
+.sherpa-list-header-row > .sherpa-list-header-lead > h1 {
+    margin: 0;
+}
+
+.sherpa-list-header-lead {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+}
+
+.sherpa-list-header-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-inline-start: auto;
+}
+
+.sherpa-filter-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 22px;
+    padding: 0 8px;
+    border-radius: var(--radius-pill);
+    background: var(--surface-well);
+    color: var(--text-secondary);
+    font-size: 11.5px;
+    font-weight: 550;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.sherpa-filter-pill i {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+/* Compact, borderless inline multi-select bar placed on the same row as the section/page title */
+.sherpa-selection-inline {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 26px;
+}
+
+.sherpa-selection-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 26px;
+    padding: 0 9px;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: var(--accent-soft);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 550;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.sherpa-selection-pill label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    cursor: pointer;
+    color: var(--text-primary);
+    font-weight: 550;
+}
+
+.sherpa-selection-pill .sherpa-selection-sep {
+    width: 1px;
+    height: 12px;
+    background: var(--accent-border);
+}
+
+.sherpa-selection-pill .sherpa-selection-count {
+    color: var(--accent);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.sherpa-selection-pill .sherpa-selection-hidden {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.sherpa-selection-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 6px 10px;
     margin-bottom: 10px;
     background: var(--accent-soft);
-    border: 1px solid var(--accent-border);
+    border: 0;
     border-radius: var(--radius-lg);
 }
 
@@ -2927,9 +3032,10 @@ main:focus-visible,
 /* Crisp custom checkboxes inside Sherpa lists, selection bars, and forms (excluding switches). */
 .sherpa-list input[type="checkbox"],
 .sherpa-selection-bar input[type="checkbox"],
+.sherpa-selection-inline input[type="checkbox"],
 .sherpa-form input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
+    width: 15px;
+    height: 15px;
     margin: 0;
     flex-shrink: 0;
     appearance: none;
@@ -2945,10 +3051,11 @@ main:focus-visible,
 
 .sherpa-list input[type="checkbox"]::before,
 .sherpa-selection-bar input[type="checkbox"]::before,
+.sherpa-selection-inline input[type="checkbox"]::before,
 .sherpa-form input[type="checkbox"]::before {
     content: "";
-    width: 8px;
-    height: 4.5px;
+    width: 7.5px;
+    height: 4px;
     border-left: 2px solid var(--text-inverse);
     border-bottom: 2px solid var(--text-inverse);
     transform: translateY(-1px) rotate(-45deg) scale(0);
@@ -2957,6 +3064,7 @@ main:focus-visible,
 
 .sherpa-list input[type="checkbox"]:checked,
 .sherpa-selection-bar input[type="checkbox"]:checked,
+.sherpa-selection-inline input[type="checkbox"]:checked,
 .sherpa-form input[type="checkbox"]:checked {
     background: var(--accent);
     border-color: var(--accent);
@@ -2964,12 +3072,14 @@ main:focus-visible,
 
 .sherpa-list input[type="checkbox"]:checked::before,
 .sherpa-selection-bar input[type="checkbox"]:checked::before,
+.sherpa-selection-inline input[type="checkbox"]:checked::before,
 .sherpa-form input[type="checkbox"]:checked::before {
     transform: translateY(-1px) rotate(-45deg) scale(1);
 }
 
 .sherpa-list input[type="checkbox"]:disabled,
 .sherpa-selection-bar input[type="checkbox"]:disabled,
+.sherpa-selection-inline input[type="checkbox"]:disabled,
 .sherpa-form input[type="checkbox"]:disabled {
     opacity: 0.45;
     cursor: not-allowed;
@@ -2987,6 +3097,7 @@ main:focus-visible,
 .platform-macos .sherpa-list > .sherpa-list-row:last-child,
 .platform-macos .sherpa-empty-inline,
 .platform-macos .sherpa-selection-bar,
+.platform-macos .sherpa-selection-pill,
 .platform-macos .sherpa-banner,
 .platform-macos .sherpa-console,
 .platform-macos .sherpa-icon-well,
