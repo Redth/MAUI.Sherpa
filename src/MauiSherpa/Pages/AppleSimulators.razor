@@ -758,12 +758,15 @@ else
             var (_, rtResult) = await rtTask;
             availableRuntimes = rtResult?.ToList() ?? new();
 
-            // Update filters with dynamic family/runtime values from loaded data
-            ToolbarService.SetFilters(
-                new ToolbarFilter("state", "State", ["All States", "Booted", "Shutdown"]),
-                new ToolbarFilter("family", "Family", ["All Families", ..productFamilies]),
-                new ToolbarFilter("runtime", "Runtime", ["All Runtimes", ..runtimeNames])
-            );
+            if (!isDisposed)
+            {
+                // Update filters with dynamic family/runtime values from loaded data
+                ToolbarService.SetFilters(
+                    new ToolbarFilter("state", "State", ["All States", "Booted", "Shutdown"]),
+                    new ToolbarFilter("family", "Family", ["All Families", ..productFamilies]),
+                    new ToolbarFilter("runtime", "Runtime", ["All Runtimes", ..runtimeNames])
+                );
+            }
         }
         catch (Exception ex)
         {
@@ -1162,8 +1165,11 @@ else
         }
     }
 
+    private bool isDisposed;
+
     private void UpdateToolbarItemStates()
     {
+        if (isDisposed) return;
         ToolbarService.SetItemEnabled("refresh",
             SimulatorService.IsSupported && !isLoading && !isLoadingDevices && !isDeletingSimulator);
         ToolbarService.SetItemEnabled("create",
@@ -1193,6 +1199,7 @@ else
 
     public void Dispose()
     {
+        isDisposed = true;
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;

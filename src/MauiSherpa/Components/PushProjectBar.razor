@@ -89,6 +89,7 @@ else if (ActiveProject == null)
     List<PushProject> projects = [];
     bool isLoading = true;
     bool isActing;
+    bool isDisposed;
     string? toolbarProjectId;
     string? toolbarProjectName;
     string? toolbarProjectList;
@@ -115,6 +116,7 @@ else if (ActiveProject == null)
 
     void UpdateToolbar()
     {
+        if (isDisposed) return;
         var projectList = string.Join("\n", projects.Select(p => $"{p.Id}:{p.Name}"));
         if (toolbarProjectId != ActiveProject?.Id || toolbarProjectName != ActiveProject?.Name || toolbarProjectList != projectList)
         {
@@ -225,6 +227,7 @@ else if (ActiveProject == null)
 
     public void Dispose()
     {
+        isDisposed = true;
         ProjectService.OnProjectsChanged -= OnProjectsChanged;
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
     }

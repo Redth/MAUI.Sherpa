@@ -881,8 +881,11 @@ else
         UpdateToolbarStates();
     }
 
+    private bool isDisposed;
+
     private void UpdateToolbarStates()
     {
+        if (isDisposed) return;
         var canUseSdk = hasInitialized && IsReady && !ViewModel.IsLoading;
         ToolbarService.SetItemEnabled("refresh", canUseSdk);
         ToolbarService.SetItemEnabled("update-all",
@@ -950,6 +953,7 @@ else
 
     public void Dispose()
     {
+        isDisposed = true;
         JdkSettings.JdkPathChanged -= OnJdkPathChanged;
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
@@ -1123,6 +1127,7 @@ else
     {
         await ViewModel.RefreshPackagesAsync(forceRefresh: true);
         await RefreshSetupStateAsync();
+        if (isDisposed) return;
 
         // Update category filter with dynamic values from loaded packages
         ToolbarService.SetFilters(

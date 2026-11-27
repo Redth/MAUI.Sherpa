@@ -32,11 +32,10 @@ public class BlazorContentPage : ContentPage
     private MacOSMenuToolbarItem? _identityMenu;
     private MacOSMenuToolbarItem? _publishMenu;
     private MacOSMenuToolbarItem? _filterMenu;
-    private MacOSMenuToolbarItem? _sdkMenu;
-    private NSMenuToolbarItem? _nativeSdkMenu;
     private MacOSMenuToolbarItem? _projectMenu;
     private NSMenuToolbarItem? _nativeProjectMenu;
     private MacOSSearchToolbarItem? _searchItem;
+    private NSSearchToolbarItem? _nativeSearchItem;
     private NSMenuToolbarItem? _nativeIdentityMenu;
     private NSMenuToolbarItem? _nativeFilterMenu;
     private NSMenuToolbarItem? _nativePublishMenu;
@@ -418,6 +417,7 @@ public class BlazorContentPage : ContentPage
     bool _toolbarVisibilityApplied;
     int _toolbarUpdatePending;
     Dictionary<string, ToolbarItem> _actionItemMap = new();
+    Dictionary<string, string> _actionIconMap = new();
     readonly List<NSObject> _nativeFilterTargets = new();
     readonly List<NSObject> _nativeIdentityTargets = new();
 
@@ -430,11 +430,13 @@ public class BlazorContentPage : ContentPage
         {
             Interlocked.Exchange(ref _toolbarUpdatePending, 0);
 
+            var rebuilt = false;
             if (!_toolbarInitialized)
             {
                 // First time: build with all possible items (superset)
                 _toolbarInitialized = true;
                 FullRebuildToolbar();
+                rebuilt = true;
             }
 
             // After initial build: show/hide native items + update commands.
@@ -442,6 +444,10 @@ public class BlazorContentPage : ContentPage
             // visibility is applied once the window is fully set up.
             if (!TryUpdateToolbarVisibility())
                 ScheduleToolbarVisibilityRetry();
+            else if (rebuilt)
+                // AppKit may finish inserting rebuilt NSToolbarItems on the next run-loop tick;
+                // run one follow-up pass so native menu/search/release-notes references stay synced.
+                Dispatcher.Dispatch(() => TryUpdateToolbarVisibility());
         });
     }
 
@@ -503,6 +509,13 @@ public class BlazorContentPage : ContentPage
             {
                 MacOSToolbarItem.SetToolTip(toolbarItem, action.ToolTip);
                 toolbarItem.Text = action.Label;
+                if (!string.IsNullOrWhiteSpace(action.SfSymbol) &&
+                    (!_actionIconMap.TryGetValue(actionId, out var currentIcon) ||
+                     !string.Equals(currentIcon, action.SfSymbol, StringComparison.Ordinal)))
+                {
+                    toolbarItem.IconImageSource = action.SfSymbol;
+                    _actionIconMap[actionId] = action.SfSymbol;
+                }
             }
             toolbarItem.IsEnabled = shouldShow && _toolbarService.IsItemEnabled(actionId);
             MacOSToolbarItem.SetIsVisible(toolbarItem, shouldShow);
@@ -542,30 +555,13 @@ public class BlazorContentPage : ContentPage
                 _nativeProjectMenu.Menu = menu;
             }
         }
-        var sdkAction = _toolbarService.CurrentItems.FirstOrDefault(a => a.Id == "android-sdk");
-        MacOSToolbarItem.SetIsVisible(_sdkMenu, sdkAction != null);
-        if (_nativeSdkMenu != null)
-        {
-            _nativeSdkMenu.Hidden = sdkAction == null;
-            if (sdkAction?.MenuActions != null)
-            {
-                var menu = new NSMenu { Title = sdkAction.Label };
-                foreach (var child in sdkAction.MenuActions)
-                {
-                    var id = child.Id;
-                    var item = new NSMenuItem(child.Label, (_, _) => _toolbarService.InvokeToolbarItemClicked(id))
-                    { Enabled = _toolbarService.IsItemEnabled(id) };
-                    menu.AddItem(item);
-                }
-                menu.AutoEnablesItems = false;
-                _nativeSdkMenu.Menu = menu;
-            }
-        }
 
-        // Also directly set native Hidden on cached items (macOS 15+)
+        // Also directly set native Hidden on cached items (macOS 15+) so AppKit never leaves
+        // stale menu/search/custom-view items visible across rapid route transitions.
         if (_nativeIdentityMenu != null) _nativeIdentityMenu.Hidden = !hasIdentity;
         if (_nativePublishMenu != null) _nativePublishMenu.Hidden = !hasPublishWizard;
         if (_nativeFilterMenu != null) _nativeFilterMenu.Hidden = !hasFilter;
+        if (_nativeSearchItem != null) _nativeSearchItem.Hidden = !hasSearch;
 
         if (hasSearch && _searchItem != null)
         {
@@ -573,12 +569,16 @@ public class BlazorContentPage : ContentPage
             _searchItem.Text = _toolbarService.SearchText;
         }
 
+        var showReleaseNotes = activeIds.Contains("release-notes");
         var releaseNotesItem = toolbar.Items.FirstOrDefault(item =>
             ReferenceEquals(item, _nativeReleaseNotesItem) ||
             string.Equals(item.Label, "Release Notes", StringComparison.Ordinal) ||
             string.Equals(item.PaletteLabel, "Release Notes", StringComparison.Ordinal));
         if (releaseNotesItem != null)
+        {
             ConfigureReleaseNotesToolbarItem(releaseNotesItem);
+            releaseNotesItem.Hidden = !showReleaseNotes;
+        }
 
         // 3. Rebuild filter submenus natively if filters are active
         if (hasFilter)
@@ -634,19 +634,49 @@ public class BlazorContentPage : ContentPage
     /// </summary>
     void CacheNativeMenuItems(NSToolbar toolbar)
     {
-        if (_nativeIdentityMenu != null && _nativeFilterMenu != null && _nativePublishMenu != null && _nativeSdkMenu != null && _nativeProjectMenu != null) return;
-        foreach (var nsItem in toolbar.Items)
+        var items = toolbar.Items;
+        if (_nativeIdentityMenu != null && !items.Any(i => ReferenceEquals(i, _nativeIdentityMenu))) _nativeIdentityMenu = null;
+        if (_nativeFilterMenu != null && !items.Any(i => ReferenceEquals(i, _nativeFilterMenu))) _nativeFilterMenu = null;
+        if (_nativePublishMenu != null && !items.Any(i => ReferenceEquals(i, _nativePublishMenu))) _nativePublishMenu = null;
+        if (_nativeProjectMenu != null && !items.Any(i => ReferenceEquals(i, _nativeProjectMenu))) _nativeProjectMenu = null;
+        if (_nativeSearchItem != null && !items.Any(i => ReferenceEquals(i, _nativeSearchItem))) _nativeSearchItem = null;
+        if (_nativeReleaseNotesItem != null && !items.Any(i => ReferenceEquals(i, _nativeReleaseNotesItem)))
         {
+            _nativeReleaseNotesItem = null;
+            _releaseNotesButton = null;
+        }
+
+        if (_nativeIdentityMenu != null && _nativeFilterMenu != null && _nativePublishMenu != null &&
+            _nativeProjectMenu != null && _nativeSearchItem != null)
+            return;
+
+        foreach (var nsItem in items)
+        {
+            if (nsItem is NSSearchToolbarItem search)
+            {
+                _nativeSearchItem = search;
+                continue;
+            }
             if (nsItem is not NSMenuToolbarItem m) continue;
-            if (m.Label == "Android SDK") { _nativeSdkMenu = m; continue; }
-            if (m.Label == "Push Project" || ReferenceEquals(m, _nativeProjectMenu)) { _nativeProjectMenu = m; continue; }
-            if (IsFilterMenuItem(m))
+            if (ReferenceEquals(m, _nativeProjectMenu) || IsProjectMenuItem(m))
+                _nativeProjectMenu = m;
+            else if (ReferenceEquals(m, _nativeFilterMenu) || IsFilterMenuItem(m))
                 _nativeFilterMenu = m;
-            else if (IsPublishMenuItem(m))
+            else if (ReferenceEquals(m, _nativePublishMenu) || IsPublishMenuItem(m))
                 _nativePublishMenu = m;
-            else if (IsIdentityMenuItem(m))
+            else if (ReferenceEquals(m, _nativeIdentityMenu) || IsIdentityMenuItem(m))
                 _nativeIdentityMenu = m;
         }
+    }
+
+    static bool IsProjectMenuItem(NSMenuToolbarItem item)
+    {
+        var label = item.Label ?? "";
+        return label.Equals("Push Project", StringComparison.OrdinalIgnoreCase) ||
+            EnumerateMenuItems(item.Menu).Any(i =>
+                (i.Title ?? "").Equals("Select project...", StringComparison.OrdinalIgnoreCase) ||
+                (i.Title ?? "").Equals("New Project...", StringComparison.OrdinalIgnoreCase) ||
+                (i.Title ?? "").Equals("Create Project...", StringComparison.OrdinalIgnoreCase));
     }
 
     static bool IsFilterMenuItem(NSMenuToolbarItem item)
@@ -1075,13 +1105,25 @@ public class BlazorContentPage : ContentPage
     void FullRebuildToolbar()
     {
             _actionItemMap.Clear();
+            _actionIconMap.Clear();
             _nativeIdentityMenu = null;
             _nativeFilterMenu = null;
             _nativePublishMenu = null;
-            _nativeSdkMenu = null;
             _nativeProjectMenu = null;
+            _nativeSearchItem = null;
             _nativeReleaseNotesItem = null;
             _releaseNotesButton = null;
+
+            var activeIds = new HashSet<string>();
+            foreach (var action in _toolbarService.CurrentItems)
+                activeIds.Add(action.Id);
+            bool hasSearch = _toolbarService.SearchPlaceholder != null;
+            bool hasFilter = _toolbarService.CurrentFilters.Count > 0;
+            bool hasIdentity = AppleRoutes.Contains(_currentRoute) ||
+                               GoogleRoutes.Contains(_currentRoute) ||
+                               XcodeDownloadRoutes.Contains(_currentRoute);
+            bool hasPublishWizard = activeIds.Contains("publish-wizard");
+            bool hasProjectMenu = activeIds.Contains("push-projects");
 
             // Copilot button in sidebar trailing area (convenience mode handles it)
             var copilotItem = CreateCopilotToolbarItem();
@@ -1130,6 +1172,8 @@ public class BlazorContentPage : ContentPage
                 ("delete-folder", "Delete Folder", "trash"),
                 ("up-folder", "Up Folder", "arrow.up"),
                 ("import", "Import", "square.and.arrow.down"),
+                ("import-artifact", "Import Artifact", "doc.badge.plus"),
+                ("import-session", "Import Session", "archivebox"),
                 ("open-project", "Open Project Folder", "folder"),
                 ("profiles-folder", "Profiles Folder", "folder"),
                 ("cleanup", "Clean Up", "trash"),
@@ -1149,10 +1193,14 @@ public class BlazorContentPage : ContentPage
             foreach (var (id, label, icon) in supersetActions)
             {
                 var actionId = id;
+                var currentAction = _toolbarService.CurrentItems.FirstOrDefault(a => a.Id == actionId);
+                var shouldShow = activeIds.Contains(actionId);
+                var effectiveIcon = !string.IsNullOrWhiteSpace(currentAction?.SfSymbol) ? currentAction!.SfSymbol : icon;
                 var item = new ToolbarItem
                 {
-                    Text = label,
-                    IconImageSource = icon,
+                    Text = currentAction?.Label ?? label,
+                    IconImageSource = effectiveIcon,
+                    IsEnabled = shouldShow && _toolbarService.IsItemEnabled(actionId),
                     Command = new Command(() =>
                     {
                         if (actionId == "settings")
@@ -1161,8 +1209,12 @@ public class BlazorContentPage : ContentPage
                             _toolbarService.InvokeToolbarItemClicked(actionId);
                     }),
                 };
+                if (currentAction != null)
+                    MacOSToolbarItem.SetToolTip(item, currentAction.ToolTip);
+                MacOSToolbarItem.SetIsVisible(item, shouldShow);
                 allToolbarItems.Add(item);
                 _actionItemMap[actionId] = item;
+                _actionIconMap[actionId] = effectiveIcon;
 
                 if (actionId == "refresh")
                     refreshItem = item;
@@ -1200,13 +1252,6 @@ public class BlazorContentPage : ContentPage
                 ShowsTitle = true,
                 ShowsIndicator = true,
             };
-            _sdkMenu = new MacOSMenuToolbarItem
-            {
-                Icon = "shippingbox",
-                Text = "Android SDK",
-                ShowsTitle = true,
-                ShowsIndicator = true,
-            };
             _projectMenu = new MacOSMenuToolbarItem
             {
                 Icon = "folder",
@@ -1215,13 +1260,6 @@ public class BlazorContentPage : ContentPage
                 ShowsIndicator = true,
             };
             _projectMenu.Items.Add(new MacOSMenuItem { Text = "Select project..." });
-            foreach (var action in MauiSherpa.Components.AndroidSdkContext.Menu.MenuActions!)
-            {
-                var id = action.Id;
-                var item = new MacOSMenuItem { Text = action.Label };
-                item.Clicked += (_, _) => _toolbarService.InvokeToolbarItemClicked(id);
-                _sdkMenu.Items.Add(item);
-            }
             var filters = _toolbarService.CurrentFilters;
             if (filters.Count > 0)
             {
@@ -1293,11 +1331,18 @@ public class BlazorContentPage : ContentPage
             publishSelectedAction.Clicked += (s, e) => _toolbarService.InvokeToolbarItemClicked("publish-selected");
             _publishMenu.Items.Add(publishSelectedAction);
 
+            // Pre-apply initial visibility to menu & search items BEFORE layout assignment so
+            // AppKit never flashes all superset controls visible on initial build or rebuild.
+            MacOSToolbarItem.SetIsVisible(_identityMenu, hasIdentity);
+            MacOSToolbarItem.SetIsVisible(_publishMenu, hasPublishWizard);
+            MacOSToolbarItem.SetIsVisible(_filterMenu, hasFilter);
+            MacOSToolbarItem.SetIsVisible(_projectMenu, hasProjectMenu);
+            MacOSToolbarItem.SetIsVisible(_searchItem, hasSearch);
+
             // Build explicit content layout with ALL items:
-            // [Filter/Provider] [Identity] [Publish] [Create] [Import] ← FlexibleSpace → [Search] [Refresh]
+            // [Filter/Provider] [Project] [Identity] [Publish] [Create] [Import] ← FlexibleSpace → [Search] [Refresh]
             var layout = new List<MacOSToolbarLayoutItem>();
             layout.Add(MacOSToolbarLayoutItem.Menu(_filterMenu));
-            layout.Add(MacOSToolbarLayoutItem.Menu(_sdkMenu));
             layout.Add(MacOSToolbarLayoutItem.Menu(_projectMenu));
             layout.Add(MacOSToolbarLayoutItem.Menu(_identityMenu));
             layout.Add(MacOSToolbarLayoutItem.Menu(_publishMenu));

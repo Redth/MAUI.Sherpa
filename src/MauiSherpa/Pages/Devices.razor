@@ -416,6 +416,7 @@ else
 
     private void UpdateToolbarItemStates()
     {
+        if (disposeCts.IsCancellationRequested) return;
         var sdkAvailable = hasInitialized && !string.IsNullOrEmpty(SdkService.SdkPath);
         ToolbarService.SetItemEnabled("refresh", hasInitialized && !IsBusy && !isLoadingDevices);
         ToolbarService.SetItemEnabled("pair", sdkAvailable && !IsBusy);
@@ -861,6 +862,7 @@ else
 
     private void UpdateToolbarFilters()
     {
+        if (disposeCts.IsCancellationRequested) return;
         var families = EmulatorFamilies.ToArray();
         var targets = EmulatorTargets.ToArray();
         if (filterFamily != "" && !families.Contains(filterFamily)) filterFamily = "";
