@@ -193,7 +193,7 @@ styles is `src/MauiSherpa/wwwroot/css/app.css`.
   the vendored Monaco bundle when updating with `cd build/monaco && npm ci && npm run build`.
 - **Cross-platform adaptation:** Never add ad-hoc platform CSS to individual pages.
   Platform differences are centralized in `app.css` through `.platform-macos`
-  (Apple Blue, SF Pro at 13px, 12px cards), `.platform-windows` (Sherpa Violet,
+  (macOS 26/27: Apple Blue, SF Pro at 13px, borderless tonal `16px` squircle cards with `corner-shape: squircle`, flat tonal buttons, `ellipsis.circle` row menus, elongated switches, and Liquid Glass frosted popovers), `.platform-windows` (Sherpa Violet,
   Fluent 2 8px/4px radii, Segoe UI at 14px), and `.platform-linux` (Adwaita Blue,
   Libadwaita 12px/8px radii).
 - **Native hybrid dialogs:** Use `HybridFormPage<T>` (not raw native MAUI `FormPage<T>`

@@ -209,14 +209,22 @@ MAUI Sherpa is **flat and hairline-layered at rest**. Depth is communicated thro
 
 All 47 legacy `border-radius` values are consolidated into **6 semantic tokens** that adapt automatically per platform while keeping concentric nesting (`inner radius = outer radius - padding`):
 
-| Token | macOS | Windows (Fluent 2) | Linux (Libadwaita) | Usage |
+| Token | macOS (26/27 Squircle) | Windows (Fluent 2) | Linux (Libadwaita) | Usage |
 |---|---|---|---|---|
-| `--radius-xs` | `4px` | `3px` | `4px` | Inline `<code>` tags, checkboxes, micro-badges |
-| `--radius-sm` | `6px` | `4px` | `6px` | `.btn-sm`, icon buttons, dropdown option rows, tabs |
-| `--radius-md` | `8px` | `4px` | `8px` | Standard buttons, text inputs, `SherpaSelect` triggers, nested wells, icon wells |
-| `--radius-lg` | `12px` | `8px` | `12px` | Cards (`--card-radius`), grouped lists, banners, custom dropdown popovers |
-| `--radius-xl` | `14px` | `8px` | `12px` | Modal dialogs and sheets |
-| `--radius-pill` | `9999px` | `9999px` | `9999px` | Status badges, count pills, toggle switch tracks |
+| `--radius-xs` | `6px` | `3px` | `4px` | Inline `<code>` tags, checkboxes, micro-badges |
+| `--radius-sm` | `8px` | `4px` | `6px` | `.btn-sm`, dropdown option rows, tabs |
+| `--radius-md` | `10px` | `4px` | `8px` | Standard buttons, text inputs, `SherpaSelect` triggers, nested wells, icon wells |
+| `--radius-lg` | `16px` | `8px` | `12px` | Cards (`--card-radius`), grouped lists, banners |
+| `--radius-xl` | `20px` | `8px` | `12px` | Modal dialogs, sheets, large containers |
+| `--radius-pill` | `9999px` | `9999px` | `9999px` | Status badges, count pills, icon buttons, toggle switch tracks |
+
+On `.platform-macos`, rounded containers and controls also opt into native CSS `corner-shape: squircle` (supported in macOS 26/27 WebKit, gracefully falling back to smooth circular corners on older WebKit).
+
+### macOS 26 / 27 (Tahoe+) Content vs. Overlay Layer
+Following Apple's macOS 26/27 HIG, `.platform-macos` separates **Content** surfaces from **Overlay** surfaces:
+- **Content Layer (cards, grouped lists, forms):** Borderless soft tonal fills (`#f5f5f7` on `#ffffff` light canvas; `#28282b` on `#1e1e1e` dark canvas) with `border-color: transparent` (no outer `1px` card outlines), continuous `16px` squircle corners, and faint inset `1px` horizontal hairlines only *between* rows inside a group.
+- **In-Content Controls:** Secondary buttons are borderless soft tonal fills (`rgba(0,0,0,0.075)` light / `rgba(255,255,255,0.11)` dark, no drop shadow); row icon actions are flat borderless glyphs with circular hover halos; `<SherpaActionMenu>` renders Apple's horizontal `⋯` inside a subtle `24×24` circular ring (`ellipsis.circle`); inline `<SherpaSelect>` triggers use a quiet tonal fill with a circular chevron badge; `.sherpa-switch` uses macOS 26's elongated `42×24px` capsule track with a pill thumb.
+- **Overlay Layer (popovers & menus):** `<SherpaSelect>`, `<SherpaActionMenu>`, and `<SecretProviderPicker>` menus use translucent Liquid Glass (`backdrop-filter: blur(28px) saturate(190%)`, `14px` squircle corners, subtle inner top specular highlight, and Apple Blue menu-item hover highlights).
 
 ---
 

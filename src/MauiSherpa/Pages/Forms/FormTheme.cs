@@ -56,16 +56,16 @@ public static class FormTheme
     public static int ActionButtonHeight => 34;
 #else
     static readonly Color LightPageBg = Color.FromArgb("#FFFFFF");
-    static readonly Color LightCardBg = Color.FromArgb("#F7F7F8");
+    static readonly Color LightCardBg = Color.FromArgb("#F5F5F7");
     static readonly Color LightAccentPrimary = Color.FromArgb("#007AFF");
     static readonly Color LightAccentPrimaryText = Color.FromArgb("#FFFFFF");
-    static readonly Color LightSecondaryButtonBg = Color.FromArgb("#FFFFFF");
+    static readonly Color LightSecondaryButtonBg = Color.FromArgb("#ECECEF");
     static readonly Color DarkPageBg = Color.FromArgb("#1E1E1E");
-    static readonly Color DarkCardBg = Color.FromArgb("#272729");
+    static readonly Color DarkCardBg = Color.FromArgb("#28282B");
     static readonly Color DarkAccentPrimary = Color.FromArgb("#0A84FF");
     static readonly Color DarkAccentPrimaryText = Color.FromArgb("#FFFFFF");
-    static readonly Color DarkSecondaryButtonBg = Color.FromArgb("#323235");
-    public static int ControlCornerRadius => 8;
+    static readonly Color DarkSecondaryButtonBg = Color.FromArgb("#38383C");
+    public static int ControlCornerRadius => 10;
     public static int ActionButtonHeight => 30;
 #endif
 
@@ -74,9 +74,15 @@ public static class FormTheme
     static readonly Color LightTextMuted = Color.FromArgb("#6B6B76");
     static readonly Color LightInputBg = Color.FromArgb("#FFFFFF");
     static readonly Color LightInputBorder = Color.FromArgb("#DCDCE0");
-    static readonly Color LightSeparator = Color.FromArgb("#E8E8EC");
+    static readonly Color LightSeparator = Color.FromArgb("#EBEBEF");
     static readonly Color LightAccentDanger = Color.FromArgb("#DC2626");
+#if !WINDOWS && !LINUXGTK
+    static readonly Color LightButtonOutlineBorder = Colors.Transparent;
+    static readonly Color DarkButtonOutlineBorder = Colors.Transparent;
+#else
     static readonly Color LightButtonOutlineBorder = Color.FromArgb("#D4D4D8");
+    static readonly Color DarkButtonOutlineBorder = Color.FromArgb("#434347");
+#endif
 
     static readonly Color DarkTextPrimary = Color.FromArgb("#F4F4F5");
     static readonly Color DarkTextSecondary = Color.FromArgb("#C4C4CC");
@@ -85,7 +91,6 @@ public static class FormTheme
     static readonly Color DarkInputBorder = Color.FromArgb("#434347");
     static readonly Color DarkSeparator = Color.FromArgb("#323236");
     static readonly Color DarkAccentDanger = Color.FromArgb("#F87171");
-    static readonly Color DarkButtonOutlineBorder = Color.FromArgb("#434347");
 
     /// <summary>
     /// Register form theme colors into the app's ResourceDictionary

@@ -1,4 +1,6 @@
+@using MauiSherpa.Core.Interfaces
 @inject IJSRuntime JS
+@inject IPlatformService Platform
 @implements IAsyncDisposable
 
 @if (NormalizedItems.Count > 0)
@@ -18,7 +20,7 @@
                 title="@Title"
                 disabled="@Disabled"
                 @onclick="ToggleAsync">
-            <i class="fa-solid fa-ellipsis-vertical fa-fw" aria-hidden="true"></i>
+            <i class="fa-solid @(IsMac ? "fa-ellipsis" : "fa-ellipsis-vertical") fa-fw" aria-hidden="true"></i>
         </button>
 
         @if (_isOpen)
@@ -88,6 +90,8 @@
 
     [Parameter]
     public string? Class { get; set; }
+
+    private bool IsMac => Platform.IsMacOS || Platform.IsMacCatalyst;
 
     private string RootCssClass =>
         string.IsNullOrWhiteSpace(Class) ? "sherpa-action-menu" : $"sherpa-action-menu {Class}";

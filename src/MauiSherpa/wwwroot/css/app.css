@@ -298,16 +298,45 @@
     --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
     --font-mono: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
     --font-size-base: 13px;
-    --radius-xs: 4px;
-    --radius-sm: 6px;
-    --radius-md: 8px;
-    --radius-lg: 12px;
-    --radius-xl: 14px;
+    --surface-canvas: #ffffff;
+    --surface-card: #f5f5f7;
+    --surface-card-hover: #ededf0;
+    --surface-well: #ececef;
+    --surface-control: rgba(0, 0, 0, 0.065);
+    --surface-popover: rgba(252, 252, 254, 0.86);
+    --border-hairline: rgba(0, 0, 0, 0.065);
+    --border-subtle: rgba(0, 0, 0, 0.08);
+    --border-control: rgba(0, 0, 0, 0.10);
+    --border-control-bottom: rgba(0, 0, 0, 0.12);
+    --radius-xs: 6px;
+    --radius-sm: 8px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
     --control-height-md: 30px;
     --control-height-sm: 26px;
     --row-padding-y: 10px;
-    --row-padding-x: 14px;
+    --row-padding-x: 16px;
+    --shadow-control: none;
+    --shadow-segment: 0 1px 2px rgba(0, 0, 0, 0.10), 0 0.5px 1px rgba(0, 0, 0, 0.06);
+    --shadow-popover: inset 0 0.5px 0 rgba(255, 255, 255, 0.72), 0 14px 36px rgba(0, 0, 0, 0.15), 0 2px 8px rgba(0, 0, 0, 0.06);
     -webkit-font-smoothing: antialiased;
+}
+
+.platform-macos.theme-dark {
+    --surface-canvas: #1e1e1e;
+    --surface-card: #28282b;
+    --surface-card-hover: #313135;
+    --surface-well: #232326;
+    --surface-control: rgba(255, 255, 255, 0.10);
+    --surface-popover: rgba(42, 42, 46, 0.84);
+    --border-hairline: rgba(255, 255, 255, 0.075);
+    --border-subtle: rgba(255, 255, 255, 0.10);
+    --border-control: rgba(255, 255, 255, 0.13);
+    --border-control-bottom: rgba(255, 255, 255, 0.15);
+    --shadow-control: none;
+    --shadow-segment: 0 1px 3px rgba(0, 0, 0, 0.36);
+    --shadow-popover: inset 0 0.5px 0 rgba(255, 255, 255, 0.18), 0 18px 42px rgba(0, 0, 0, 0.56), 0 2px 8px rgba(0, 0, 0, 0.34);
 }
 
 .platform-windows {
@@ -2946,37 +2975,364 @@ main:focus-visible,
     cursor: not-allowed;
 }
 
-/* macOS native AppKit button sheen polish. */
-.platform-macos .btn-secondary {
+/* ============================================================================
+   macOS 26 / 27 (Tahoe+) Native Content & Liquid Glass Overlay Layer
+   Scoped strictly to .platform-macos; Windows (Fluent 2) and Linux GTK stay untouched.
+   ============================================================================ */
+
+/* 1. Native Apple continuous squircles (WebKit STP 251 / macOS 26-27+, graceful fallback) */
+.platform-macos .sherpa-card,
+.platform-macos .sherpa-list,
+.platform-macos .sherpa-list > .sherpa-list-row:first-child,
+.platform-macos .sherpa-list > .sherpa-list-row:last-child,
+.platform-macos .sherpa-empty-inline,
+.platform-macos .sherpa-selection-bar,
+.platform-macos .sherpa-banner,
+.platform-macos .sherpa-console,
+.platform-macos .sherpa-icon-well,
+.platform-macos .sherpa-segmented,
+.platform-macos .sherpa-segmented-btn,
+.platform-macos .sherpa-select-trigger,
+.platform-macos .sherpa-select-menu,
+.platform-macos .sherpa-select-option,
+.platform-macos .sherpa-action-menu-panel,
+.platform-macos .sherpa-action-menu-item,
+.platform-macos .sherpa-input,
+.platform-macos .sherpa-textarea,
+.platform-macos .sherpa-input-group,
+.platform-macos .btn:not(.btn-icon),
+.platform-macos .settings-container,
+.platform-macos .filter-section,
+.platform-macos .filter-bar,
+.platform-macos .tool-section,
+.platform-macos .toolchain-list,
+.platform-macos .stat-card,
+.platform-macos .action-card,
+.platform-macos .device-card,
+.platform-macos .push-card,
+.platform-macos .provider-card,
+.platform-macos .identity-card,
+.platform-macos .vault-access-card {
+    corner-shape: squircle;
+}
+
+/* 2. Borderless tonal content cards & grouped lists (Content Layer — no outer outline) */
+.platform-macos .sherpa-card,
+.platform-macos .sherpa-list,
+.platform-macos .sherpa-empty-inline,
+.platform-macos .settings-container,
+.platform-macos .filter-section,
+.platform-macos .filter-bar,
+.platform-macos .tool-section,
+.platform-macos .toolchain-list,
+.platform-macos .stat-card,
+.platform-macos .action-card,
+.platform-macos .push-card,
+.platform-macos .provider-card,
+.platform-macos .identity-card,
+.platform-macos .vault-access-card {
+    border-color: transparent;
+    box-shadow: none;
+}
+
+/* Keep crisp interactive selection border when a selectable choice card is chosen */
+.platform-macos .sherpa-card.selected,
+.platform-macos .sherpa-card[aria-checked="true"] {
+    border-color: var(--accent);
+}
+
+/* Editable text inputs stay clearly distinguishable inside soft tonal cards */
+.platform-macos .sherpa-input,
+.platform-macos .sherpa-textarea,
+.platform-macos .sherpa-input-group {
     background: #ffffff;
     border-color: rgba(0, 0, 0, 0.12);
-    border-bottom-color: rgba(0, 0, 0, 0.18);
-    box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.04);
+    border-bottom-color: rgba(0, 0, 0, 0.16);
+    box-shadow: none;
+}
+
+.platform-macos.theme-dark .sherpa-input,
+.platform-macos.theme-dark .sherpa-textarea,
+.platform-macos.theme-dark .sherpa-input-group {
+    background: rgba(0, 0, 0, 0.24);
+    border-color: rgba(255, 255, 255, 0.14);
+    border-bottom-color: rgba(255, 255, 255, 0.16);
+}
+
+.platform-macos .sherpa-input-group-btn {
+    background: rgba(0, 0, 0, 0.05);
+    border-inline-start-color: rgba(0, 0, 0, 0.08);
+}
+
+.platform-macos .sherpa-input-group-btn:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.09);
+}
+
+.platform-macos.theme-dark .sherpa-input-group-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border-inline-start-color: rgba(255, 255, 255, 0.10);
+}
+
+.platform-macos.theme-dark .sherpa-input-group-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+/* 3. macOS 26/27 flat borderless tonal buttons (replaces Ventura white bezel + shadow) */
+.platform-macos .btn {
+    border-color: transparent;
+    box-shadow: none;
+}
+
+.platform-macos .btn-secondary {
+    background: rgba(0, 0, 0, 0.075);
+    color: var(--text-primary);
+    border-color: transparent;
+    box-shadow: none;
 }
 
 .platform-macos .btn-secondary:hover:not(:disabled) {
-    background: #f5f5f7;
-    border-color: rgba(0, 0, 0, 0.16);
+    background: rgba(0, 0, 0, 0.12);
+    border-color: transparent;
+}
+
+.platform-macos .btn-secondary:active:not(:disabled) {
+    background: rgba(0, 0, 0, 0.16);
 }
 
 .platform-macos.theme-dark .btn-secondary {
-    background: rgba(255, 255, 255, 0.10);
-    border-color: rgba(255, 255, 255, 0.12);
-    border-top-color: rgba(255, 255, 255, 0.18);
-    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.28);
+    background: rgba(255, 255, 255, 0.11);
+    color: var(--text-primary);
+    border-color: transparent;
+    box-shadow: none;
 }
 
 .platform-macos.theme-dark .btn-secondary:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.15);
-    border-color: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.16);
+    border-color: transparent;
 }
 
-.platform-macos .btn-primary {
-    box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.22), 0 1px 2px rgba(0, 0, 0, 0.12);
+.platform-macos.theme-dark .btn-secondary:active:not(:disabled) {
+    background: rgba(255, 255, 255, 0.21);
 }
 
-.platform-macos .btn-danger {
-    box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.18), 0 1px 2px rgba(0, 0, 0, 0.14);
+.platform-macos .btn-outline {
+    background: rgba(0, 0, 0, 0.055);
+    border-color: transparent;
+}
+
+.platform-macos .btn-outline:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.10);
+}
+
+.platform-macos.theme-dark .btn-outline {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: transparent;
+}
+
+.platform-macos.theme-dark .btn-outline:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.platform-macos .btn-primary,
+.platform-macos .btn-danger,
+.platform-macos .btn-success {
+    border-color: transparent;
+    box-shadow: none;
+}
+
+/* 4. Flat borderless row icon glyphs (circular subtle hover halo) */
+.platform-macos .btn-icon {
+    border-radius: var(--radius-pill);
+}
+
+.platform-macos .sherpa-row-actions .btn-secondary.btn-icon,
+.platform-macos .sherpa-row-actions .btn-outline.btn-icon,
+.platform-macos .sherpa-list-row .btn-secondary.btn-icon {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-secondary);
+    box-shadow: none;
+}
+
+.platform-macos .sherpa-row-actions .btn-secondary.btn-icon:hover:not(:disabled),
+.platform-macos .sherpa-row-actions .btn-outline.btn-icon:hover:not(:disabled),
+.platform-macos .sherpa-list-row .btn-secondary.btn-icon:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.075);
+    color: var(--text-primary);
+}
+
+.platform-macos.theme-dark .sherpa-row-actions .btn-secondary.btn-icon:hover:not(:disabled),
+.platform-macos.theme-dark .sherpa-row-actions .btn-outline.btn-icon:hover:not(:disabled),
+.platform-macos.theme-dark .sherpa-list-row .btn-secondary.btn-icon:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.11);
+    color: var(--text-primary);
+}
+
+/* 5. Apple ellipsis.circle (⋯ inside a subtle circular outline) for row overflow menu */
+.platform-macos .sherpa-action-menu-trigger {
+    width: 24px !important;
+    min-width: 24px !important;
+    height: 24px !important;
+    min-height: 24px !important;
+    padding: 0 !important;
+    border-radius: var(--radius-pill) !important;
+    border: 1.25px solid rgba(0, 0, 0, 0.28) !important;
+    background: transparent !important;
+    color: rgba(0, 0, 0, 0.56) !important;
+    font-size: 11px !important;
+}
+
+.platform-macos .sherpa-action-menu-trigger:hover:not(:disabled),
+.platform-macos .sherpa-action-menu-trigger.open {
+    background: rgba(0, 0, 0, 0.075) !important;
+    border-color: rgba(0, 0, 0, 0.44) !important;
+    color: var(--text-primary) !important;
+}
+
+.platform-macos.theme-dark .sherpa-action-menu-trigger {
+    border-color: rgba(255, 255, 255, 0.30) !important;
+    color: rgba(255, 255, 255, 0.64) !important;
+}
+
+.platform-macos.theme-dark .sherpa-action-menu-trigger:hover:not(:disabled),
+.platform-macos.theme-dark .sherpa-action-menu-trigger.open {
+    background: rgba(255, 255, 255, 0.12) !important;
+    border-color: rgba(255, 255, 255, 0.48) !important;
+    color: var(--text-primary) !important;
+}
+
+/* 6. Quiet macOS 26/27 inline selects & Liquid Glass frosted popovers/menus */
+.platform-macos .sherpa-select-trigger {
+    background: rgba(0, 0, 0, 0.06);
+    border-color: transparent;
+    box-shadow: none;
+}
+
+.platform-macos .sherpa-select-trigger:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.10);
+    border-color: transparent;
+}
+
+.platform-macos.theme-dark .sherpa-select-trigger {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: transparent;
+    box-shadow: none;
+}
+
+.platform-macos.theme-dark .sherpa-select-trigger:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: transparent;
+}
+
+.platform-macos .sherpa-select-trigger > .fa-chevron-down {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: var(--radius-pill);
+    background: rgba(0, 0, 0, 0.07);
+    color: var(--text-secondary);
+    font-size: 9px;
+}
+
+.platform-macos.theme-dark .sherpa-select-trigger > .fa-chevron-down {
+    background: rgba(255, 255, 255, 0.11);
+    color: var(--text-secondary);
+}
+
+.platform-macos .sherpa-action-menu-panel,
+.platform-macos .sherpa-select-menu,
+.platform-macos .sync-dropdown-menu {
+    background: var(--surface-popover) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(190%);
+    backdrop-filter: blur(28px) saturate(190%);
+    border: 1px solid rgba(0, 0, 0, 0.09) !important;
+    border-radius: 14px !important;
+    box-shadow: var(--shadow-popover) !important;
+}
+
+.platform-macos.theme-dark .sherpa-action-menu-panel,
+.platform-macos.theme-dark .sherpa-select-menu,
+.platform-macos.theme-dark .sync-dropdown-menu {
+    border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+/* Native macOS menu selection highlight (vibrant Apple Blue pill on hover/focus) */
+.platform-macos .sherpa-action-menu-item:hover:not(:disabled):not(.danger),
+.platform-macos .sherpa-action-menu-item.focused:not(:disabled):not(.danger),
+.platform-macos .sherpa-select-option:hover:not(:disabled),
+.platform-macos .sherpa-select-option.focused:not(:disabled) {
+    background: var(--accent);
+    color: #ffffff;
+}
+
+.platform-macos .sherpa-action-menu-item:hover:not(:disabled):not(.danger) i,
+.platform-macos .sherpa-action-menu-item.focused:not(:disabled):not(.danger) i,
+.platform-macos .sherpa-select-option:hover:not(:disabled) i,
+.platform-macos .sherpa-select-option.focused:not(:disabled) i,
+.platform-macos .sherpa-select-option:hover:not(:disabled) .sherpa-select-option-desc,
+.platform-macos .sherpa-select-option.focused:not(:disabled) .sherpa-select-option-desc,
+.platform-macos .sherpa-select-option:hover:not(:disabled) .sherpa-select-check,
+.platform-macos .sherpa-select-option.focused:not(:disabled) .sherpa-select-check {
+    color: #ffffff;
+}
+
+/* 7. macOS 26/27 elongated capsule switch & borderless tonal segmented control */
+.platform-macos .sherpa-switch-track {
+    width: 42px;
+    height: 24px;
+    background: rgba(0, 0, 0, 0.16);
+    border-color: transparent;
+}
+
+.platform-macos.theme-dark .sherpa-switch-track {
+    background: rgba(255, 255, 255, 0.18);
+    border-color: transparent;
+}
+
+.platform-macos .sherpa-switch-track::after {
+    inset-block-start: 3px;
+    inset-inline-start: 3px;
+    width: 22px;
+    height: 18px;
+    border-radius: var(--radius-pill);
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.24), 0 0.5px 1px rgba(0, 0, 0, 0.12);
+}
+
+.platform-macos .sherpa-switch input:checked + .sherpa-switch-track {
+    background: var(--accent);
+    border-color: transparent;
+}
+
+.platform-macos .sherpa-switch input:checked + .sherpa-switch-track::after {
+    background: #ffffff;
+    transform: translateX(14px);
+}
+
+.platform-macos .sherpa-segmented {
+    background: rgba(0, 0, 0, 0.065);
+    border-color: transparent;
+    padding: 3px;
+}
+
+.platform-macos.theme-dark .sherpa-segmented {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: transparent;
+}
+
+.platform-macos .sherpa-segmented-btn.active,
+.platform-macos .sherpa-segmented-btn[aria-pressed="true"] {
+    background: #ffffff;
+    color: var(--text-primary);
+    box-shadow: var(--shadow-segment);
+}
+
+.platform-macos.theme-dark .sherpa-segmented-btn.active,
+.platform-macos.theme-dark .sherpa-segmented-btn[aria-pressed="true"] {
+    background: rgba(255, 255, 255, 0.17);
+    color: var(--text-primary);
 }
 
 .sherpa-skeleton {
