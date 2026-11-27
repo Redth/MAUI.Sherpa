@@ -1,0 +1,298 @@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@if (NormalizedItems.Count > 0)
+{
+    <div class="@RootCssClass"
+         id="@_rootId"
+         data-open="@_isOpen.ToString().ToLowerInvariant()"
+         @onclick:stopPropagation="true"
+         @onkeydown="HandleKeyDownAsync">
+        <button type="button"
+                class="btn btn-ghost btn-icon btn-sm sherpa-action-menu-trigger @(_isOpen ? "open" : null)"
+                data-popover-trigger
+                aria-label="@AriaLabel"
+                aria-haspopup="menu"
+                aria-expanded="@_isOpen.ToString().ToLowerInvariant()"
+                aria-controls="@_menuId"
+                title="@Title"
+                disabled="@Disabled"
+                @onclick="ToggleAsync">
+            <i class="fa-solid fa-ellipsis-vertical fa-fw" aria-hidden="true"></i>
+        </button>
+
+        @if (_isOpen)
+        {
+            <div class="sherpa-action-menu-panel"
+                 id="@_menuId"
+                 tabindex="-1"
+                 data-popover-panel
+                 data-popover-align="end"
+                 data-popover-initial-focus
+                 role="menu"
+                 aria-label="@AriaLabel">
+                @{
+                    var actionIdx = 0;
+                }
+                @foreach (var item in NormalizedItems)
+                {
+                    if (item.IsDivider)
+                    {
+                        <div class="sherpa-action-menu-divider" role="separator"></div>
+                    }
+                    else
+                    {
+                        var currentIdx = actionIdx++;
+                        var isFocused = currentIdx == _focusedIndex;
+                        <button type="button"
+                                class="sherpa-action-menu-item @(item.IsDanger ? "danger" : null) @(isFocused ? "focused" : null)"
+                                role="menuitem"
+                                title="@(item.Title ?? item.Label)"
+                                disabled="@item.Disabled"
+                                data-screenshot-external="@(item.IsExternalScreenshotAction ? "" : null)"
+                                @onclick="() => InvokeItemAsync(item)">
+                            @if (!string.IsNullOrWhiteSpace(item.Icon))
+                            {
+                                <i class="@EnsureFixedWidth(item.Icon)" aria-hidden="true"></i>
+                            }
+                            <span>@item.Label</span>
+                        </button>
+                    }
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private readonly string _menuId = $"sherpa-menu-{Guid.NewGuid():N}";
+    private readonly string _rootId = $"sherpa-menu-root-{Guid.NewGuid():N}";
+    private DotNetObjectReference<SherpaActionMenu>? _dotNetReference;
+    private IJSObjectReference? _interopModule;
+    private bool _interopBound;
+    private bool _isOpen;
+    private bool _restoreFocus;
+    private int _focusedIndex = -1;
+
+    [Parameter]
+    public IReadOnlyList<SherpaMenuItem> Items { get; set; } = Array.Empty<SherpaMenuItem>();
+
+    [Parameter]
+    public string AriaLabel { get; set; } = "More actions";
+
+    [Parameter]
+    public string Title { get; set; } = "More actions";
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    private string RootCssClass =>
+        string.IsNullOrWhiteSpace(Class) ? "sherpa-action-menu" : $"sherpa-action-menu {Class}";
+
+    private IReadOnlyList<SherpaMenuItem> NormalizedItems
+    {
+        get
+        {
+            if (Items.Count == 0)
+                return Array.Empty<SherpaMenuItem>();
+
+            var result = new List<SherpaMenuItem>(Items.Count);
+            foreach (var item in Items)
+            {
+                if (item.IsDivider)
+                {
+                    if (result.Count > 0 && !result[^1].IsDivider)
+                        result.Add(item);
+                }
+                else
+                {
+                    result.Add(item);
+                }
+            }
+
+            while (result.Count > 0 && result[^1].IsDivider)
+                result.RemoveAt(result.Count - 1);
+
+            return result;
+        }
+    }
+
+    private IReadOnlyList<SherpaMenuItem> ActionItems =>
+        NormalizedItems.Where(i => !i.IsDivider).ToArray();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _interopModule = await JS.InvokeAsync<IJSObjectReference>(
+                "import",
+                "./js/mauiSherpaPopovers.js");
+        }
+
+        if (_isOpen && !_interopBound && _interopModule is not null)
+        {
+            _dotNetReference ??= DotNetObjectReference.Create(this);
+            await _interopModule.InvokeVoidAsync("bindPopover", _rootId, _dotNetReference);
+            _interopBound = true;
+        }
+        else if (_isOpen && _interopModule is not null)
+        {
+            await _interopModule.InvokeVoidAsync("positionPopover", _rootId);
+        }
+        else if (!_isOpen && _restoreFocus && _interopModule is not null)
+        {
+            _restoreFocus = false;
+            await _interopModule.InvokeVoidAsync("focusTrigger", _rootId);
+        }
+    }
+
+    private async Task ToggleAsync()
+    {
+        if (Disabled)
+            return;
+
+        if (_isOpen)
+        {
+            await CloseAsync(restoreFocus: true);
+        }
+        else
+        {
+            _isOpen = true;
+            _focusedIndex = -1;
+        }
+    }
+
+    private async Task InvokeItemAsync(SherpaMenuItem item)
+    {
+        if (item.Disabled)
+            return;
+
+        await CloseAsync(restoreFocus: false);
+        if (item.OnClickAsync is not null)
+            await item.OnClickAsync();
+    }
+
+    private async Task HandleKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (!_isOpen)
+            return;
+
+        var actions = ActionItems;
+        if (actions.Count == 0)
+            return;
+
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                MoveFocus(actions, 1);
+                break;
+            case "ArrowUp":
+                MoveFocus(actions, -1);
+                break;
+            case "Home":
+                _focusedIndex = FindFirstEnabled(actions);
+                break;
+            case "End":
+                _focusedIndex = FindLastEnabled(actions);
+                break;
+            case "Enter":
+            case " ":
+                if (_focusedIndex >= 0 && _focusedIndex < actions.Count && !actions[_focusedIndex].Disabled)
+                    await InvokeItemAsync(actions[_focusedIndex]);
+                break;
+        }
+    }
+
+    private void MoveFocus(IReadOnlyList<SherpaMenuItem> actions, int delta)
+    {
+        if (!actions.Any(a => !a.Disabled))
+            return;
+
+        var start = _focusedIndex < 0 ? (delta > 0 ? -1 : actions.Count) : _focusedIndex;
+        for (var step = 1; step <= actions.Count; step++)
+        {
+            var next = (start + (delta * step) + (actions.Count * 2)) % actions.Count;
+            if (!actions[next].Disabled)
+            {
+                _focusedIndex = next;
+                return;
+            }
+        }
+    }
+
+    private static int FindFirstEnabled(IReadOnlyList<SherpaMenuItem> actions)
+    {
+        for (var i = 0; i < actions.Count; i++)
+            if (!actions[i].Disabled) return i;
+        return -1;
+    }
+
+    private static int FindLastEnabled(IReadOnlyList<SherpaMenuItem> actions)
+    {
+        for (var i = actions.Count - 1; i >= 0; i--)
+            if (!actions[i].Disabled) return i;
+        return -1;
+    }
+
+    private async Task CloseAsync(bool restoreFocus)
+    {
+        if (!_isOpen)
+            return;
+
+        _isOpen = false;
+        _focusedIndex = -1;
+        _restoreFocus = restoreFocus;
+
+        if (_interopBound && _interopModule is not null)
+        {
+            _interopBound = false;
+            try
+            {
+                await _interopModule.InvokeVoidAsync("unbindPopover", _rootId);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [JSInvokable]
+    public async Task CloseFromJavaScript(bool restoreFocus)
+    {
+        await CloseAsync(restoreFocus);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static string EnsureFixedWidth(string icon) =>
+        icon.Contains("fa-fw", StringComparison.Ordinal) ? icon : $"{icon} fa-fw";
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_interopBound && _interopModule is not null)
+        {
+            try
+            {
+                await _interopModule.InvokeVoidAsync("unbindPopover", _rootId);
+            }
+            catch
+            {
+            }
+        }
+
+        if (_interopModule is not null)
+        {
+            try
+            {
+                await _interopModule.DisposeAsync();
+            }
+            catch
+            {
+            }
+        }
+
+        _dotNetReference?.Dispose();
+    }
+}

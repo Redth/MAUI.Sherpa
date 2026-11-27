@@ -183,6 +183,10 @@ styles is `src/MauiSherpa/wwwroot/css/app.css`.
 - **Loading & empty states:** Never show a "none found" empty state before the first
   load has completed and confirmed zero items. Track initial load completion (`hasLoaded` /
   `hasInitialized`) and render `<SherpaListSkeleton />` until data is ready.
+- **Row overflow menus:** Keep list-row action strips calm and aligned—show at most 1–2
+  consistent primary actions/indicators on the row (e.g. Cloud Sync picker or Boot/Start)
+  and place secondary, conditional, and destructive actions inside `<SherpaActionMenu>` (`⋮`)
+  rather than rendering jagged walls of conditional icon buttons.
 - **Cross-platform adaptation:** Never add ad-hoc platform CSS to individual pages.
   Platform differences are centralized in `app.css` through `.platform-macos`
   (Apple Blue, SF Pro at 13px, 12px cards), `.platform-windows` (Sherpa Violet,

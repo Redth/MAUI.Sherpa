@@ -250,36 +250,9 @@
                                 Item="@(new SecretItemRef(SecretItemKind.Certificate, GetCertificateSyncItemId(cert.SerialNumber), cert.Name))"
                                 CanAddProviderCopy="@(syncStatus != SecretLocation.None)"
                                 UnavailableSourceReason="This certificate has no matching private key in Keychain and no provider copy. Import or install its private key before syncing." />
-                            @if (syncStatus is SecretLocation.CloudOnly)
-                            {
-                                <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => InstallLocally(cert))" title="Install private key locally">
-                                    <i class="fa-solid fa-download"></i>
-                                </button>
-                            }
                         }
-                        <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => ShowExportDialog(cert))"
-                                disabled="@isLoading" title="Export">
-                            <i class="fa-solid fa-file-export"></i>
-                        </button>
-                        @if (!string.IsNullOrWhiteSpace(cert.SerialNumber) &&
-                             syncStatus is SecretLocation.LocalOnly or SecretLocation.Both)
-                        {
-                            <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="@(() => DeleteLocalCertificate(cert))" title="Delete private key from Keychain">
-                                <i class="fa-solid fa-trash-alt"></i>
-                            </button>
-                        }
-                        @if (!cert.IsLocalOnly)
-                        {
-                            <button data-screenshot-external class="btn btn-warning btn-icon btn-sm" @onclick="@(() => RenewCertificate(cert))"
-                                    disabled="@isLoading" title="Renew… (replace this certificate and move its provisioning profiles)"
-                                    aria-label="@($"Renew {cert.Name}")">
-                                <i class="fa-solid fa-rotate"></i>
-                            </button>
-                            <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="@(() => RevokeCertificate(cert))"
-                                    disabled="@isLoading" title="Revoke">
-                                <i class="fa-solid fa-ban"></i>
-                            </button>
-                        }
+                        <SherpaActionMenu Items="@GetCertificateActions(cert, syncStatus)"
+                                          AriaLabel="@($"Actions for {cert.Name}")" />
                     </div>
                     }
                 </div>
@@ -694,6 +667,61 @@
             }
             StateHasChanged();
         });
+    }
+
+    private IReadOnlyList<SherpaMenuItem> GetCertificateActions(AppleCertificate cert, SecretLocation syncStatus)
+    {
+        var items = new List<SherpaMenuItem>();
+
+        if (!string.IsNullOrWhiteSpace(cert.SerialNumber) && syncStatus is SecretLocation.CloudOnly)
+        {
+            items.Add(SherpaMenuItem.Action(
+                "Install Private Key Locally",
+                "fa-solid fa-download",
+                () => InstallLocally(cert),
+                disabled: isLoading));
+        }
+
+        items.Add(SherpaMenuItem.Action(
+            "Export Certificate...",
+            "fa-solid fa-file-export",
+            () => ShowExportDialog(cert),
+            disabled: isLoading));
+
+        if (!cert.IsLocalOnly)
+        {
+            items.Add(SherpaMenuItem.Action(
+                "Renew Certificate...",
+                "fa-solid fa-rotate",
+                () => RenewCertificate(cert),
+                disabled: isLoading,
+                title: "Replace this certificate and move its provisioning profiles"));
+        }
+
+        items.Add(SherpaMenuItem.Divider);
+
+        if (!string.IsNullOrWhiteSpace(cert.SerialNumber) &&
+            syncStatus is SecretLocation.LocalOnly or SecretLocation.Both)
+        {
+            items.Add(SherpaMenuItem.Action(
+                "Delete Local Key",
+                "fa-solid fa-trash-can",
+                () => DeleteLocalCertificate(cert),
+                isDanger: true,
+                title: "Delete private key from Keychain"));
+        }
+
+        if (!cert.IsLocalOnly)
+        {
+            items.Add(SherpaMenuItem.Action(
+                "Revoke Certificate",
+                "fa-solid fa-ban",
+                () => RevokeCertificate(cert),
+                isDanger: true,
+                disabled: isLoading));
+        }
+
+        return items;
     }
 
     public void Dispose()

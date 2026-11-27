@@ -103,24 +103,20 @@ else
                     </div>
                 </div>
                 <div class="simulator-actions sherpa-row-actions">
-                    <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="() => ShowPairing(device.Identifier)" disabled="@isUnpairing" title="Pair or check connection" aria-label="@($"Pair or check connection for {device.Name}")">
-                        <i class="fa-solid fa-link"></i>
-                    </button>
-                    <button data-screenshot-external class="btn btn-info btn-icon btn-sm" @onclick="@(() => SimInspector.OpenAsync(device.Identifier, device.Name, SimInspectorTab.Logs, isPhysicalDevice: true))" disabled="@(!device.IsPaired || !device.IsConnected)" title="Logs">
-                        <i class="fa-solid fa-scroll"></i>
-                    </button>
-                    <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => SimInspector.OpenAsync(device.Identifier, device.Name, SimInspectorTab.Apps, isPhysicalDevice: true))" disabled="@(!device.IsPaired || !device.IsConnected)" title="Apps">
-                        <i class="fa-solid fa-th-large"></i>
-                    </button>
-                    <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => InstallAppOnDevice(device))" disabled="@(!device.IsPaired || !device.IsConnected || device.DeveloperModeStatus == "disabled")" title="Install App">
-                        <i class="fa-solid fa-download"></i>
-                    </button>
-                    @if (device.IsPaired)
+                    @if (device.IsPaired && device.IsConnected)
                     {
-                        <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="() => UnpairDevice(device)" disabled="@(isUnpairing || showPairing)" title="Unpair device" aria-label="@($"Unpair {device.Name}")">
-                            <i class="fa-solid fa-unlink"></i>
+                        <button data-screenshot-external class="btn btn-primary btn-sm" @onclick="@(() => SimInspector.OpenAsync(device.Identifier, device.Name, SimInspectorTab.Apps, isPhysicalDevice: true))" title="Inspect">
+                            <i class="fa-solid fa-magnifying-glass fa-fw"></i> Inspect
                         </button>
                     }
+                    else
+                    {
+                        <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="() => ShowPairing(device.Identifier)" disabled="@isUnpairing" title="Pair or check connection" aria-label="@($"Pair or check connection for {device.Name}")">
+                            <i class="fa-solid fa-link fa-fw"></i> Pair
+                        </button>
+                    }
+                    <SherpaActionMenu Items="@GetPhysicalDeviceActions(device)"
+                                      AriaLabel="@($"Actions for {device.Name}")" />
                 </div>
             </div>
         }
@@ -324,51 +320,24 @@ else
                 <div class="simulator-actions sherpa-row-actions">
                     @if (isBooting)
                     {
-                        <button class="btn btn-secondary btn-icon btn-sm" disabled>
-                            <i class="fa-solid fa-spinner fa-spin"></i>
+                        <button class="btn btn-secondary btn-sm" disabled>
+                            <i class="fa-solid fa-spinner fa-spin fa-fw"></i> Booting
                         </button>
                     }
                     else if (isBooted)
                     {
-                        <button data-screenshot-external class="btn btn-info btn-icon btn-sm" @onclick="@(() => SimInspector.OpenAsync(sim.Udid, sim.Name))" title="Logs">
-                            <i class="fa-solid fa-scroll"></i>
-                        </button>
-                        <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => SimInspector.OpenAsync(sim.Udid, sim.Name, SimInspectorTab.Apps))" title="Inspect">
-                            <i class="fa-solid fa-search"></i>
-                        </button>
-                        <button data-screenshot-external class="btn btn-warning btn-icon btn-sm" @onclick="@(() => ShutdownSimulator(sim))" disabled="@isLoading" title="Shutdown">
-                            <i class="fa-solid fa-stop"></i>
+                        <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="@(() => ShutdownSimulator(sim))" disabled="@isLoading" title="Shutdown">
+                            <i class="fa-solid fa-stop fa-fw"></i> Shutdown
                         </button>
                     }
                     else
                     {
-                        <button data-screenshot-external class="btn btn-success btn-icon btn-sm" @onclick="@(() => BootSimulator(sim))" disabled="@(isLoading || isDeletingSimulator || !sim.IsAvailable)" title="Boot">
-                            <i class="fa-solid fa-play"></i>
+                        <button data-screenshot-external class="btn btn-primary btn-sm" @onclick="@(() => BootSimulator(sim))" disabled="@(isLoading || isDeletingSimulator || !sim.IsAvailable)" title="Boot">
+                            <i class="fa-solid fa-play fa-fw"></i> Boot
                         </button>
                     }
-                    <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="() => DeleteSimulator(sim)" disabled="@(isLoading || isDeletingSimulator || isBooting)" title="Delete simulator" aria-label="@($"Delete {sim.Name}")">
-                        <i class="fa-solid fa-trash"></i>
-                    </button>
-                    <div class="sim-dropdown">
-                        <button class="btn btn-ghost btn-icon btn-sm sim-dropdown-toggle" @onclick="@(() => ToggleDropdown(sim.Udid))" @onclick:stopPropagation="true" title="More actions">
-                            <i class="fa-solid fa-ellipsis-v"></i>
-                        </button>
-                        @if (openDropdownId == sim.Udid)
-                        {
-                            <div class="sim-dropdown-menu">
-                                <button data-screenshot-external class="sim-dropdown-item" @onclick="@(() => { CloseDropdown(); OpenSimulatorDirectory(sim); })">
-                                    <i class="fa-solid fa-folder-open"></i> Open in @(Platform.IsMacCatalyst || Platform.IsMacOS ? "Finder" : "Explorer")
-                                </button>
-                                <div class="sim-dropdown-divider"></div>
-                                <button data-screenshot-external class="sim-dropdown-item" @onclick="@(() => { CloseDropdown(); CloneSimulator(sim); })" disabled="@(isLoading || isBooting)">
-                                    <i class="fa-solid fa-clone"></i> Clone
-                                </button>
-                                <button data-screenshot-external class="sim-dropdown-item" @onclick="@(() => { CloseDropdown(); EraseSimulator(sim); })" disabled="@(isLoading || isBooted || isBooting)">
-                                    <i class="fa-solid fa-rotate-left"></i> Reset
-                                </button>
-                            </div>
-                        }
-                    </div>
+                    <SherpaActionMenu Items="@GetSimulatorActions(sim, isBooted, isBooting)"
+                                      AriaLabel="@($"Actions for {sim.Name}")" />
                 </div>
                 }
             </div>
@@ -593,7 +562,6 @@ else
     private string? physicalDevicesError;
     private ElementReference pairButton;
     private bool demoMode = false;
-    private string? openDropdownId;
 
     // Filters
     private string searchQuery = "";
@@ -658,7 +626,6 @@ else
     private void BeginSelectionMode()
     {
         if (isLoading || isDeletingSimulator) return;
-        CloseDropdown();
         selectedSimulatorIds.Clear();
         isSelectionMode = true;
     }
@@ -1024,14 +991,86 @@ else
         FileSystem.RevealInFileManager(path);
     }
 
-    private void ToggleDropdown(string udid)
+    private IReadOnlyList<SherpaMenuItem> GetPhysicalDeviceActions(PhysicalDevice device)
     {
-        openDropdownId = openDropdownId == udid ? null : udid;
+        var items = new List<SherpaMenuItem>
+        {
+            SherpaMenuItem.Action(
+                "Pair / Check Connection",
+                "fa-solid fa-link",
+                () => ShowPairing(device.Identifier),
+                disabled: isUnpairing),
+            SherpaMenuItem.Action(
+                "View Logs",
+                "fa-solid fa-scroll",
+                () => SimInspector.OpenAsync(device.Identifier, device.Name, SimInspectorTab.Logs, isPhysicalDevice: true),
+                disabled: !device.IsPaired || !device.IsConnected),
+            SherpaMenuItem.Action(
+                "Manage Apps",
+                "fa-solid fa-th-large",
+                () => SimInspector.OpenAsync(device.Identifier, device.Name, SimInspectorTab.Apps, isPhysicalDevice: true),
+                disabled: !device.IsPaired || !device.IsConnected),
+            SherpaMenuItem.Action(
+                "Install App...",
+                "fa-solid fa-download",
+                () => InstallAppOnDevice(device),
+                disabled: !device.IsPaired || !device.IsConnected || device.DeveloperModeStatus == "disabled")
+        };
+
+        if (device.IsPaired)
+        {
+            items.Add(SherpaMenuItem.Divider);
+            items.Add(SherpaMenuItem.Action(
+                "Unpair Device",
+                "fa-solid fa-unlink",
+                () => UnpairDevice(device),
+                isDanger: true,
+                disabled: isUnpairing || showPairing));
+        }
+
+        return items;
     }
 
-    private void CloseDropdown()
+    private IReadOnlyList<SherpaMenuItem> GetSimulatorActions(SimulatorDevice sim, bool isBooted, bool isBooting)
     {
-        openDropdownId = null;
+        var items = new List<SherpaMenuItem>();
+
+        if (isBooted && !isBooting)
+        {
+            items.Add(SherpaMenuItem.Action(
+                "View Logs",
+                "fa-solid fa-scroll",
+                () => SimInspector.OpenAsync(sim.Udid, sim.Name)));
+            items.Add(SherpaMenuItem.Action(
+                "Inspect Apps",
+                "fa-solid fa-magnifying-glass",
+                () => SimInspector.OpenAsync(sim.Udid, sim.Name, SimInspectorTab.Apps)));
+            items.Add(SherpaMenuItem.Divider);
+        }
+
+        items.Add(SherpaMenuItem.Action(
+            $"Open in {(Platform.IsMacCatalyst || Platform.IsMacOS ? "Finder" : "Explorer")}",
+            "fa-solid fa-folder-open",
+            () => OpenSimulatorDirectory(sim)));
+        items.Add(SherpaMenuItem.Action(
+            "Clone Simulator",
+            "fa-solid fa-clone",
+            () => CloneSimulator(sim),
+            disabled: isLoading || isBooting));
+        items.Add(SherpaMenuItem.Action(
+            "Reset Simulator",
+            "fa-solid fa-rotate-left",
+            () => EraseSimulator(sim),
+            disabled: isLoading || isBooted || isBooting));
+        items.Add(SherpaMenuItem.Divider);
+        items.Add(SherpaMenuItem.Action(
+            "Delete Simulator",
+            "fa-solid fa-trash-can",
+            () => DeleteSimulator(sim),
+            isDanger: true,
+            disabled: isLoading || isDeletingSimulator || isBooting));
+
+        return items;
     }
 
     // Physical devices

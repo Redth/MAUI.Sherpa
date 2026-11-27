@@ -24,7 +24,6 @@
 @implements IDisposable
 
 <h1 class="visually-hidden">Android Devices &amp; Emulators</h1>
-<MauiSherpa.Components.AndroidSdkContext Changed="SdkChangedAsync" />
 
 <div class="device-section-heading">
     <h2 class="device-section-label"><i class="fa-solid fa-mobile-alt" aria-hidden="true"></i> Physical Devices</h2>
@@ -250,17 +249,14 @@ else
                         }
                         else if (instance != null)
                         {
-                            <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, emulator.Name)" title="Logcat" aria-label="Logcat for @emulator.Name"><i class="fa-solid fa-scroll fa-fw"></i> Logcat</button>
-                            <button data-screenshot-external class="btn btn-primary btn-sm" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, emulator.Name, InspectorTab.Files)" title="Inspect" aria-label="Inspect @emulator.Name"><i class="fa-solid fa-magnifying-glass fa-fw"></i> Inspect</button>
                             <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="() => StopEmulator(emulator)" disabled="@IsBusy" title="Stop" aria-label="Stop @emulator.Name"><i class="fa-solid fa-stop fa-fw"></i> Stop</button>
                         }
                         else
                         {
-                            <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="() => StartEmulator(emulator, true)" disabled="@(IsBusy || !CanVerifyEmulatorState || !HasSystemImage(emulator))" title="Cold Boot" aria-label="Cold boot @emulator.Name"><i class="fa-solid fa-snowflake fa-fw"></i> Cold Boot</button>
                             <button data-screenshot-external class="btn btn-primary btn-sm" @onclick="() => StartEmulator(emulator, false)" disabled="@(IsBusy || !CanVerifyEmulatorState || !HasSystemImage(emulator))" title="Start" aria-label="Start @emulator.Name"><i class="fa-solid fa-play fa-fw"></i> Start</button>
                         }
-                        <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="() => DeleteEmulator(emulator)" disabled="@(IsBusy || isStarting || !CanVerifyEmulatorState)"
-                                title="Delete emulator" aria-label="Delete @emulator.Name"><i class="fa-solid fa-trash-can"></i></button>
+                        <SherpaActionMenu Items="@GetEmulatorActions(emulator, instance, isStarting)"
+                                          AriaLabel="@($"Actions for {emulator.Name}")" />
                     </div>
                 }
             </div>
@@ -436,7 +432,6 @@ else
                 ToolTip: "Pair Device or Create Emulator", MenuActions: [pairAction, createAction])]
             : [pairAction, createAction];
         ToolbarService.SetItems([
-            MauiSherpa.Components.AndroidSdkContext.Menu,
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             ..deviceActions]);
         UpdateToolbarItemStates();
@@ -446,6 +441,7 @@ else
         ToolbarService.SearchTextChanged += OnSearchTextChanged;
         ToolbarService.FilterChanged += OnFilterChanged;
         DeviceWatcher.DevicesChanged += OnDevicesChanged;
+        SdkSettings.SdkPathChanged += OnSdkPathChanged;
 
         try
         {
@@ -906,6 +902,44 @@ else
         StateHasChanged();
     });
 
+    private IReadOnlyList<SherpaMenuItem> GetEmulatorActions(AvdInfo emulator, RunningAndroidEmulator? instance, bool isStarting)
+    {
+        var items = new List<SherpaMenuItem>();
+        if (instance != null)
+        {
+            items.Add(SherpaMenuItem.Action(
+                "Inspect Device",
+                "fa-solid fa-magnifying-glass",
+                () => DeviceInspector.OpenAsync(instance.Serial, emulator.Name, InspectorTab.Files),
+                disabled: isStarting));
+            items.Add(SherpaMenuItem.Action(
+                "Open Logcat",
+                "fa-solid fa-scroll",
+                () => DeviceInspector.OpenAsync(instance.Serial, emulator.Name),
+                disabled: isStarting));
+        }
+        else
+        {
+            items.Add(SherpaMenuItem.Action(
+                "Cold Boot",
+                "fa-solid fa-snowflake",
+                () => StartEmulator(emulator, true),
+                disabled: IsBusy || isStarting || !CanVerifyEmulatorState || !HasSystemImage(emulator)));
+        }
+
+        items.Add(SherpaMenuItem.Divider);
+        items.Add(SherpaMenuItem.Action(
+            "Delete Emulator",
+            "fa-solid fa-trash-can",
+            () => DeleteEmulator(emulator),
+            isDanger: true,
+            disabled: IsBusy || isStarting || !CanVerifyEmulatorState));
+
+        return items;
+    }
+
+    private void OnSdkPathChanged() => _ = InvokeAsync(SdkChangedAsync);
+
     private async Task SdkChangedAsync()
     {
         selectedEmulators.Clear();
@@ -928,6 +962,7 @@ else
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
         DeviceWatcher.DevicesChanged -= OnDevicesChanged;
+        SdkSettings.SdkPathChanged -= OnSdkPathChanged;
         disposeCts.Cancel();
     }
 }

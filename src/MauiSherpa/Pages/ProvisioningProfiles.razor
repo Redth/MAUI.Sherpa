@@ -234,35 +234,8 @@
                         <MauiSherpa.Components.SecretProviderPickerHost
                             @key="@($"profile-sync-{profile.Id}")"
                             Item="@(new SecretItemRef(SecretItemKind.ProvisioningProfile, profile.Id, profile.Name) { AppleIdentityId = profilesIdentityId })" />
-                        <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => ShowEditDialog(profile))" disabled="@isLoading" title="Edit">
-                            <i class="fa-solid fa-edit"></i>
-                        </button>
-                        <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => DownloadProfile(profile))" disabled="@isLoading" title="Download">
-                            <i class="fa-solid fa-download"></i>
-                        </button>
-                        <div class="prof-dropdown">
-                            <button class="btn btn-ghost btn-icon btn-sm prof-dropdown-toggle" @onclick="@(() => ToggleDropdown(profile.Id))" @onclick:stopPropagation="true" title="More actions">
-                                <i class="fa-solid fa-ellipsis-v"></i>
-                            </button>
-                            @if (openDropdown == profile.Id)
-                            {
-                                <div class="prof-dropdown-menu">
-                                    <button data-screenshot-external class="prof-dropdown-item" @onclick="@(() => { openDropdown = null; DownloadProfileTo(profile); })">
-                                        <i class="fa-solid fa-folder-open"></i> Download to...
-                                    </button>
-                                    <button data-screenshot-external class="prof-dropdown-item" @onclick="@(() => { openDropdown = null; InstallProfile(profile); })">
-                                        <i class="fa-solid fa-folder-plus"></i> Install to System
-                                    </button>
-                                    <button data-screenshot-external class="prof-dropdown-item" @onclick="@(() => RevealInstalledProfile(profile))">
-                                        <i class="fa-solid fa-magnifying-glass"></i> @RevealProfileLabel
-                                    </button>
-                                    <div class="prof-dropdown-divider"></div>
-                                    <button data-screenshot-external class="prof-dropdown-item danger" @onclick="@(() => { openDropdown = null; DeleteProfile(profile); })" disabled="@isLoading">
-                                        <i class="fa-solid fa-trash"></i> Delete
-                                    </button>
-                                </div>
-                            }
-                        </div>
+                        <SherpaActionMenu Items="@GetProfileActions(profile)"
+                                          AriaLabel="@($"Actions for {profile.Name}")" />
                     </div>
                     }
                 </div>
@@ -478,7 +451,6 @@
     private bool hasLoaded;
     private bool demoMode = false;
     private string errorMessage = "";
-    private string? openDropdown = null;
     private bool isSelectionMode;
     private readonly HashSet<string> selectedProfileIds = new(StringComparer.Ordinal);
     // Filter state
@@ -519,10 +491,16 @@
         .Where(p => p.ExpirationDate > AppClock.UtcNow)
         .ToList();
 
-    private void ToggleDropdown(string id)
-    {
-        openDropdown = openDropdown == id ? null : id;
-    }
+    private IReadOnlyList<SherpaMenuItem> GetProfileActions(AppleProfile profile) =>
+    [
+        SherpaMenuItem.Action("Edit Profile...", "fa-solid fa-pen-to-square", () => ShowEditDialog(profile), disabled: isLoading),
+        SherpaMenuItem.Action("Download", "fa-solid fa-download", () => DownloadProfile(profile), disabled: isLoading),
+        SherpaMenuItem.Action("Download to...", "fa-solid fa-folder-open", () => DownloadProfileTo(profile), disabled: isLoading),
+        SherpaMenuItem.Action("Install to System", "fa-solid fa-folder-plus", () => InstallProfile(profile), disabled: isLoading),
+        SherpaMenuItem.Action(RevealProfileLabel, "fa-solid fa-magnifying-glass", () => RevealInstalledProfile(profile)),
+        SherpaMenuItem.Divider,
+        SherpaMenuItem.Action("Delete Profile", "fa-solid fa-trash-can", () => DeleteProfile(profile), isDanger: true, disabled: isLoading)
+    ];
 
     private async Task ShowCreateDialog()
     {
@@ -751,7 +729,6 @@
 
     private async Task DownloadProfile(AppleProfile profile)
     {
-        openDropdown = null;
         isLoading = true;
         UpdateToolbarItemStates();
         try
@@ -773,7 +750,6 @@
     
     private async Task DownloadProfileTo(AppleProfile profile)
     {
-        openDropdown = null;
         isLoading = true;
         UpdateToolbarItemStates();
         try
@@ -877,7 +853,6 @@
 
     private async Task RevealInstalledProfile(AppleProfile profile)
     {
-        openDropdown = null;
         try
         {
             var paths = await AppleService.FindInstalledProfilePathsAsync(profile.Uuid);
@@ -898,8 +873,6 @@
 
     private async Task InstallProfile(AppleProfile profile)
     {
-        openDropdown = null;
-        
         var result = await OperationModal.RunAsync(
             "Install Profile",
             $"Installing '{profile.Name}' to system...",
@@ -1008,7 +981,6 @@
 
     private void BeginSelectionMode()
     {
-        openDropdown = null;
         isSelectionMode = true;
         selectedProfileIds.Clear();
         ConfigureToolbarItems();
