@@ -22,6 +22,25 @@ def workflow_script(name):
     return textwrap.dedent(section.split("        run: |\n", 1)[1])
 
 
+class MacOSReleaseArtifactTests(unittest.TestCase):
+    def test_release_download_cannot_select_the_raw_bundle(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+
+        def artifact_name(source, step):
+            section = source.split(f"      - name: {step}\n", 1)[1]
+            section = section.split("      - name: ", 1)[0]
+            return section.split("          name: ", 1)[1].splitlines()[0]
+
+        raw = artifact_name(workflow, "Upload macOS App")
+        notarized = artifact_name(workflow, "Upload notarized macOS App")
+        notarization_job = workflow.split("  notarize-macos:\n", 1)[1]
+        release_job = workflow.split("  create-release:\n", 1)[1]
+
+        self.assertNotEqual(raw, notarized)
+        self.assertEqual(artifact_name(notarization_job, "Download macOS artifact"), raw)
+        self.assertEqual(artifact_name(release_job, "Download macOS artifact"), notarized)
+
+
 class MacOSReleaseSigningTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()

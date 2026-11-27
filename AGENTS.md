@@ -337,6 +337,8 @@ When making or reviewing UI changes, always verify:
 
 **Universal release startup:** Keep `GenerateTrustedPlatformAssemblies=false` in the macOS head. CI merges separate RID builds and moves architecture-specific assemblies into `MonoBundle/.xamarin/<RID>/`; .NET 11's precomputed single-RID assembly paths do not follow that relocation. Runtime discovery checks both locations. Run `python3 build/verify_macos_launch.py "<app path>"` after packaging/signing; add `--architecture x86_64` to test the Intel slice on a Mac with Rosetta.
 
+**Notarized release artifacts:** Keep `MAUI-Sherpa.macos-notarized` separate from the raw `MAUI-Sherpa.macos` artifact, and have release creation download the notarized name. Artifact overwrites can leave duplicate names available; consumers must never select the unstapled build by accident.
+
 **Logging:** Logs saved to `~/Library/Application Support/MauiSherpa/logs/maui-sherpa-{yyyy-MM-dd}.log`.
 
 ### Blazor WebView Gotchas
