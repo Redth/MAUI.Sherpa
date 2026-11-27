@@ -4786,6 +4786,9 @@ public record ApnsPushProjectConfig
     public string? P8KeyId { get; init; }
     /// <summary>Managed secret key holding the .p8 content when AuthMode is "secret".</summary>
     public string? P8SecretKey { get; init; }
+    public string? P8VaultKey { get; init; }
+    public string? KeyIdSecretKey { get; init; }
+    public string? TeamIdSecretKey { get; init; }
     public string? TeamId { get; init; }
     public string PushType { get; init; } = "alert";
     public int Priority { get; init; } = 5;
@@ -4800,7 +4803,11 @@ public record ApnsPushProjectConfig
 
 public record FcmPushProjectConfig
 {
+    public string? AuthMode { get; init; } = "identity";
     public string? SelectedGoogleIdentityId { get; init; }
+    public string? ServiceAccountFilePath { get; init; }
+    public string? ServiceAccountSecretKey { get; init; }
+    public string? ServiceAccountVaultKey { get; init; }
     public bool UseToken { get; init; } = true;
     public string? DeviceToken { get; init; }
     public string? Topic { get; init; }
@@ -5327,7 +5334,7 @@ public record ApnsPushResult(
 /// Represents a toolbar action that can be displayed in the native macOS toolbar.
 /// </summary>
 public record ToolbarAction(string Id, string Label, string SfSymbol, bool IsPrimary = true, string? ToolTip = null,
-    IReadOnlyList<ToolbarAction>? MenuActions = null);
+    IReadOnlyList<ToolbarAction>? MenuActions = null, bool IsSeparator = false);
 
 /// <summary>Describes a filter dropdown for the native toolbar.</summary>
 public record ToolbarFilter(string Id, string Label, string[] Options, int SelectedIndex = 0);

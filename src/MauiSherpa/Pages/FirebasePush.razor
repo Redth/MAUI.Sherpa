@@ -5,7 +5,6 @@
 @using MauiSherpa.Services
 @inject IFirebasePushService PushService
 @inject IGoogleIdentityService GoogleIdentityService
-@inject IGoogleIdentityStateService GoogleIdentityState
 @inject IPushProjectService ProjectService
 @inject IAlertService AlertService
 @inject IDialogService DialogService
@@ -13,6 +12,9 @@
 @inject BlazorToastService ToastService
 @inject IToolbarService ToolbarService
 @inject ILocalVaultAccessService LocalVaultAccess
+@inject ILocalVaultStore LocalVault
+@inject IManagedSecretsService SecretsService
+@inject ILoggingService Logger
 @implements IDisposable
 
 <div class="push-page-header">
@@ -20,6 +22,8 @@
         <h1><i class="fa-solid fa-fw fa-paper-plane"></i> Firebase Push Testing</h1>
         <p>Send test notifications to Android devices through Firebase Cloud Messaging (FCM v1).</p>
     </div>
+    @if (activeProject != null)
+    {
     <div class="push-page-status">
         @if (hasCredentials)
         {
@@ -32,17 +36,20 @@
             <span class="push-pill warning"><i class="fa-solid fa-fw fa-triangle-exclamation"></i> No service account</span>
         }
     </div>
+    }
 </div>
 
-<PushProjectBar @ref="projectBar"
+<PushProjectBar
     Platform="PushProjectPlatform.Fcm"
     ActiveProject="activeProject"
     ActiveProjectChanged="OnActiveProjectChanged"
     OnSaveRequested="SaveProject"
-    IsDirty="isDirty" />
+    GetCurrentProject="GetCurrentProject"
+    IsDirty="isDirty"
+    IsBusy="isSending" />
 
-<GoogleIdentityPicker />
-
+@if (activeProject != null)
+{
 <div class="push-workspace-container">
     <div class="push-workspace">
         <div class="push-main">
@@ -215,8 +222,9 @@
     </div>
 </div>
 
+}
+
 @code {
-    PushProjectBar? projectBar;
     PushProject? activeProject;
     bool hasCredentials;
     string? projectId;
@@ -310,53 +318,44 @@
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.ClearItems();
-        GoogleIdentityState.OnSelectionChanged += OnIdentityChanged;
-
-        // Load projects and select most recent (or create blank)
-        var projects = await ProjectService.GetProjectsAsync(PushProjectPlatform.Fcm);
-        if (projects.Count > 0)
-            await LoadFromProject(projects[0]);
-
-        await SyncCredentialsFromIdentity();
+        LocalVaultAccess.StateChanged += OnIdentityChanged;
+        await SyncProjectCredentials();
     }
 
     private void OnIdentityChanged()
     {
         InvokeAsync(async () =>
         {
-            await SyncCredentialsFromIdentity();
+            await SyncProjectCredentials();
             StateHasChanged();
         });
     }
 
-    private async Task SyncCredentialsFromIdentity()
+    private async Task SyncProjectCredentials()
     {
-        if (LocalVaultAccess.GetState().RequiresUserAction)
-        {
-            hasCredentials = false;
-            projectId = null;
+        hasCredentials = false;
+        projectId = null;
+        if (activeProject == null)
             return;
-        }
 
         try
         {
-            var identity = GoogleIdentityState.SelectedIdentity;
-            if (identity != null && !string.IsNullOrEmpty(identity.ServiceAccountJson))
-            {
-                await PushService.SaveServiceAccountAsync(identity.ServiceAccountJson);
-                hasCredentials = true;
-                projectId = identity.ProjectId;
-            }
-            else
-            {
-                hasCredentials = await PushService.HasCredentialsAsync();
-                projectId = hasCredentials ? await PushService.GetProjectIdAsync() : null;
-            }
+            var config = activeProject.FcmConfig ?? new();
+            var content = await PushProjectCredentials.ReadFcmAsync(config, GoogleIdentityService, SecretsService, LocalVault, FileSystem);
+            await PushService.SaveServiceAccountAsync(content);
+            using var document = JsonDocument.Parse(content);
+            projectId = document.RootElement.GetProperty("project_id").GetString();
+            hasCredentials = true;
         }
         catch (LocalVaultUnavailableException)
         {
             hasCredentials = false;
             projectId = null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError("Failed to load Firebase project credentials.", ex);
+            ToastService.Show($"Could not load this project's service account: {ex.Message}", ToastType.Error);
         }
     }
 
@@ -375,20 +374,15 @@
         rawJsonMode = config.RawJsonMode;
         rawJson = config.RawJson ?? "";
 
-        // Restore Google identity selection
-        if (!string.IsNullOrEmpty(config.SelectedGoogleIdentityId))
-        {
-            var identity = await GoogleIdentityService.GetIdentityAsync(config.SelectedGoogleIdentityId);
-            if (identity != null)
-                GoogleIdentityState.SetSelectedIdentity(identity);
-        }
-
+        await SyncProjectCredentials();
         isDirty = false;
     }
 
     void ResetToBlank()
     {
         activeProject = null;
+        hasCredentials = false;
+        projectId = null;
         useToken = true;
         deviceToken = "";
         topic = "";
@@ -429,7 +423,11 @@
 
     FcmPushProjectConfig BuildConfig() => new()
     {
-        SelectedGoogleIdentityId = GoogleIdentityState.SelectedIdentity?.Id,
+        SelectedGoogleIdentityId = activeProject?.FcmConfig?.SelectedGoogleIdentityId,
+        AuthMode = activeProject?.FcmConfig?.AuthMode ?? "identity",
+        ServiceAccountFilePath = activeProject?.FcmConfig?.ServiceAccountFilePath,
+        ServiceAccountSecretKey = activeProject?.FcmConfig?.ServiceAccountSecretKey,
+        ServiceAccountVaultKey = activeProject?.FcmConfig?.ServiceAccountVaultKey,
         UseToken = useToken,
         DeviceToken = string.IsNullOrEmpty(deviceToken) ? null : deviceToken,
         Topic = string.IsNullOrEmpty(topic) ? null : topic,
@@ -444,35 +442,17 @@
         RawJson = string.IsNullOrEmpty(rawJson) ? null : rawJson
     };
 
+    PushProject GetCurrentProject() => (activeProject ?? throw new InvalidOperationException("Select a project first.")) with { FcmConfig = BuildConfig() };
+
     async Task SaveProject()
     {
         try
         {
-            var name = projectBar?.GetProjectName() ?? "Untitled";
-            var description = projectBar?.GetProjectDescription();
-
             if (activeProject != null)
             {
-                var updated = activeProject with
-                {
-                    Name = name,
-                    Description = description,
-                    FcmConfig = BuildConfig()
-                };
+                var updated = GetCurrentProject();
                 await ProjectService.SaveProjectAsync(updated);
                 activeProject = await ProjectService.GetProjectAsync(updated.Id);
-            }
-            else
-            {
-                var project = new PushProject
-                {
-                    Name = name,
-                    Description = description,
-                    Platform = PushProjectPlatform.Fcm,
-                    FcmConfig = BuildConfig()
-                };
-                await ProjectService.SaveProjectAsync(project);
-                activeProject = await ProjectService.GetProjectAsync(project.Id);
             }
 
             isDirty = false;
@@ -491,6 +471,8 @@
 
         try
         {
+            await SyncProjectCredentials();
+            if (!hasCredentials) return;
             var data = dataEntries
                 .Where(d => !string.IsNullOrWhiteSpace(d.Key))
                 .ToDictionary(d => d.Key, d => d.Value ?? "");
@@ -547,6 +529,8 @@
 
         try
         {
+            await SyncProjectCredentials();
+            if (!hasCredentials) return;
             var response = await PushService.SendRawJsonAsync(rawJson);
 
             // Record history
@@ -606,6 +590,6 @@
 
     public void Dispose()
     {
-        GoogleIdentityState.OnSelectionChanged -= OnIdentityChanged;
+        LocalVaultAccess.StateChanged -= OnIdentityChanged;
     }
 }

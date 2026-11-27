@@ -1,150 +1,71 @@
 @using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@using MauiSherpa.Pages.Modals
 @using MauiSherpa.Services
 @inject IPushProjectService ProjectService
+@inject IToolbarService ToolbarService
+@inject IFormModalService FormModal
+@inject HybridFormBridgeHolder BridgeHolder
 @inject IAlertService AlertService
+@inject ILoggingService Logger
 @inject BlazorToastService ToastService
 @implements IDisposable
 
-<div class="push-project-bar">
-    <div class="push-project-row">
-        <span class="push-project-icon"><i class="fa-solid fa-folder-open"></i></span>
-
-        <div class="push-project-fields">
-            <SherpaSelect TValue="string"
-                          Value="@selectedProjectId"
-                          ValueChanged="OnProjectDropdownChanged"
-                          Options="ProjectOptions"
-                          LeadingIcon="fa-solid fa-folder-open"
-                          AriaLabel="Switch push project"
-                          Compact="true"
-                          Searchable="true"
-                          Class="push-input push-project-select" />
-            <input type="text" class="push-input push-project-name" placeholder="Project name"
-                   value="@projectName"
-                   @oninput="OnNameInput" />
-        </div>
-
-        <div class="push-project-actions">
-            @if (IsDirty)
-            {
-                <span class="push-unsaved"><span class="push-unsaved-dot"></span> Unsaved</span>
-            }
-            <button data-screenshot-external class="btn btn-sm @(IsDirty ? "btn-primary" : "btn-secondary")" @onclick="HandleSave" title="Save project">
-                <i class="fa-solid fa-floppy-disk"></i> Save
+@if (isLoading)
+{
+    <div class="loading-inline"><i class="fas fa-spinner fa-spin"></i> Loading projects...</div>
+}
+else if (ActiveProject == null)
+{
+    <div class="push-project-empty">
+        <div class="empty-icon"><i class="fas fa-paper-plane"></i></div>
+        <h2>@(projects.Count == 0 ? "No Push Projects" : "Select a Push Project")</h2>
+        <p>@(projects.Count == 0
+            ? "Create a project to configure credentials and start sending test notifications."
+            : "Open a recent project below, or select a project from the toolbar.")</p>
+        @if (projects.Count > 0)
+        {
+            <ul class="push-recent-projects" aria-label="Recent projects">
+                @foreach (var project in projects.Take(5))
+                {
+                    <li>
+                        <button type="button" class="push-project-link" @onclick="@(() => RunAction($"push-project:{project.Id}"))"
+                                disabled="@(isActing || IsBusy)" title="@project.Name">
+                            <i class="fas fa-folder-open" aria-hidden="true"></i>
+                            <span>@project.Name</span>
+                            <i class="fas fa-arrow-right" aria-hidden="true"></i>
+                        </button>
+                    </li>
+                }
+                <li class="push-create-link">
+                    <button type="button" class="push-project-link" @onclick="CreateProject" disabled="@(isActing || IsBusy)">
+                        <i class="fas fa-plus" aria-hidden="true"></i> Create Project
+                    </button>
+                </li>
+            </ul>
+        }
+        else
+        {
+            <button class="btn btn-primary" @onclick="CreateProject" disabled="@(isActing || IsBusy)">
+                <i class="fas fa-plus"></i> Create Project
             </button>
-            <button class="push-icon-btn @(showDescription ? "active" : "")" @onclick="() => showDescription = !showDescription" title="@(showDescription ? "Hide description" : "Add description")">
-                <i class="fa-solid fa-align-left"></i>
-            </button>
-            <button data-screenshot-external class="push-icon-btn" @onclick="HandleDuplicate" disabled="@(ActiveProject == null)" title="Duplicate project">
-                <i class="fa-solid fa-copy"></i>
-            </button>
-            <button data-screenshot-external class="push-icon-btn danger" @onclick="HandleDelete" disabled="@(ActiveProject == null)" title="Delete project">
-                <i class="fa-solid fa-trash-can"></i>
-            </button>
-        </div>
+        }
     </div>
-
-    @if (showDescription)
-    {
-        <div class="push-project-description">
-            <input type="text" class="push-input" placeholder="Description (optional)"
-                   value="@projectDescription"
-                   @oninput="OnDescriptionInput" />
-        </div>
-    }
-</div>
+}
 
 <style>
-    .push-project-bar {
-        margin-bottom: 1.5rem;
-        padding: 0.75rem 0.85rem;
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        background: var(--surface-card);
-    }
-
-    .push-project-row {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 0.75rem;
-    }
-
-    .push-project-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        width: 2.25rem;
-        height: 2.25rem;
-        border-radius: var(--radius-md);
-        background: var(--accent-soft);
-        color: var(--accent);
-        font-size: 0.9rem;
-    }
-
-    .push-project-fields {
-        display: flex;
-        flex: 1;
-        gap: 0.5rem;
-        min-width: 16rem;
-    }
-
-    .push-project-select.push-input {
-        flex: 0 1 14rem;
-        min-width: 9rem;
-        font-weight: 600;
-    }
-
-    .push-project-name.push-input {
-        flex: 1;
-        min-width: 8rem;
-    }
-
-    .push-project-actions {
-        display: flex;
-        align-items: center;
-        gap: 0.25rem;
-        flex-shrink: 0;
-    }
-
-    .push-project-actions .btn {
-        height: 2.25rem;
-        margin-right: 0.25rem;
-    }
-
-    .push-icon-btn.active {
-        background: var(--surface-card-hover);
-        color: var(--accent);
-    }
-
-    .push-unsaved {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-        margin-right: 0.5rem;
-        font-size: 0.75rem;
-        font-weight: 500;
-        color: var(--text-muted);
-    }
-
-    .push-unsaved-dot {
-        width: 0.5rem;
-        height: 0.5rem;
-        border-radius: var(--radius-pill);
-        background: var(--accent-warning);
-        animation: push-unsaved-pulse 2s ease-in-out infinite;
-    }
-
-    @@keyframes push-unsaved-pulse {
-        0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-warning) 50%, transparent); }
-        50% { box-shadow: 0 0 0 4px transparent; }
-    }
-
-    .push-project-description {
-        margin-top: 0.6rem;
-        padding-left: 3rem;
-    }
+    .push-project-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3.75rem 2.5rem; text-align: center; background: var(--card-bg); border-radius: var(--card-radius); }
+    .push-project-empty .empty-icon { font-size: 3rem; color: var(--text-muted); opacity: 0.3; margin-bottom: 1rem; }
+    .push-project-empty h2 { margin: 0 0 0.5rem; font-size: 1.25rem; color: var(--text-primary); }
+    .push-project-empty p { margin: 0 0 1.5rem; font-size: 0.875rem; color: var(--text-muted); max-width: 400px; }
+    .push-recent-projects { list-style: none; padding: 0; margin: 0; width: 100%; max-width: 360px; }
+    .push-project-link { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.625rem 0.75rem; border: 0; border-radius: 0.375rem; background: transparent; color: var(--accent-primary); font-size: 0.875rem; text-align: left; cursor: pointer; }
+    .push-project-link span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .push-project-link .fa-arrow-right { font-size: 0.75rem; }
+    .push-project-link:hover:not(:disabled) { background: var(--bg-hover); }
+    .push-project-link:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+    .push-project-link:disabled { opacity: 0.5; cursor: default; }
+    .push-create-link { border-top: 1px solid var(--border-color); margin-top: 0.375rem; padding-top: 0.375rem; }
 </style>
 
 @code {
@@ -152,166 +73,150 @@
     [Parameter] public PushProject? ActiveProject { get; set; }
     [Parameter] public EventCallback<PushProject?> ActiveProjectChanged { get; set; }
     [Parameter] public EventCallback OnSaveRequested { get; set; }
+    [Parameter] public Func<PushProject>? GetCurrentProject { get; set; }
     [Parameter] public bool IsDirty { get; set; }
+    [Parameter] public bool IsBusy { get; set; }
 
-    private List<PushProject> projects = new();
-    private string selectedProjectId = "__new__";
-    private string projectName = "";
-    private string projectDescription = "";
-    private bool showDescription;
+    List<PushProject> projects = [];
+    bool isLoading = true;
+    bool isActing;
+    string? toolbarProjectId;
+    string? toolbarProjectName;
+    string? toolbarProjectList;
 
     protected override async Task OnInitializedAsync()
     {
         ProjectService.OnProjectsChanged += OnProjectsChanged;
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
         await LoadProjects();
+        isLoading = false;
+        UpdateToolbar();
     }
 
     protected override void OnParametersSet()
     {
-        if (ActiveProject != null)
-        {
-            selectedProjectId = ActiveProject.Id;
-            projectName = ActiveProject.Name;
-            projectDescription = ActiveProject.Description ?? "";
-            if (!string.IsNullOrEmpty(projectDescription))
-                showDescription = true;
-        }
-        else
-        {
-            selectedProjectId = "__new__";
-            if (string.IsNullOrEmpty(projectName))
-                projectName = "Untitled";
-        }
+        if (!isLoading)
+            UpdateToolbar();
     }
 
-    private async Task LoadProjects()
+    async Task LoadProjects()
     {
         projects = (await ProjectService.GetProjectsAsync(Platform)).ToList();
     }
 
-    private IReadOnlyList<SherpaSelectOption<string>> ProjectOptions =>
-    [
-        new("__new__", "New Project", Icon: "fa-solid fa-plus"),
-        .. projects.Select(project =>
-            new SherpaSelectOption<string>(project.Id, project.Name, Icon: "fa-solid fa-folder"))
-    ];
-
-    private async Task OnProjectDropdownChanged(string? selectedValue)
+    void UpdateToolbar()
     {
-        var value = selectedValue ?? "__new__";
-
-        if (IsDirty)
+        var projectList = string.Join("\n", projects.Select(p => $"{p.Id}:{p.Name}"));
+        if (toolbarProjectId != ActiveProject?.Id || toolbarProjectName != ActiveProject?.Name || toolbarProjectList != projectList)
         {
-            var discard = await AlertService.ShowConfirmAsync(
-                "Unsaved Changes",
-                "You have unsaved changes. Discard them?",
-                "Discard", "Cancel");
-            if (!discard) return;
-        }
-
-        selectedProjectId = value;
-        if (value == "__new__")
-        {
-            await ActiveProjectChanged.InvokeAsync(null);
-            projectName = "Untitled";
-            projectDescription = "";
-        }
-        else
-        {
-            var project = projects.FirstOrDefault(p => p.Id == value);
-            if (project != null)
+            toolbarProjectId = ActiveProject?.Id;
+            toolbarProjectName = ActiveProject?.Name;
+            toolbarProjectList = projectList;
+            var actions = new List<ToolbarAction>();
+            if (projects.Count == 0)
+                actions.Add(new("push-create", "Create Project", "plus"));
+            else
             {
-                await ActiveProjectChanged.InvokeAsync(project);
-                projectName = project.Name;
-                projectDescription = project.Description ?? "";
+                var menu = projects.Select(p => new ToolbarAction($"push-project:{p.Id}", p.Name, "folder")).ToList();
+                menu.Add(new("push-project-separator", "", "", IsSeparator: true));
+                menu.Add(new("push-create", "+ Create Project", "plus"));
+                actions.Add(new("push-projects", ActiveProject?.Name ?? "Select project...", "folder", MenuActions: menu));
             }
+            if (ActiveProject != null)
+            {
+                actions.Add(new("push-edit", "Edit", "pencil", ToolTip: "Edit selected project"));
+                actions.Add(new("push-copy", "Copy", "doc.on.doc", ToolTip: "Duplicate selected project"));
+                actions.Add(new("push-delete", "Delete", "trash", ToolTip: "Delete selected project"));
+                actions.Add(new("push-save", "Save", "square.and.arrow.down", ToolTip: "Save notification changes"));
+            }
+            ToolbarService.SetItems(actions.ToArray());
         }
-    }
-
-    private void OnNameInput(ChangeEventArgs e)
-    {
-        projectName = e.Value?.ToString() ?? "";
-    }
-
-    private void OnDescriptionInput(ChangeEventArgs e)
-    {
-        projectDescription = e.Value?.ToString() ?? "";
-    }
-
-    public string GetProjectName() => projectName;
-    public string? GetProjectDescription() => string.IsNullOrWhiteSpace(projectDescription) ? null : projectDescription;
-
-    private async Task HandleSave()
-    {
-        if (string.IsNullOrWhiteSpace(projectName))
+        foreach (var action in ToolbarService.CurrentItems)
         {
-            ToastService.Show("Project name is required.", ToastType.Warning);
-            return;
+            ToolbarService.SetItemEnabled(action.Id, !isActing && !IsBusy && (action.Id != "push-save" || IsDirty));
+            foreach (var child in action.MenuActions ?? [])
+                ToolbarService.SetItemEnabled(child.Id, !isActing && !IsBusy && !child.IsSeparator);
         }
-
-        await OnSaveRequested.InvokeAsync();
-        await LoadProjects();
     }
 
-    private async Task HandleDuplicate()
-    {
-        if (ActiveProject == null) return;
+    void OnToolbarItemClicked(string id) => InvokeAsync(() => RunAction(id));
 
+    Task CreateProject() => RunAction("push-create");
+
+    async Task RunAction(string id)
+    {
+        if (isActing || IsBusy) return;
+        isActing = true;
+        UpdateToolbar();
         try
         {
-            var copy = await ProjectService.DuplicateProjectAsync(ActiveProject.Id);
-            await LoadProjects();
-            await ActiveProjectChanged.InvokeAsync(copy);
-            projectName = copy.Name;
-            projectDescription = copy.Description ?? "";
-            ToastService.Show("Project duplicated.", ToastType.Success);
+            if (id.StartsWith("push-project:", StringComparison.Ordinal))
+            {
+                var project = projects.FirstOrDefault(p => p.Id == id["push-project:".Length..]);
+                if (project != null && project.Id != ActiveProject?.Id && await ConfirmDiscard())
+                    await ActiveProjectChanged.InvokeAsync(project);
+            }
+            else if (id == "push-save")
+                await OnSaveRequested.InvokeAsync();
+            else if (id == "push-create" || id == "push-edit")
+            {
+                if (id == "push-create" && !await ConfirmDiscard()) return;
+                var project = id == "push-edit" ? GetCurrentProject?.Invoke() ?? ActiveProject : null;
+                if (id == "push-edit" && project == null) return;
+                var page = new PushProjectPage(BridgeHolder, project ?? new PushProject { Platform = Platform }, id == "push-create");
+                var saved = await FormModal.ShowAsync(page);
+                if (saved != null)
+                {
+                    await ProjectService.SaveProjectAsync(saved);
+                    await LoadProjects();
+                    await ActiveProjectChanged.InvokeAsync(saved);
+                    ToastService.Show("Project saved.", ToastType.Success);
+                }
+            }
+            else if (id == "push-copy" && ActiveProject != null && await ConfirmDiscard())
+            {
+                var copy = await ProjectService.DuplicateProjectAsync(ActiveProject.Id);
+                await LoadProjects();
+                await ActiveProjectChanged.InvokeAsync(copy);
+                ToastService.Show("Project copied.", ToastType.Success);
+            }
+            else if (id == "push-delete" && ActiveProject != null)
+            {
+                if (!await AlertService.ShowConfirmAsync("Delete Project",
+                    $"Delete \"{ActiveProject.Name}\" and its send history? This cannot be undone.", "Delete", "Cancel")) return;
+                await ProjectService.DeleteProjectAsync(ActiveProject.Id);
+                await LoadProjects();
+                await ActiveProjectChanged.InvokeAsync(null);
+                ToastService.Show("Project deleted.", ToastType.Success);
+            }
         }
         catch (Exception ex)
         {
-            ToastService.Show($"Failed to duplicate: {ex.Message}", ToastType.Error);
+            Logger.LogError($"Push project action failed: {ex.Message}", ex);
+            ToastService.Show($"Project action failed: {ex.Message}", ToastType.Error);
         }
-    }
-
-    private async Task HandleDelete()
-    {
-        if (ActiveProject == null) return;
-
-        var confirm = await AlertService.ShowConfirmAsync(
-            "Delete Project",
-            $"Delete \"{ActiveProject.Name}\"? This cannot be undone.",
-            "Delete", "Cancel");
-        if (!confirm) return;
-
-        await ProjectService.DeleteProjectAsync(ActiveProject.Id);
-        await LoadProjects();
-
-        if (projects.Count > 0)
+        finally
         {
-            await ActiveProjectChanged.InvokeAsync(projects[0]);
-            projectName = projects[0].Name;
-            projectDescription = projects[0].Description ?? "";
-        }
-        else
-        {
-            await ActiveProjectChanged.InvokeAsync(null);
-            projectName = "Untitled";
-            projectDescription = "";
-        }
-
-        ToastService.Show("Project deleted.", ToastType.Success);
-    }
-
-    private void OnProjectsChanged()
-    {
-        InvokeAsync(async () =>
-        {
-            await LoadProjects();
+            isActing = false;
+            UpdateToolbar();
             StateHasChanged();
-        });
+        }
     }
+
+    Task<bool> ConfirmDiscard() => !IsDirty
+        ? Task.FromResult(true)
+        : AlertService.ShowConfirmAsync("Unsaved Changes", "Discard your unsaved notification changes?", "Discard", "Cancel");
+
+    void OnProjectsChanged() => InvokeAsync(async () =>
+    {
+        await LoadProjects();
+        UpdateToolbar();
+        StateHasChanged();
+    });
 
     public void Dispose()
     {
         ProjectService.OnProjectsChanged -= OnProjectsChanged;
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
     }
 }

@@ -7,6 +7,42 @@ namespace MauiSherpa.Core.Tests.Services;
 public class ToolbarServiceTests
 {
     [Fact]
+    public void ProjectMenu_SeparatorNeverDispatchesAnAction()
+    {
+        var service = new ToolbarService();
+        service.SetItems(new ToolbarAction("push-projects", "Select project...", "folder", MenuActions: [
+            new("push-project:one", "One", "folder"),
+            new("separator", "", "", IsSeparator: true),
+            new("push-create", "+ Create Project", "plus")]));
+        var clicked = new List<string>();
+        service.ToolbarItemClicked += clicked.Add;
+
+        service.InvokeToolbarItemClicked("push-project:one");
+        service.InvokeToolbarItemClicked("separator");
+        service.InvokeToolbarItemClicked("push-create");
+
+        clicked.Should().Equal("push-project:one", "push-create");
+    }
+
+    [Fact]
+    public void ScreenshotMode_AllowsProjectSelectionButNotProjectMutations()
+    {
+        var service = new ToolbarService(Screenshots.ScreenshotMode.Parse("website-v1", true));
+        service.SetItems(new ToolbarAction("push-projects", "Select project...", "folder", MenuActions: [
+            new("push-project:one", "One", "folder"),
+            new("push-create", "+ Create Project", "plus")]),
+            new ToolbarAction("push-copy", "Copy", "doc.on.doc"));
+        var clicked = new List<string>();
+        service.ToolbarItemClicked += clicked.Add;
+
+        service.InvokeToolbarItemClicked("push-project:one");
+        service.InvokeToolbarItemClicked("push-create");
+        service.InvokeToolbarItemClicked("push-copy");
+
+        clicked.Should().Equal("push-project:one");
+    }
+
+    [Fact]
     public void MenuActions_RespectEnabledStateAndPageChanges()
     {
         var service = new ToolbarService();

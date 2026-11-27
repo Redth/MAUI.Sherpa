@@ -1,0 +1,545 @@
+@page "/modal/push-project"
+@using System.Text.Json
+@using System.Text.RegularExpressions
+@using Microsoft.AspNetCore.Components.Web
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
+@using MauiSherpa.Pages.Forms
+@inject HybridFormBridgeHolder BridgeHolder
+@inject IAppleIdentityService AppleIdentities
+@inject IGoogleIdentityService GoogleIdentities
+@inject ILocalVaultAccessService LocalVaultAccess
+@inject ILocalVaultStore LocalVault
+@inject IManagedSecretsService SecretsService
+@inject IFileSystemService FileSystem
+@inject IFormModalService FormModal
+@inject IDialogService DialogService
+@inject ILoggingService Logger
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div id="push-project-form" class="form-content">
+    <fieldset disabled="@isWorking">
+        <div class="form-group">
+            <label for="push-name">Project name</label>
+            <input id="push-name" class="form-control" @bind="name" @bind:event="oninput" @bind:after="Validate" placeholder="My app" />
+        </div>
+        <div class="form-group">
+            <label for="push-description">Description <span class="form-hint">(optional)</span></label>
+            <input id="push-description" class="form-control" @bind="description" @bind:event="oninput" />
+        </div>
+        <div class="form-group">
+            <div class="field-label">Credentials</div>
+            <div class="credential-tabs" role="tablist" aria-label="Credential source">
+                <button @ref="identityTab" id="push-source-identity" role="tab" type="button" aria-controls="push-credential-panel"
+                        aria-selected="@(authMode == "identity" ? "true" : "false")" tabindex="@(authMode == "identity" ? 0 : -1)"
+                        @onclick='() => SelectSource("identity")' @onkeydown='e => OnSourceKey("identity", e)' @onkeydown:preventDefault="true">
+                    @(IsApple ? "Saved identity" : "Saved account")
+                </button>
+                <button @ref="fileTab" id="push-source-file" role="tab" type="button" aria-controls="push-credential-panel"
+                        aria-selected="@(authMode == FileMode ? "true" : "false")" tabindex="@(authMode == FileMode ? 0 : -1)"
+                        @onclick="() => SelectSource(FileMode)" @onkeydown="e => OnSourceKey(FileMode, e)" @onkeydown:preventDefault="true">
+                    @(IsApple ? ".p8 file" : "JSON file")
+                </button>
+                <button @ref="pasteTab" id="push-source-paste" role="tab" type="button" aria-controls="push-credential-panel"
+                        aria-selected="@(authMode == "paste" ? "true" : "false")" tabindex="@(authMode == "paste" ? 0 : -1)"
+                        @onclick='() => SelectSource("paste")' @onkeydown='e => OnSourceKey("paste", e)' @onkeydown:preventDefault="true">
+                    Paste @(IsApple ? "key" : "JSON")
+                </button>
+                @if (keySecrets.Count > 0)
+                {
+                    <button @ref="secretTab" id="push-source-secret" role="tab" type="button" aria-controls="push-credential-panel"
+                            aria-selected="@(authMode == "secret" ? "true" : "false")" tabindex="@(authMode == "secret" ? 0 : -1)"
+                            @onclick='() => SelectSource("secret")' @onkeydown='e => OnSourceKey("secret", e)' @onkeydown:preventDefault="true">
+                        Saved secret
+                    </button>
+                }
+            </div>
+        </div>
+        <div id="push-credential-panel" role="tabpanel" aria-labelledby="@SourceTabId">
+            @if (authMode == "identity")
+            {
+                @if (RequiresVaultAccess)
+                {
+                    <div class="form-group">
+                        <p class="form-hint">Unlock Local Vault to choose a saved @(IsApple ? "Apple identity" : "Google service account"). You can also use a local file.</p>
+                        <button class="btn btn-secondary" @onclick="UnlockVault"><i class="fas fa-unlock"></i> Unlock Local Vault</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="form-group">
+                        <label for="push-identity">@(IsApple ? "Apple identity" : "Google service account")</label>
+                        <div class="push-project-select">
+                        <select id="push-identity" class="form-control" @bind="identityId" @bind:after="Validate">
+                            <option value="">@(IsApple ? "Select an identity..." : "Select a service account...")</option>
+                            @if (IsApple)
+                            {
+                                @foreach (var identity in appleIdentities)
+                                {
+                                    <option value="@identity.Id">@identity.Name (Key: @identity.KeyId)</option>
+                                }
+                            }
+                            else
+                            {
+                                @foreach (var identity in googleIdentities)
+                                {
+                                    <option value="@identity.Id">@identity.Name (@identity.ProjectId)</option>
+                                }
+                            }
+                        </select>
+                        </div>
+                        @if (IsApple ? appleIdentities.Count == 0 : googleIdentities.Count == 0)
+                        {
+                            <p class="form-hint">No saved @(IsApple ? "identities" : "service accounts"). Choose a file or paste credentials, or add one in Settings.</p>
+                        }
+                    </div>
+                }
+            }
+            else if (authMode == FileMode)
+            {
+                <div class="form-group">
+                    <label for="push-key-file">@(IsApple ? ".p8 key file" : "Service-account JSON file")</label>
+                    <div class="push-project-input-group">
+                        <input id="push-key-file" class="form-control mono" value="@filePath" readonly placeholder="No file selected" />
+                        <button class="btn btn-secondary" @onclick="PickFile">Browse</button>
+                    </div>
+                    <p class="form-hint">The project references this file. Keep it at this location; it is not added to your saved identities.</p>
+                </div>
+            }
+            else if (authMode == "paste")
+            {
+                <div class="form-group">
+                    <label for="push-key-content">@(IsApple ? ".p8 private key" : "Service-account JSON")</label>
+                    <textarea id="push-key-content" class="form-control mono credential-content" @bind="pastedContent" @bind:event="oninput"
+                              @bind:after="ValidateContent" autocomplete="off" autocapitalize="off" spellcheck="false"
+                              placeholder="@(IsApple ? "-----BEGIN PRIVATE KEY-----" : "Paste the complete Google service-account JSON")"></textarea>
+                    <p class="form-hint">Saved securely in Local Vault. Only a reference is kept in the project; no saved identity is required.</p>
+                    @if (RequiresVaultAccess)
+                    {
+                        <button class="btn btn-secondary" @onclick="UnlockVault"><i class="fas fa-unlock"></i> Unlock Local Vault to save</button>
+                    }
+                </div>
+            }
+            else if (authMode == "secret")
+            {
+                <div class="form-group">
+                    <label for="push-key-secret">@(IsApple ? "APNs key secret" : "Service-account JSON secret")</label>
+                    <div class="push-project-input-group">
+                        <input id="push-key-secret" class="form-control mono" value="@secretKey" readonly placeholder="No secret selected" />
+                        <button class="btn btn-secondary" @onclick="ChooseKeySecret">Choose</button>
+                    </div>
+                    <p class="form-hint">@(IsApple ? "Key ID and Team ID are filled from the key's metadata when available." : "The Firebase project and service-account details come from this JSON secret.")</p>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(credentialError))
+            {
+                <div class="error-message form-group" role="alert">@credentialError</div>
+            }
+            @if (!IsApple && !string.IsNullOrEmpty(accountSummary))
+            {
+                <p class="form-hint text-selectable">@accountSummary</p>
+            }
+        </div>
+        @if (IsApple)
+        {
+            @if (authMode != "identity")
+            {
+                <div class="form-group">
+                    <label for="push-key-id">Key ID</label>
+                    <div class="push-project-input-group">
+                        <input id="push-key-id" class="form-control mono" value="@(string.IsNullOrEmpty(keyIdSecret) ? keyId : keyIdSecret)"
+                               readonly="@(!string.IsNullOrEmpty(keyIdSecret))" @oninput='e => { keyId = e.Value?.ToString() ?? ""; Validate(); }' placeholder="ABCDE12345" />
+                        @if (!string.IsNullOrEmpty(keyIdSecret))
+                        {
+                            <button class="btn btn-secondary" @onclick='() => { keyIdSecret = ""; Validate(); }'>Use manual value</button>
+                        }
+                        else if (textSecrets.Count > 0)
+                        {
+                            <button class="btn btn-secondary" @onclick="() => ChooseIdentifierSecret(false)">Use secret</button>
+                        }
+                    </div>
+                </div>
+            }
+            <div class="form-group">
+                <label for="push-team-id">Team ID</label>
+                <div class="push-project-input-group">
+                    <input id="push-team-id" class="form-control mono" value="@(string.IsNullOrEmpty(teamIdSecret) ? teamId : teamIdSecret)"
+                           readonly="@(!string.IsNullOrEmpty(teamIdSecret))" @oninput='e => { teamId = e.Value?.ToString() ?? ""; Validate(); }' placeholder="ABC1234DEF" />
+                    @if (!string.IsNullOrEmpty(teamIdSecret))
+                    {
+                        <button class="btn btn-secondary" @onclick='() => { teamIdSecret = ""; Validate(); }'>Use manual value</button>
+                    }
+                    else if (textSecrets.Count > 0)
+                    {
+                        <button class="btn btn-secondary" @onclick="() => ChooseIdentifierSecret(true)">Use secret</button>
+                    }
+                </div>
+            </div>
+        }
+    </fieldset>
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="error-message" role="alert">@error</div>
+    }
+</div>
+
+<style>
+    .form-content { padding: 20px 28px; }
+    .form-content fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+    .form-group { margin-bottom: 16px; }
+    fieldset > .form-group:last-child { margin-bottom: 0; }
+    .form-group > label, .field-label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+    .form-control { box-sizing: border-box; width: 100%; padding: 7px 12px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font-size: 14px; line-height: 20px; }
+    input.form-control, select.form-control { height: 36px; min-height: 36px; }
+    select.form-control { appearance: none; padding-right: 32px; }
+    .push-project-select { position: relative; }
+    .push-project-select::after { content: ""; position: absolute; right: 14px; top: 13px; width: 6px; height: 6px; border-right: 1.5px solid var(--text-secondary); border-bottom: 1.5px solid var(--text-secondary); transform: rotate(45deg); pointer-events: none; }
+    .form-control:focus-visible, .credential-tabs button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+    .form-hint { color: var(--text-secondary); font-size: 12px; line-height: 1.5; margin: 6px 0; overflow-wrap: anywhere; }
+    .form-group label .form-hint { font-weight: normal; }
+    .push-project-input-group { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+    .push-project-input-group input { flex: 1; min-width: 160px; }
+    .push-project-input-group .btn { flex-shrink: 0; height: 36px; padding: 7px 12px; font-size: 13px; }
+    .credential-tabs { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-tertiary); }
+    .credential-tabs button { flex: 1 1 auto; min-width: 0; min-height: 32px; padding: 6px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+    .credential-tabs button:hover { color: var(--text-primary); background: var(--input-bg); }
+    .credential-tabs button[aria-selected="true"] { border-color: var(--border-color); background: var(--card-bg); color: var(--text-primary); font-weight: 600; }
+    .credential-tabs button:disabled { opacity: 0.6; cursor: default; }
+    .credential-content { min-height: 9rem; max-height: 16rem; resize: vertical; font-size: 0.8125rem; }
+</style>
+
+@code {
+    HybridFormBridge? bridge;
+    DotNetObjectReference<PushProjectModal>? dotNetRef;
+    ElementReference identityTab, fileTab, pasteTab, secretTab;
+    PushProject project = new();
+    List<AppleIdentity> appleIdentities = [];
+    List<GoogleIdentity> googleIdentities = [];
+    List<ManagedSecret> keySecrets = [], textSecrets = [];
+    string name = "", description = "", authMode = "identity", identityId = "", filePath = "", secretKey = "", keyId = "", teamId = "";
+    string keyIdSecret = "", teamIdSecret = "", vaultKey = "", pastedContent = "", originalPastedContent = "", fileContent = "";
+    string? error, credentialError, accountSummary;
+    bool isWorking, initialized, focusSource;
+    bool IsApple => project.Platform == PushProjectPlatform.Apns;
+    bool RequiresVaultAccess => LocalVaultAccess.GetState().RequiresUserAction;
+    string FileMode => IsApple ? "p8file" : "file";
+    string SourceTabId => $"push-source-{(authMode == FileMode ? "file" : authMode)}";
+    static readonly Regex AuthKeyFileName = new(@"AuthKey_([A-Z0-9]{10})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    protected override async Task OnInitializedAsync()
+    {
+        bridge = BridgeHolder.Current;
+        if (bridge == null) return;
+        project = (PushProject)bridge.Parameters["Project"]!;
+        name = project.Name;
+        description = project.Description ?? "";
+        if (IsApple)
+        {
+            var config = project.ApnsConfig ?? new();
+            authMode = config.AuthMode ?? "identity";
+            identityId = config.SelectedIdentityId ?? "";
+            filePath = config.P8FilePath ?? "";
+            secretKey = config.P8SecretKey ?? "";
+            keyId = config.P8KeyId ?? "";
+            teamId = config.TeamId ?? "";
+            keyIdSecret = config.KeyIdSecretKey ?? "";
+            teamIdSecret = config.TeamIdSecretKey ?? "";
+            vaultKey = config.P8VaultKey ?? "";
+        }
+        else
+        {
+            var config = project.FcmConfig ?? new();
+            authMode = config.AuthMode ?? "identity";
+            identityId = config.SelectedGoogleIdentityId ?? "";
+            filePath = config.ServiceAccountFilePath ?? "";
+            secretKey = config.ServiceAccountSecretKey ?? "";
+            vaultKey = config.ServiceAccountVaultKey ?? "";
+        }
+        bridge.PreventSubmitClose = true;
+        bridge.SubmitRequested += Submit;
+        LocalVaultAccess.StateChanged += OnVaultChanged;
+        isWorking = true;
+        try
+        {
+            await LoadSources();
+            if (authMode == FileMode && !string.IsNullOrEmpty(filePath))
+                fileContent = await ReadFile(filePath);
+            if (authMode == "paste" && !RequiresVaultAccess && !string.IsNullOrEmpty(vaultKey))
+                pastedContent = originalPastedContent = await PushProjectCredentials.ReadPastedAsync(LocalVault, vaultKey);
+            ValidateContent();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError("Failed to load push project credentials.", ex);
+            error = $"Could not load credentials: {ex.Message}";
+        }
+        finally { isWorking = false; Validate(); }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!initialized)
+        {
+            dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("modalInterop.initialize", "push-project-form", dotNetRef, true);
+            initialized = true;
+        }
+        if (focusSource)
+        {
+            focusSource = false;
+            await (authMode switch { "identity" => identityTab, "paste" => pasteTab, "secret" => secretTab, _ => fileTab }).FocusAsync();
+        }
+    }
+
+    async Task LoadSources()
+    {
+        appleIdentities = [];
+        googleIdentities = [];
+        if (!RequiresVaultAccess)
+        {
+            if (IsApple) appleIdentities = (await AppleIdentities.GetIdentitiesAsync()).ToList();
+            else googleIdentities = (await GoogleIdentities.GetIdentitiesAsync()).ToList();
+        }
+        var listing = await SecretsService.ListWithStatusAsync();
+        keySecrets = listing.Secrets.Where(s => IsApple
+            ? s.Metadata.ContainsKey("apnsKeyId") || (s.OriginalFileName ?? s.Key).EndsWith(".p8", StringComparison.OrdinalIgnoreCase)
+            : (s.OriginalFileName ?? s.Key).EndsWith(".json", StringComparison.OrdinalIgnoreCase) || s.Metadata.ContainsKey("googleProjectId"))
+            .OrderBy(s => s.Key, StringComparer.OrdinalIgnoreCase).ToList();
+        textSecrets = listing.Secrets.Where(s => s.Type == ManagedSecretType.String).OrderBy(s => s.Key, StringComparer.OrdinalIgnoreCase).ToList();
+        if (listing.UnreadableProviders.Count > 0)
+            error = $"Some secrets are unavailable: {string.Join(", ", listing.UnreadableProviders)}. Unlock or reconnect those providers to use them.";
+        if (authMode == "secret" && keySecrets.Count == 0)
+        {
+            authMode = "identity";
+            error = "The project's saved secret is unavailable. Unlock its provider or choose a file, pasted credentials, or a saved identity.";
+        }
+        else if (authMode == "secret" && !string.IsNullOrEmpty(secretKey))
+        {
+            var selected = keySecrets.FirstOrDefault(s => s.Key == secretKey);
+            if (selected == null)
+                error = "The project's saved secret is unavailable. Choose another secret or reconnect its provider.";
+            else if (IsApple)
+            {
+                if (string.IsNullOrEmpty(keyId) && string.IsNullOrEmpty(keyIdSecret))
+                    keyId = selected.Metadata.GetValueOrDefault("apnsKeyId") ?? KeyIdFromFileName(selected.OriginalFileName ?? selected.Key) ?? "";
+                if (string.IsNullOrEmpty(teamId) && string.IsNullOrEmpty(teamIdSecret))
+                    teamId = selected.Metadata.GetValueOrDefault("apnsTeamId") ?? "";
+            }
+        }
+    }
+
+    void OnVaultChanged() => InvokeAsync(async () =>
+    {
+        try { await LoadSources(); }
+        catch (Exception ex) { Logger.LogError("Failed to refresh push project credentials.", ex); error = ex.Message; }
+        Validate();
+        StateHasChanged();
+    });
+
+    async Task UnlockVault()
+    {
+        isWorking = true;
+        error = null;
+        Validate();
+        try
+        {
+            var state = await LocalVaultAccess.RequestAccessAsync();
+            if (state.RequiresUserAction) { error = "Local Vault access was not granted."; return; }
+            await LoadSources();
+            if (authMode == "paste" && string.IsNullOrEmpty(pastedContent) && !string.IsNullOrEmpty(vaultKey))
+                pastedContent = originalPastedContent = await PushProjectCredentials.ReadPastedAsync(LocalVault, vaultKey);
+            ValidateContent();
+        }
+        catch (Exception ex) { Logger.LogError("Failed to unlock push project credentials.", ex); error = ex.Message; }
+        finally { isWorking = false; Validate(); }
+    }
+
+    void SelectSource(string mode)
+    {
+        authMode = mode;
+        error = null;
+        ValidateContent();
+    }
+
+    Task OnSourceKey(string mode, KeyboardEventArgs e)
+    {
+        var modes = new List<string> { "identity", FileMode, "paste" };
+        if (keySecrets.Count > 0) modes.Add("secret");
+        var index = modes.IndexOf(mode);
+        var next = e.Key switch
+        {
+            "ArrowRight" => modes[(index + 1) % modes.Count],
+            "ArrowLeft" => modes[(index + modes.Count - 1) % modes.Count],
+            "Home" => modes[0],
+            "End" => modes[^1],
+            "Enter" or " " => mode,
+            _ => null
+        };
+        if (next != null) { SelectSource(next); focusSource = true; }
+        return Task.CompletedTask;
+    }
+
+    bool HasCredentials => (authMode switch
+    {
+        "identity" => !RequiresVaultAccess && (IsApple ? appleIdentities.Any(i => i.Id == identityId) : googleIdentities.Any(i => i.Id == identityId)),
+        "paste" => !RequiresVaultAccess && !string.IsNullOrWhiteSpace(pastedContent) && credentialError == null,
+        "secret" => keySecrets.Any(s => s.Key == secretKey),
+        _ => authMode == FileMode && !string.IsNullOrWhiteSpace(filePath) && !string.IsNullOrWhiteSpace(fileContent) && credentialError == null
+    }) && (!IsApple || (!string.IsNullOrWhiteSpace(teamId) || !string.IsNullOrWhiteSpace(teamIdSecret))
+        && (authMode == "identity" || !string.IsNullOrWhiteSpace(keyId) || !string.IsNullOrWhiteSpace(keyIdSecret)));
+
+    void Validate() => bridge?.SetValid(!isWorking && !string.IsNullOrWhiteSpace(name) && HasCredentials);
+
+    void ValidateContent()
+    {
+        credentialError = null;
+        accountSummary = null;
+        var content = authMode == "paste" ? pastedContent : authMode == FileMode ? fileContent : "";
+        if (!string.IsNullOrWhiteSpace(content))
+        {
+            try
+            {
+                PushProjectCredentials.Validate(project.Platform, content);
+                if (!IsApple)
+                {
+                    using var document = JsonDocument.Parse(content);
+                    accountSummary = $"{document.RootElement.GetProperty("project_id").GetString()} / {document.RootElement.GetProperty("client_email").GetString()}";
+                }
+            }
+            catch (ArgumentException ex) { credentialError = ex.Message; }
+        }
+        Validate();
+    }
+
+    async Task Submit()
+    {
+        if (string.IsNullOrWhiteSpace(name) || !HasCredentials)
+        {
+            error = "Enter a project name and configure its credentials.";
+            return;
+        }
+        isWorking = true;
+        error = null;
+        Validate();
+        try
+        {
+            if (authMode == "paste" && (string.IsNullOrEmpty(vaultKey) || pastedContent != originalPastedContent))
+                vaultKey = await PushProjectCredentials.StorePastedAsync(LocalVault, project.Platform, pastedContent);
+            var updated = project with { Name = name.Trim(), Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim() };
+            if (IsApple)
+            {
+                var config = (project.ApnsConfig ?? new()) with
+                {
+                    AuthMode = authMode, SelectedIdentityId = authMode == "identity" ? identityId : null,
+                    P8FilePath = authMode == FileMode ? filePath : null,
+                    P8SecretKey = authMode == "secret" ? secretKey : null,
+                    P8VaultKey = authMode == "paste" ? vaultKey : null,
+                    P8KeyId = authMode != "identity" && string.IsNullOrEmpty(keyIdSecret) ? keyId.Trim() : null,
+                    TeamId = string.IsNullOrEmpty(teamIdSecret) ? teamId.Trim() : null,
+                    KeyIdSecretKey = authMode != "identity" && !string.IsNullOrEmpty(keyIdSecret) ? keyIdSecret : null,
+                    TeamIdSecretKey = string.IsNullOrEmpty(teamIdSecret) ? null : teamIdSecret
+                };
+                await PushProjectCredentials.ReadApnsAsync(config, AppleIdentities, SecretsService, LocalVault, FileSystem);
+                updated = updated with { ApnsConfig = config };
+            }
+            else
+            {
+                var config = (project.FcmConfig ?? new()) with
+                {
+                    AuthMode = authMode, SelectedGoogleIdentityId = authMode == "identity" ? identityId : null,
+                    ServiceAccountFilePath = authMode == FileMode ? filePath : null,
+                    ServiceAccountSecretKey = authMode == "secret" ? secretKey : null,
+                    ServiceAccountVaultKey = authMode == "paste" ? vaultKey : null
+                };
+                await PushProjectCredentials.ReadFcmAsync(config, GoogleIdentities, SecretsService, LocalVault, FileSystem);
+                updated = updated with { FcmConfig = config };
+            }
+            bridge!.Result = updated;
+            bridge.RequestClose();
+        }
+        catch (Exception ex) { Logger.LogError("Failed to save push project credentials.", ex); error = $"Could not save credentials: {ex.Message}"; }
+        finally { isWorking = false; Validate(); StateHasChanged(); }
+    }
+
+    async Task<string> ReadFile(string path)
+    {
+        ScreenshotMode.BlockExternalAction("reading a push credential file");
+        return await FileSystem.ReadFileAsync(path) ?? throw new InvalidOperationException("The credential file is missing or unreadable. Choose another file.");
+    }
+
+    async Task PickFile()
+    {
+        isWorking = true;
+        error = null;
+        Validate();
+        try
+        {
+            var path = await DialogService.PickOpenFileAsync(IsApple ? "Select .p8 Key File" : "Select Service-account JSON", IsApple ? [".p8"] : [".json"]);
+            if (string.IsNullOrEmpty(path)) return;
+            var content = await ReadFile(path);
+            filePath = path;
+            fileContent = content;
+            if (IsApple && KeyIdFromFileName(path) is { } parsed) { keyId = parsed; keyIdSecret = ""; }
+            ValidateContent();
+        }
+        catch (Exception ex) { Logger.LogError("Failed to choose push credential file.", ex); error = $"Could not choose a file: {ex.Message}"; }
+        finally { isWorking = false; Validate(); }
+    }
+
+    async Task ChooseKeySecret()
+    {
+        try
+        {
+            var selectedKey = await FormModal.ShowAsync(new SecretPickerPage(BridgeHolder, keySecrets, [], title: IsApple ? "Choose APNs Key" : "Choose Service-account JSON", submitButtonText: "Select"));
+            var selected = keySecrets.FirstOrDefault(s => s.Key == selectedKey);
+            if (selected == null) return;
+            secretKey = selected.Key;
+            if (IsApple)
+            {
+                if (string.IsNullOrEmpty(keyIdSecret))
+                    keyId = selected.Metadata.GetValueOrDefault("apnsKeyId") ?? KeyIdFromFileName(selected.OriginalFileName ?? selected.Key) ?? "";
+                if (string.IsNullOrEmpty(teamIdSecret) && selected.Metadata.TryGetValue("apnsTeamId", out var storedTeamId))
+                    teamId = storedTeamId;
+            }
+            error = null;
+            Validate();
+        }
+        catch (Exception ex) { Logger.LogError("Failed to choose push credential secret.", ex); error = $"Could not choose a secret: {ex.Message}"; }
+    }
+
+    async Task ChooseIdentifierSecret(bool team)
+    {
+        try
+        {
+            var selectedKey = await FormModal.ShowAsync(new SecretPickerPage(BridgeHolder, textSecrets, [], title: team ? "Choose Team ID" : "Choose Key ID", submitButtonText: "Select"));
+            if (string.IsNullOrEmpty(selectedKey)) return;
+            if (team) teamIdSecret = selectedKey; else keyIdSecret = selectedKey;
+            error = null;
+            Validate();
+        }
+        catch (Exception ex) { Logger.LogError("Failed to choose APNs identifier secret.", ex); error = $"Could not choose a secret: {ex.Message}"; }
+    }
+
+    static string? KeyIdFromFileName(string path)
+    {
+        var match = AuthKeyFileName.Match(Path.GetFileName(path));
+        return match.Success ? match.Groups[1].Value.ToUpperInvariant() : null;
+    }
+
+    [JSInvokable] public void OnEscapePressed() { if (!isWorking) bridge?.RequestClose(); }
+    [JSInvokable] public void OnFocusBoundary(bool backwards) => bridge?.RequestActionFocus(backwards);
+
+    public async ValueTask DisposeAsync()
+    {
+        if (bridge != null) bridge.SubmitRequested -= Submit;
+        LocalVaultAccess.StateChanged -= OnVaultChanged;
+        pastedContent = originalPastedContent = fileContent = "";
+        if (initialized)
+        {
+            try { await JS.InvokeVoidAsync("modalInterop.dispose", "push-project-form"); }
+            catch (JSDisconnectedException) { }
+        }
+        dotNetRef?.Dispose();
+    }
+}
