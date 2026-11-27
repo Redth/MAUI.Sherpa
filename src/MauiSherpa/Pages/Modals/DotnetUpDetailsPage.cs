@@ -60,10 +60,10 @@ public sealed class DotnetUpDetailsPage : HybridViewPage
 
 #if MACOSAPP
         MacOSPage.SetModalSheetWidth(this, 660);
-        MacOSPage.SetModalSheetHeight(this, 500);
+        MacOSPage.SetModalSheetHeight(this, 560);
 #elif LINUXGTK
         GtkPage.SetModalWidth(this, 660);
-        GtkPage.SetModalHeight(this, 500);
+        GtkPage.SetModalHeight(this, 560);
 #endif
     }
 
