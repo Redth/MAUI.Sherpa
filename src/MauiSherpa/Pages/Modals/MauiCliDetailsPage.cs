@@ -47,11 +47,11 @@ public sealed class MauiCliDetailsPage : HybridViewPage
         modalParams.Set("Session", session);
 
 #if MACOSAPP
-        MacOSPage.SetModalSheetWidth(this, 620);
-        MacOSPage.SetModalSheetHeight(this, 380);
+        MacOSPage.SetModalSheetWidth(this, 580);
+        MacOSPage.SetModalSheetHeight(this, 340);
 #elif LINUXGTK
-        GtkPage.SetModalWidth(this, 620);
-        GtkPage.SetModalHeight(this, 380);
+        GtkPage.SetModalWidth(this, 580);
+        GtkPage.SetModalHeight(this, 340);
 #endif
     }
 

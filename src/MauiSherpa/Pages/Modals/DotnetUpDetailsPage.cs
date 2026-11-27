@@ -59,11 +59,11 @@ public sealed class DotnetUpDetailsPage : HybridViewPage
         modalParams.Set("Session", session);
 
 #if MACOSAPP
-        MacOSPage.SetModalSheetWidth(this, 720);
-        MacOSPage.SetModalSheetHeight(this, 620);
+        MacOSPage.SetModalSheetWidth(this, 640);
+        MacOSPage.SetModalSheetHeight(this, 470);
 #elif LINUXGTK
-        GtkPage.SetModalWidth(this, 720);
-        GtkPage.SetModalHeight(this, 620);
+        GtkPage.SetModalWidth(this, 640);
+        GtkPage.SetModalHeight(this, 470);
 #endif
     }
 
