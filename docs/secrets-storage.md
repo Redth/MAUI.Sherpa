@@ -224,3 +224,33 @@ The fixture generator and its exact dependency lock are under `tests/Fixtures/Sq
 - Do not add new feature-specific encrypted files or secure-storage keys for app-owned data.
 - Keep OS secure storage limited to root encryption keys or platform tokens that cannot safely move yet.
 - Keep installed certificates/private keys in platform stores; put only Sherpa metadata, references, and Local-provider sync copies in the vault.
+
+## Push testing projects
+
+Apple and Android push testing use named projects selected from the native toolbar.
+With no projects, choose **Create Project**; otherwise choose a project or the
+**+ Create Project** item at the end of the menu. No project is selected automatically
+on entry, except for a newly migrated legacy Apple configuration.
+The empty-state card also offers links to the five most recently modified
+projects, followed by **Create Project**; the toolbar menu lists all projects.
+
+**Create Project** and **Edit** open a hybrid native dialog for the project name,
+description, and credentials. Credential-source tabs offer a saved identity,
+a local file, or pasted content: `.p8` keys for Apple and service-account JSON
+for Android. Pasted credentials are stored in Local Vault; the project stores
+only their reference. File-based projects keep a file reference rather than
+importing an identity. Copies share credential references; replacing pasted
+credentials in one project does not change another project's credentials.
+
+A **Saved secret** tab appears only when matching managed secrets are available.
+Apple Key ID and Team ID are populated from `apnsKeyId` and `apnsTeamId` metadata
+when available, and each ID can also reference a separate text secret or be
+entered manually. Referenced ID secrets are resolved when sending, rather than
+copied into the project. Android JSON secrets include the project ID, account
+email, and private key together. Each Android project chooses its own credentials,
+independently of the global Google identity selection.
+
+The page itself contains notification composition, preview, and send history.
+Use the toolbar **Save** action to retain notification changes, **Copy** to
+duplicate the saved project without its history, and **Delete** to remove the
+selected project and its history.

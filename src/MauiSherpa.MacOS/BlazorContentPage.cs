@@ -34,6 +34,8 @@ public class BlazorContentPage : ContentPage
     private MacOSMenuToolbarItem? _filterMenu;
     private MacOSMenuToolbarItem? _sdkMenu;
     private NSMenuToolbarItem? _nativeSdkMenu;
+    private MacOSMenuToolbarItem? _projectMenu;
+    private NSMenuToolbarItem? _nativeProjectMenu;
     private MacOSSearchToolbarItem? _searchItem;
     private NSMenuToolbarItem? _nativeIdentityMenu;
     private NSMenuToolbarItem? _nativeFilterMenu;
@@ -55,7 +57,6 @@ public class BlazorContentPage : ContentPage
     // Routes that show the Google identity picker
     static readonly HashSet<string> GoogleRoutes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "/firebase-push"
     };
 
     static readonly HashSet<string> XcodeDownloadRoutes = new(StringComparer.OrdinalIgnoreCase)
@@ -487,6 +488,34 @@ public class BlazorContentPage : ContentPage
         MacOSToolbarItem.SetIsVisible(_publishMenu, hasPublishWizard);
         MacOSToolbarItem.SetIsVisible(_filterMenu, hasFilter);
         MacOSToolbarItem.SetIsVisible(_searchItem, hasSearch);
+        var projectAction = _toolbarService.CurrentItems.FirstOrDefault(a => a.Id == "push-projects");
+        MacOSToolbarItem.SetIsVisible(_projectMenu, projectAction != null);
+        if (_nativeProjectMenu != null)
+        {
+            _nativeProjectMenu.Hidden = projectAction == null;
+            if (projectAction?.MenuActions is { } projectActions)
+            {
+                var menu = new NSMenu { Title = projectAction.Label, AutoEnablesItems = false };
+                foreach (var child in projectActions)
+                {
+                    if (child.IsSeparator)
+                    {
+                        menu.AddItem(NSMenuItem.SeparatorItem);
+                        continue;
+                    }
+                    var id = child.Id;
+                    menu.AddItem(new NSMenuItem(child.Label, (_, _) => _toolbarService.InvokeToolbarItemClicked(id))
+                    {
+                        Enabled = _toolbarService.IsItemEnabled(id)
+                    });
+                }
+                _nativeProjectMenu.Title = projectAction.Label;
+                _nativeProjectMenu.Label = projectAction.Label;
+                _nativeProjectMenu.PaletteLabel = projectAction.Label;
+                _nativeProjectMenu.Enabled = _toolbarService.IsItemEnabled(projectAction.Id);
+                _nativeProjectMenu.Menu = menu;
+            }
+        }
         var sdkAction = _toolbarService.CurrentItems.FirstOrDefault(a => a.Id == "android-sdk");
         MacOSToolbarItem.SetIsVisible(_sdkMenu, sdkAction != null);
         if (_nativeSdkMenu != null)
@@ -579,11 +608,12 @@ public class BlazorContentPage : ContentPage
     /// </summary>
     void CacheNativeMenuItems(NSToolbar toolbar)
     {
-        if (_nativeIdentityMenu != null && _nativeFilterMenu != null && _nativePublishMenu != null && _nativeSdkMenu != null) return;
+        if (_nativeIdentityMenu != null && _nativeFilterMenu != null && _nativePublishMenu != null && _nativeSdkMenu != null && _nativeProjectMenu != null) return;
         foreach (var nsItem in toolbar.Items)
         {
             if (nsItem is not NSMenuToolbarItem m) continue;
             if (m.Label == "Android SDK") { _nativeSdkMenu = m; continue; }
+            if (m.Label == "Push Project" || ReferenceEquals(m, _nativeProjectMenu)) { _nativeProjectMenu = m; continue; }
             if (IsFilterMenuItem(m))
                 _nativeFilterMenu = m;
             else if (IsPublishMenuItem(m))
@@ -1023,6 +1053,7 @@ public class BlazorContentPage : ContentPage
             _nativeFilterMenu = null;
             _nativePublishMenu = null;
             _nativeSdkMenu = null;
+            _nativeProjectMenu = null;
             _nativeReleaseNotesItem = null;
             _releaseNotesButton = null;
 
@@ -1055,6 +1086,11 @@ public class BlazorContentPage : ContentPage
             var supersetActions = new[]
             {
                 ("create", "New Secret", "plus"),
+                ("push-create", "Create Project", "plus"),
+                ("push-edit", "Edit", "pencil"),
+                ("push-copy", "Copy", "doc.on.doc"),
+                ("push-delete", "Delete", "trash"),
+                ("push-save", "Save", "square.and.arrow.down"),
                 ("pair", "Pair Device", "link"),
                 ("export", "Export", "square.and.arrow.up"),
                 ("export-selected", "Export Selected", "square.and.arrow.up"),
@@ -1145,6 +1181,14 @@ public class BlazorContentPage : ContentPage
                 ShowsTitle = true,
                 ShowsIndicator = true,
             };
+            _projectMenu = new MacOSMenuToolbarItem
+            {
+                Icon = "folder",
+                Text = "Push Project",
+                ShowsTitle = true,
+                ShowsIndicator = true,
+            };
+            _projectMenu.Items.Add(new MacOSMenuItem { Text = "Select project..." });
             foreach (var action in MauiSherpa.Components.AndroidSdkContext.Menu.MenuActions!)
             {
                 var id = action.Id;
@@ -1228,6 +1272,7 @@ public class BlazorContentPage : ContentPage
             var layout = new List<MacOSToolbarLayoutItem>();
             layout.Add(MacOSToolbarLayoutItem.Menu(_filterMenu));
             layout.Add(MacOSToolbarLayoutItem.Menu(_sdkMenu));
+            layout.Add(MacOSToolbarLayoutItem.Menu(_projectMenu));
             layout.Add(MacOSToolbarLayoutItem.Menu(_identityMenu));
             layout.Add(MacOSToolbarLayoutItem.Menu(_publishMenu));
             foreach (var item in leadingItems)

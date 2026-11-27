@@ -5,7 +5,6 @@
 @using MauiSherpa.Services
 @inject IFirebasePushService PushService
 @inject IGoogleIdentityService GoogleIdentityService
-@inject IGoogleIdentityStateService GoogleIdentityState
 @inject IPushProjectService ProjectService
 @inject IAlertService AlertService
 @inject IDialogService DialogService
@@ -13,155 +12,177 @@
 @inject BlazorToastService ToastService
 @inject IToolbarService ToolbarService
 @inject ILocalVaultAccessService LocalVaultAccess
+@inject ILocalVaultStore LocalVault
+@inject IManagedSecretsService SecretsService
+@inject ILoggingService Logger
 @implements IDisposable
 
-<div class="push-page-header">
-    <div class="push-page-heading">
-        <h1><i class="fa-solid fa-fw fa-paper-plane"></i> Firebase Push Testing</h1>
-        <p>Send test notifications to Android devices through Firebase Cloud Messaging (FCM v1).</p>
-    </div>
-    <div class="push-page-status">
-        @if (hasCredentials)
+<SherpaPageHeader Title="Firebase Push Testing" Icon="fa-solid fa-paper-plane"
+                  Description="Send test notifications to Android devices through Firebase Cloud Messaging (FCM v1).">
+    <Actions>
+        @if (activeProject != null)
         {
-            <span class="push-pill success" title="Firebase project">
-                <i class="fa-solid fa-fw fa-fire"></i> @(string.IsNullOrEmpty(projectId) ? "Service account ready" : projectId)
-            </span>
+            @if (hasCredentials)
+            {
+                <span class="sherpa-badge sherpa-badge-success" title="Firebase project">
+                    <i class="fa-solid fa-fw fa-fire" aria-hidden="true"></i> @(string.IsNullOrEmpty(projectId) ? "Service account ready" : projectId)
+                </span>
+            }
+            else
+            {
+                <span class="sherpa-badge sherpa-badge-warning"><i class="fa-solid fa-fw fa-triangle-exclamation" aria-hidden="true"></i> No service account</span>
+            }
         }
-        else
-        {
-            <span class="push-pill warning"><i class="fa-solid fa-fw fa-triangle-exclamation"></i> No service account</span>
-        }
-    </div>
-</div>
+    </Actions>
+</SherpaPageHeader>
 
-<PushProjectBar @ref="projectBar"
+<PushProjectBar
     Platform="PushProjectPlatform.Fcm"
     ActiveProject="activeProject"
     ActiveProjectChanged="OnActiveProjectChanged"
     OnSaveRequested="SaveProject"
-    IsDirty="isDirty" />
+    GetCurrentProject="GetCurrentProject"
+    IsDirty="isDirty"
+    IsBusy="isSending" />
 
-<GoogleIdentityPicker />
-
+@if (activeProject != null)
+{
 <div class="push-workspace-container">
     <div class="push-workspace">
         <div class="push-main">
-            <section>
-                <div class="push-section-head">
-                    <div class="push-section-head-main">
-                        <h2><span class="push-section-icon"><i class="fa-solid fa-fw fa-pen-to-square"></i></span> Message</h2>
-                        <p class="push-section-desc">
-                            @(rawJsonMode ? "Paste a raw FCM v1 message for full control over platform options." : "Compose a notification and pick who receives it.")
-                        </p>
-                    </div>
-                    <div class="push-section-actions">
-                        <div class="push-segmented">
-                            <button type="button" class="@(!rawJsonMode ? "active" : "")" @onclick="@(() => SetRawJsonMode(false))">
-                                <i class="fa-solid fa-fw fa-list"></i> Form
-                            </button>
-                            <button type="button" class="@(rawJsonMode ? "active" : "")" @onclick="@(() => SetRawJsonMode(true))">
-                                <i class="fa-solid fa-fw fa-code"></i> JSON
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="push-card">
-                    @if (rawJsonMode)
-                    {
-                        <div class="push-field">
-                            <PushJsonEditor @bind-Value="rawJson" @bind-Value:after="MarkDirty"
-                                            FileName="message.json"
-                                            Schema="fcm"
-                                            Placeholder="@jsonPlaceholder"
-                                            Rows="18" />
-                            <p class="push-hint">Enter the FCM v1 <code>message</code> object. The <code>{"{"}"message": …{"}"}</code> wrapper is added automatically if omitted.</p>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="push-subheading">Target</div>
-                        <div class="push-fields">
-                            <div class="push-segmented">
-                                <button type="button" class="@(useToken ? "active" : "")" @onclick="@(() => SetUseToken(true))">
-                                    <i class="fa-solid fa-fw fa-mobile-screen"></i> Device token
-                                </button>
-                                <button type="button" class="@(!useToken ? "active" : "")" @onclick="@(() => SetUseToken(false))">
-                                    <i class="fa-solid fa-fw fa-hashtag"></i> Topic
-                                </button>
+            @if (rawJsonMode)
+            {
+                <section>
+                    <SherpaSectionHeader Title="Message" Icon="fa-solid fa-code"
+                                         Caption="Paste a raw FCM v1 message for full control over platform options.">
+                        <Actions>
+                            <SherpaSegmentedControl TValue="bool" Value="@rawJsonMode" ValueChanged="SetRawJsonMode"
+                                                    Options="ModeOptions" AriaLabel="Message editor" />
+                        </Actions>
+                    </SherpaSectionHeader>
+                    <PushJsonEditor Schema="fcm" @bind-Value="rawJson" @bind-Value:after="MarkDirty"
+                                    FileName="message.json"
+                                    Placeholder="@jsonPlaceholder"
+                                    Rows="18" />
+                    <p class="sherpa-field-help push-after-help">Enter the FCM v1 <code>message</code> object. The <code>{"{"}"message": …{"}"}</code> wrapper is added automatically if omitted.</p>
+                </section>
+            }
+            else
+            {
+                <section>
+                    <SherpaSectionHeader Title="Target" Icon="fa-solid fa-bullseye"
+                                         Caption="Send to a single device or to every device subscribed to a topic.">
+                        <Actions>
+                            <SherpaSegmentedControl TValue="bool" Value="@rawJsonMode" ValueChanged="SetRawJsonMode"
+                                                    Options="ModeOptions" AriaLabel="Message editor" />
+                        </Actions>
+                    </SherpaSectionHeader>
+                    <div class="sherpa-card sherpa-card-pad">
+                        <div class="sherpa-form-grid-2">
+                            <div class="sherpa-field">
+                                <span class="sherpa-field-label">Send to</span>
+                                <SherpaSegmentedControl TValue="bool" Value="@useToken" ValueChanged="SetUseToken"
+                                                        Options="TargetOptions" AriaLabel="Target type" Class="sherpa-segmented-full" />
                             </div>
                             @if (useToken)
                             {
-                                <div class="push-field">
-                                    <input type="text" class="push-input mono" placeholder="FCM registration token" aria-label="Device token"
+                                <div class="sherpa-field">
+                                    <label class="sherpa-field-label" for="fcm-device-token">Registration token</label>
+                                    <input id="fcm-device-token" type="text" class="sherpa-input mono" placeholder="FCM registration token"
                                            @bind="deviceToken" @bind:event="oninput" @bind:after="MarkDirty" />
                                 </div>
                             }
                             else
                             {
-                                <div class="push-field">
-                                    <input type="text" class="push-input" placeholder="e.g. news, updates" aria-label="Topic"
+                                <div class="sherpa-field">
+                                    <label class="sherpa-field-label" for="fcm-topic">Topic</label>
+                                    <input id="fcm-topic" type="text" class="sherpa-input" placeholder="e.g. news, updates"
                                            @bind="topic" @bind:event="oninput" @bind:after="MarkDirty" />
                                 </div>
                             }
                         </div>
+                    </div>
+                </section>
 
-                        <div class="push-card-divider"></div>
-
-                        <div class="push-subheading">Notification</div>
-                        <div class="push-fields">
-                            <div class="push-field">
-                                <label>Title</label>
-                                <input type="text" class="push-input" placeholder="Notification title"
+                <section>
+                    <SherpaSectionHeader Title="Notification" Icon="fa-solid fa-message"
+                                         Caption="The visible content shown in the Android notification shade." />
+                    <div class="sherpa-card sherpa-card-pad">
+                        <div class="sherpa-form-section">
+                            <div class="sherpa-field">
+                                <label class="sherpa-field-label" for="fcm-title">Title</label>
+                                <input id="fcm-title" type="text" class="sherpa-input" placeholder="Notification title"
                                        @bind="title" @bind:event="oninput" @bind:after="MarkDirty" />
                             </div>
-                            <div class="push-field">
-                                <label>Body</label>
-                                <textarea class="push-input" rows="3" placeholder="Notification body text"
+                            <div class="sherpa-field">
+                                <label class="sherpa-field-label" for="fcm-body">Body</label>
+                                <textarea id="fcm-body" class="sherpa-textarea" rows="3" placeholder="Notification body text"
                                           @bind="body" @bind:event="oninput" @bind:after="MarkDirty"></textarea>
                             </div>
-                            <div class="push-field">
-                                <label>Image URL <span class="push-optional">optional</span></label>
-                                <input type="text" class="push-input" placeholder="https://example.com/image.png"
+                            <div class="sherpa-field">
+                                <label class="sherpa-field-label" for="fcm-image">Image URL <span class="sherpa-field-opt">(optional)</span></label>
+                                <input id="fcm-image" type="url" class="sherpa-input" placeholder="https://example.com/image.png"
                                        @bind="imageUrl" @bind:event="oninput" @bind:after="MarkDirty" />
                             </div>
                         </div>
+                    </div>
+                </section>
 
-                        <div class="push-card-divider"></div>
-
-                        <div class="push-subheading">
-                            <span>Data payload <span class="push-optional">optional</span></span>
-                            <button type="button" class="push-link-btn" @onclick="AddDataEntry">
-                                <i class="fa-solid fa-fw fa-plus"></i> Add field
+                <section>
+                    <SherpaSectionHeader Title="Data payload" Icon="fa-solid fa-table-list"
+                                         Count="@(dataEntries.Count > 0 ? dataEntries.Count : null)"
+                                         Caption="Optional key/value pairs your app reads from RemoteMessage.data.">
+                        <Actions>
+                            @if (dataEntries.Count > 0)
+                            {
+                                <button type="button" class="btn btn-ghost btn-sm" @onclick="AddDataEntry">
+                                    <i class="fa-solid fa-fw fa-plus" aria-hidden="true"></i> Add field
+                                </button>
+                            }
+                        </Actions>
+                    </SherpaSectionHeader>
+                    @if (dataEntries.Count == 0)
+                    {
+                        <div class="sherpa-empty-inline">
+                            <div class="sherpa-empty-inline-lead">
+                                <span class="sherpa-icon-well sherpa-icon-well-sm sherpa-icon-well-neutral">
+                                    <i class="fa-solid fa-fw fa-table-list" aria-hidden="true"></i>
+                                </span>
+                                <div class="sherpa-row-stack">
+                                    <span class="sherpa-empty-inline-title">No custom data</span>
+                                    <span class="sherpa-row-sub">Data-only messages are delivered silently to your app.</span>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-secondary btn-sm" @onclick="AddDataEntry">
+                                <i class="fa-solid fa-fw fa-plus" aria-hidden="true"></i> Add field
                             </button>
                         </div>
-                        @if (dataEntries.Count == 0)
-                        {
-                            <div class="push-kv-empty">No custom data. Add key/value pairs your app reads from <code>RemoteMessage.data</code>.</div>
-                        }
-                        else
-                        {
-                            <div class="push-kv-list">
+                    }
+                    else
+                    {
+                        <div class="sherpa-card sherpa-card-pad">
+                            <div class="sherpa-form-section">
                                 @for (var i = 0; i < dataEntries.Count; i++)
                                 {
                                     var index = i;
-                                    <div class="push-kv-row">
-                                        <input type="text" class="push-input mono" placeholder="key" aria-label="Data key"
+                                    <div class="sherpa-kv-row">
+                                        <input type="text" class="sherpa-input mono" placeholder="key" aria-label="Data key"
                                                value="@dataEntries[index].Key"
                                                @oninput="e => { UpdateDataKey(index, e.Value?.ToString()); MarkDirty(); }" />
-                                        <input type="text" class="push-input" placeholder="value" aria-label="Data value"
+                                        <input type="text" class="sherpa-input" placeholder="value" aria-label="Data value"
                                                value="@dataEntries[index].Value"
                                                @oninput="e => { UpdateDataValue(index, e.Value?.ToString()); MarkDirty(); }" />
-                                        <button type="button" class="push-icon-btn danger btn-ghost-danger" title="Remove field" @onclick="() => { RemoveDataEntry(index); MarkDirty(); }">
-                                            <i class="fa-solid fa-fw fa-xmark"></i>
+                                        <button type="button" class="btn btn-ghost-danger btn-icon btn-sm" title="Remove field" aria-label="Remove field"
+                                                @onclick="() => { RemoveDataEntry(index); MarkDirty(); }">
+                                            <i class="fa-solid fa-fw fa-xmark" aria-hidden="true"></i>
                                         </button>
                                     </div>
                                 }
                             </div>
-                        }
+                        </div>
                     }
-                </div>
-            </section>
+                </section>
+            }
 
             @if (activeProject?.History.Count > 0)
             {
@@ -179,44 +200,43 @@
                                      Silent="@preview.Silent"
                                      SilentMessage="@preview.SilentMessage" />
 
-            <div class="push-panel">
-                <div class="push-panel-title">@(CanSendCurrent ? "Ready to send" : "Before you send")</div>
+            <div class="sherpa-card push-send-card">
+                <div class="push-send-head">
+                    <h2 class="sherpa-section-title">@(CanSendCurrent ? "Ready to send" : "Before you send")</h2>
+                    <span class="sherpa-badge @(CanSendCurrent ? "sherpa-badge-success" : "sherpa-badge-neutral")">@ReadyCount / @(rawJsonMode ? 2 : 3)</span>
+                </div>
                 <dl class="push-summary">
                     <div class="push-summary-row"><dt>Project</dt><dd>@(string.IsNullOrEmpty(projectId) ? "—" : projectId)</dd></div>
                     <div class="push-summary-row"><dt>Mode</dt><dd>@(rawJsonMode ? "Raw JSON" : "Form")</dd></div>
-                    <div class="push-summary-row"><dt>Target</dt><dd class="push-mono">@(preview.Target ?? "—")</dd></div>
+                    <div class="push-summary-row"><dt>Target</dt><dd class="mono">@(preview.Target ?? "—")</dd></div>
                     @if (!rawJsonMode)
                     {
                         <div class="push-summary-row"><dt>Data fields</dt><dd>@dataEntries.Count(d => !string.IsNullOrWhiteSpace(d.Key))</dd></div>
                     }
                 </dl>
-                <ul class="push-checklist">
-                    <li class="@(hasCredentials ? "done" : "")"><i class="@CheckIcon(hasCredentials)"></i> Service account</li>
+                <ul class="push-checklist" aria-label="Requirements">
+                    <li class="@(hasCredentials ? "done" : "")"><i class="@CheckIcon(hasCredentials)" aria-hidden="true"></i> Service account</li>
                     @if (rawJsonMode)
                     {
-                        <li class="@(HasRawJson ? "done" : "")"><i class="@CheckIcon(HasRawJson)"></i> Message JSON</li>
+                        <li class="@(HasRawJson ? "done" : "")"><i class="@CheckIcon(HasRawJson)" aria-hidden="true"></i> Message JSON</li>
                     }
                     else
                     {
-                        <li class="@(HasTarget ? "done" : "")"><i class="@CheckIcon(HasTarget)"></i> @(useToken ? "Device token" : "Topic")</li>
-                        <li class="@(HasContent ? "done" : "")"><i class="@CheckIcon(HasContent)"></i> Title, body, or data</li>
+                        <li class="@(HasTarget ? "done" : "")"><i class="@CheckIcon(HasTarget)" aria-hidden="true"></i> @(useToken ? "Device token" : "Topic")</li>
+                        <li class="@(HasContent ? "done" : "")"><i class="@CheckIcon(HasContent)" aria-hidden="true"></i> Title, body, or data</li>
                     }
                 </ul>
                 <button data-screenshot-external class="btn btn-primary push-send-btn" @onclick="SendCurrent" disabled="@(!CanSendCurrent || isSending)">
-                    <i class="fa-solid fa-fw @(isSending ? "fa-spinner fa-spin" : "fa-paper-plane")"></i>
+                    <i class="fa-solid fa-fw @(isSending ? "fa-spinner fa-spin" : "fa-paper-plane")" aria-hidden="true"></i>
                     @(isSending ? "Sending…" : "Send Push")
                 </button>
-                @if (activeProject == null)
-                {
-                    <p class="push-send-note">Save this project to keep a send history.</p>
-                }
             </div>
         </aside>
     </div>
 </div>
+}
 
 @code {
-    PushProjectBar? projectBar;
     PushProject? activeProject;
     bool hasCredentials;
     string? projectId;
@@ -310,53 +330,44 @@
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.ClearItems();
-        GoogleIdentityState.OnSelectionChanged += OnIdentityChanged;
-
-        // Load projects and select most recent (or create blank)
-        var projects = await ProjectService.GetProjectsAsync(PushProjectPlatform.Fcm);
-        if (projects.Count > 0)
-            await LoadFromProject(projects[0]);
-
-        await SyncCredentialsFromIdentity();
+        LocalVaultAccess.StateChanged += OnIdentityChanged;
+        await SyncProjectCredentials();
     }
 
     private void OnIdentityChanged()
     {
         InvokeAsync(async () =>
         {
-            await SyncCredentialsFromIdentity();
+            await SyncProjectCredentials();
             StateHasChanged();
         });
     }
 
-    private async Task SyncCredentialsFromIdentity()
+    private async Task SyncProjectCredentials()
     {
-        if (LocalVaultAccess.GetState().RequiresUserAction)
-        {
-            hasCredentials = false;
-            projectId = null;
+        hasCredentials = false;
+        projectId = null;
+        if (activeProject == null)
             return;
-        }
 
         try
         {
-            var identity = GoogleIdentityState.SelectedIdentity;
-            if (identity != null && !string.IsNullOrEmpty(identity.ServiceAccountJson))
-            {
-                await PushService.SaveServiceAccountAsync(identity.ServiceAccountJson);
-                hasCredentials = true;
-                projectId = identity.ProjectId;
-            }
-            else
-            {
-                hasCredentials = await PushService.HasCredentialsAsync();
-                projectId = hasCredentials ? await PushService.GetProjectIdAsync() : null;
-            }
+            var config = activeProject.FcmConfig ?? new();
+            var content = await PushProjectCredentials.ReadFcmAsync(config, GoogleIdentityService, SecretsService, LocalVault, FileSystem);
+            await PushService.SaveServiceAccountAsync(content);
+            using var document = JsonDocument.Parse(content);
+            projectId = document.RootElement.GetProperty("project_id").GetString();
+            hasCredentials = true;
         }
         catch (LocalVaultUnavailableException)
         {
             hasCredentials = false;
             projectId = null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError("Failed to load Firebase project credentials.", ex);
+            ToastService.Show($"Could not load this project's service account: {ex.Message}", ToastType.Error);
         }
     }
 
@@ -375,20 +386,15 @@
         rawJsonMode = config.RawJsonMode;
         rawJson = config.RawJson ?? "";
 
-        // Restore Google identity selection
-        if (!string.IsNullOrEmpty(config.SelectedGoogleIdentityId))
-        {
-            var identity = await GoogleIdentityService.GetIdentityAsync(config.SelectedGoogleIdentityId);
-            if (identity != null)
-                GoogleIdentityState.SetSelectedIdentity(identity);
-        }
-
+        await SyncProjectCredentials();
         isDirty = false;
     }
 
     void ResetToBlank()
     {
         activeProject = null;
+        hasCredentials = false;
+        projectId = null;
         useToken = true;
         deviceToken = "";
         topic = "";
@@ -413,6 +419,22 @@
 
     void MarkDirty() => isDirty = true;
 
+    static readonly IReadOnlyList<SherpaSegmentOption<bool>> ModeOptions =
+    [
+        new(false, "Form", "fa-solid fa-list"),
+        new(true, "JSON", "fa-solid fa-code")
+    ];
+
+    static readonly IReadOnlyList<SherpaSegmentOption<bool>> TargetOptions =
+    [
+        new(true, "Device token", "fa-solid fa-mobile-screen"),
+        new(false, "Topic", "fa-solid fa-hashtag")
+    ];
+
+    int ReadyCount => rawJsonMode
+        ? new[] { hasCredentials, HasRawJson }.Count(done => done)
+        : new[] { hasCredentials, HasTarget, HasContent }.Count(done => done);
+
     void SetRawJsonMode(bool value)
     {
         if (rawJsonMode == value) return;
@@ -429,7 +451,11 @@
 
     FcmPushProjectConfig BuildConfig() => new()
     {
-        SelectedGoogleIdentityId = GoogleIdentityState.SelectedIdentity?.Id,
+        SelectedGoogleIdentityId = activeProject?.FcmConfig?.SelectedGoogleIdentityId,
+        AuthMode = activeProject?.FcmConfig?.AuthMode ?? "identity",
+        ServiceAccountFilePath = activeProject?.FcmConfig?.ServiceAccountFilePath,
+        ServiceAccountSecretKey = activeProject?.FcmConfig?.ServiceAccountSecretKey,
+        ServiceAccountVaultKey = activeProject?.FcmConfig?.ServiceAccountVaultKey,
         UseToken = useToken,
         DeviceToken = string.IsNullOrEmpty(deviceToken) ? null : deviceToken,
         Topic = string.IsNullOrEmpty(topic) ? null : topic,
@@ -444,35 +470,17 @@
         RawJson = string.IsNullOrEmpty(rawJson) ? null : rawJson
     };
 
+    PushProject GetCurrentProject() => (activeProject ?? throw new InvalidOperationException("Select a project first.")) with { FcmConfig = BuildConfig() };
+
     async Task SaveProject()
     {
         try
         {
-            var name = projectBar?.GetProjectName() ?? "Untitled";
-            var description = projectBar?.GetProjectDescription();
-
             if (activeProject != null)
             {
-                var updated = activeProject with
-                {
-                    Name = name,
-                    Description = description,
-                    FcmConfig = BuildConfig()
-                };
+                var updated = GetCurrentProject();
                 await ProjectService.SaveProjectAsync(updated);
                 activeProject = await ProjectService.GetProjectAsync(updated.Id);
-            }
-            else
-            {
-                var project = new PushProject
-                {
-                    Name = name,
-                    Description = description,
-                    Platform = PushProjectPlatform.Fcm,
-                    FcmConfig = BuildConfig()
-                };
-                await ProjectService.SaveProjectAsync(project);
-                activeProject = await ProjectService.GetProjectAsync(project.Id);
             }
 
             isDirty = false;
@@ -491,6 +499,8 @@
 
         try
         {
+            await SyncProjectCredentials();
+            if (!hasCredentials) return;
             var data = dataEntries
                 .Where(d => !string.IsNullOrWhiteSpace(d.Key))
                 .ToDictionary(d => d.Key, d => d.Value ?? "");
@@ -547,6 +557,8 @@
 
         try
         {
+            await SyncProjectCredentials();
+            if (!hasCredentials) return;
             var response = await PushService.SendRawJsonAsync(rawJson);
 
             // Record history
@@ -606,6 +618,6 @@
 
     public void Dispose()
     {
-        GoogleIdentityState.OnSelectionChanged -= OnIdentityChanged;
+        LocalVaultAccess.StateChanged -= OnIdentityChanged;
     }
 }

@@ -40,7 +40,6 @@ public class LinuxToolbarManager
 
     private static readonly HashSet<string> GoogleRoutes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "/firebase-push"
     };
 
     private static readonly Dictionary<string, string> IconMap = new(StringComparer.OrdinalIgnoreCase)
@@ -223,6 +222,11 @@ public class LinuxToolbarManager
                 var box = Gtk.Box.New(Gtk.Orientation.Vertical, 4);
                 foreach (var child in children)
                 {
+                    if (child.IsSeparator)
+                    {
+                        box.Append(Gtk.Separator.New(Gtk.Orientation.Horizontal));
+                        continue;
+                    }
                     var menuActionButton = CreateButton(child, showLabel: true);
                     menuActionButton.OnClicked += (_, _) => popover.Popdown();
                     box.Append(menuActionButton);

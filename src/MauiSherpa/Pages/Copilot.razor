@@ -84,84 +84,87 @@
 }
 else if (availability != null && !availability.IsInstalled)
 {
-    <!-- Copilot Not Installed -->
     <div class="setup-required">
-        <div class="setup-icon sherpa-icon-well error"><i class="fa-solid fa-exclamation-triangle"></i></div>
-        <h2>GitHub Copilot CLI Not Found</h2>
-        <p>The GitHub Copilot CLI needs to be installed to use this feature.</p>
-        
-        <div class="setup-steps">
-            <div class="step">
-                <div class="step-number">1</div>
-                <div class="step-content">
-                    <strong>Install GitHub Copilot CLI</strong>
-                    <p>Visit the GitHub Copilot website to download and install the CLI tool.</p>
-                    <a href="#" @onclick:preventDefault 
-                       @onclick='() => OpenUrl("https://docs.github.com/en/copilot/managing-copilot/configure-personal-settings/installing-the-github-copilot-extension-in-your-environment")'
-                       class="btn btn-primary">
-                        <i class="fa-solid fa-external-link-alt"></i> Get GitHub Copilot CLI
-                    </a>
-                </div>
-            </div>
-            <div class="step">
-                <div class="step-number">2</div>
-                <div class="step-content">
-                    <strong>Verify Installation</strong>
-                    <p>After installation, run <code>copilot --version</code> in your terminal to verify.</p>
-                </div>
+        <div class="setup-card">
+            <span class="sherpa-icon-well setup-icon setup-icon-danger" aria-hidden="true"><i class="fa-solid fa-triangle-exclamation fa-fw"></i></span>
+            <h2 class="setup-title">Copilot CLI not found</h2>
+            <p class="setup-description">Install the GitHub Copilot CLI to chat with Copilot in Sherpa.</p>
+
+            <ol class="sherpa-list setup-steps">
+                <li class="sherpa-list-row setup-step">
+                    <span class="setup-step-number" aria-hidden="true">1</span>
+                    <div class="setup-step-body">
+                        <span class="setup-step-title">Install the CLI</span>
+                        <div class="setup-command">
+                            <code>npm install -g @@github/copilot</code>
+                            <button class="btn btn-ghost btn-icon btn-sm" @onclick="@(() => CopyToClipboard("npm install -g @github/copilot"))" title="Copy command" aria-label="Copy install command">
+                                <i class="fa-solid fa-copy fa-fw" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                    </div>
+                </li>
+                <li class="sherpa-list-row setup-step">
+                    <span class="setup-step-number" aria-hidden="true">2</span>
+                    <div class="setup-step-body">
+                        <span class="setup-step-title">Verify the installation</span>
+                        <span class="setup-step-hint">Run <code>copilot --version</code> in your terminal.</span>
+                    </div>
+                </li>
+            </ol>
+
+            <div class="setup-actions">
+                <button class="btn btn-primary" @onclick="@(() => CheckAvailability(forceRefresh: true))">
+                    <i class="fa-solid fa-rotate fa-fw" aria-hidden="true"></i> Check again
+                </button>
+                <button class="btn btn-ghost" @onclick='() => OpenUrl("https://docs.github.com/copilot/how-tos/set-up/install-copilot-cli")'>
+                    <i class="fa-solid fa-arrow-up-right-from-square fa-fw" aria-hidden="true"></i> Installation guide
+                </button>
             </div>
         </div>
-
-        <button class="btn btn-secondary" @onclick="@(() => CheckAvailability(forceRefresh: true))">
-            <i class="fa-solid fa-sync-alt"></i> Check Again
-        </button>
     </div>
 }
 else if (availability != null && !availability.IsAuthenticated)
 {
-    <!-- Copilot Not Authenticated -->
     <div class="setup-required">
-        <div class="setup-icon sherpa-icon-well warning"><i class="fa-solid fa-sign-in-alt"></i></div>
-        <h2>Authentication Required</h2>
-        <p>You need to log in to GitHub Copilot before you can use it.</p>
-        @if (!string.IsNullOrEmpty(availability.Version))
-        {
-            <p class="version-info"><i class="fa-solid fa-check-circle"></i> Copilot CLI installed (v@(availability.Version))</p>
-        }
-        
-        <div class="setup-steps">
-            <div class="step">
-                <div class="step-number">1</div>
-                <div class="step-content">
-                    <strong>Open Terminal</strong>
-                    <p>Open your terminal or command prompt.</p>
-                </div>
-            </div>
-            <div class="step">
-                <div class="step-number">2</div>
-                <div class="step-content">
-                    <strong>Run Login Command</strong>
-                    <p>Run the following command to authenticate:</p>
-                    <div class="code-block">
-                        <code>copilot auth login</code>
-                        <button class="btn-copy-code" @onclick="@(() => CopyToClipboard("copilot auth login"))" title="Copy">
-                            <i class="fa-solid fa-copy"></i>
-                        </button>
+        <div class="setup-card">
+            <span class="sherpa-icon-well setup-icon setup-icon-warning" aria-hidden="true"><i class="fa-solid fa-right-to-bracket fa-fw"></i></span>
+            <h2 class="setup-title">Sign in to Copilot</h2>
+            <p class="setup-description">Sign in to GitHub Copilot from your terminal, then check again.</p>
+            @if (!string.IsNullOrEmpty(availability.Version))
+            {
+                <span class="sherpa-badge sherpa-badge-success setup-version">
+                    <i class="fa-solid fa-circle-check fa-fw" aria-hidden="true"></i> Copilot CLI v@(availability.Version)
+                </span>
+            }
+
+            <ol class="sherpa-list setup-steps">
+                <li class="sherpa-list-row setup-step">
+                    <span class="setup-step-number" aria-hidden="true">1</span>
+                    <div class="setup-step-body">
+                        <span class="setup-step-title">Run the sign-in command</span>
+                        <div class="setup-command">
+                            <code>copilot login</code>
+                            <button class="btn btn-ghost btn-icon btn-sm" @onclick="@(() => CopyToClipboard("copilot login"))" title="Copy command" aria-label="Copy sign-in command">
+                                <i class="fa-solid fa-copy fa-fw" aria-hidden="true"></i>
+                            </button>
+                        </div>
                     </div>
-                </div>
-            </div>
-            <div class="step">
-                <div class="step-number">3</div>
-                <div class="step-content">
-                    <strong>Follow Browser Prompts</strong>
-                    <p>Complete the authentication in your browser when prompted.</p>
-                </div>
+                </li>
+                <li class="sherpa-list-row setup-step">
+                    <span class="setup-step-number" aria-hidden="true">2</span>
+                    <div class="setup-step-body">
+                        <span class="setup-step-title">Finish in your browser</span>
+                        <span class="setup-step-hint">Approve the device code when GitHub prompts you.</span>
+                    </div>
+                </li>
+            </ol>
+
+            <div class="setup-actions">
+                <button class="btn btn-primary" @onclick="@(() => CheckAvailability(forceRefresh: true))">
+                    <i class="fa-solid fa-rotate fa-fw" aria-hidden="true"></i> Check again
+                </button>
             </div>
         </div>
-
-        <button class="btn btn-secondary" @onclick="@(() => CheckAvailability(forceRefresh: true))">
-            <i class="fa-solid fa-sync-alt"></i> Check Again
-        </button>
     </div>
 }
 else
@@ -378,122 +381,156 @@ else
 
     /* Setup Required States */
     .setup-required {
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 32px 24px;
+    }
+
+    .setup-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        max-width: 440px;
+        padding: 28px 24px 24px;
+        text-align: center;
         background: var(--surface-card);
         border: 1px solid var(--border-subtle);
         border-radius: var(--radius-lg);
-        padding: 2.5rem;
     }
 
     .setup-icon {
-        width: 42px;
-        height: 42px;
-        font-size: 17px;
-        margin-bottom: 1.25rem;
+        margin-bottom: 4px;
     }
 
-    .setup-icon.error { color: var(--accent-danger); }
-    .setup-icon.warning { color: var(--accent-warning); }
+    .setup-icon-warning {
+        color: var(--status-warning-fg);
+        background: var(--status-warning-bg);
+        border-color: var(--status-warning-border);
+    }
 
-    .setup-required h2 {
-        font-size: 1.5rem;
+    .setup-icon-danger {
+        color: var(--status-danger-fg);
+        background: var(--status-error-bg);
+        border-color: var(--status-error-border);
+    }
+
+    .setup-title {
+        margin: 0;
         color: var(--text-primary);
-        margin-bottom: 0.75rem;
+        font-size: 1rem;
+        font-weight: 650;
+        line-height: 1.3;
+        letter-spacing: -0.01em;
     }
 
-    .setup-required > p {
-        color: var(--text-muted);
-        margin-bottom: 1.5rem;
-        max-width: 600px;
-    }
-
-    .version-info {
-        color: var(--accent-success);
+    .setup-description {
+        max-width: 65ch;
+        margin: 0;
+        color: var(--text-secondary);
         font-size: 0.875rem;
-        margin-bottom: 1.5rem;
+        line-height: 1.45;
     }
 
-    .version-info i { margin-right: 0.375rem; }
+    .setup-version {
+        font-variant-numeric: tabular-nums;
+    }
 
     .setup-steps {
+        width: 100%;
+        margin: 12px 0 4px;
+        padding: 0;
+        list-style: none;
+        text-align: start;
         background: var(--surface-well);
-        border-radius: var(--radius-md);
-        padding: 1.5rem;
-        margin-bottom: 1.5rem;
     }
 
-    .step {
-        display: flex;
-        gap: 1rem;
-        margin-bottom: 1.25rem;
+    .setup-step {
+        align-items: flex-start;
     }
 
-    .step:last-child { margin-bottom: 0; }
-
-    .step-number {
-        width: 2rem;
-        height: 2rem;
-        background: var(--accent);
-        color: var(--text-inverse);
-        border-radius: var(--radius-pill);
-        display: flex;
+    .setup-step-number {
+        display: inline-flex;
+        flex: 0 0 22px;
         align-items: center;
         justify-content: center;
+        width: 22px;
+        height: 22px;
+        color: var(--text-secondary);
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-pill);
+        font-size: 0.75rem;
         font-weight: 600;
-        flex-shrink: 0;
+        font-variant-numeric: tabular-nums;
     }
 
-    .step-content {
+    .setup-step-body {
+        display: flex;
         flex: 1;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+        padding-top: 2px;
     }
 
-    .step-content strong {
-        display: block;
+    .setup-step-title {
         color: var(--text-primary);
-        margin-bottom: 0.25rem;
+        font-weight: 600;
     }
 
-    .step-content p {
+    .setup-step-hint {
         color: var(--text-muted);
-        font-size: 0.875rem;
-        margin-bottom: 0.75rem;
-    }
-
-    .step-content code {
-        background: var(--surface-well);
-        color: var(--status-success-fg);
-        padding: 2px 0.5rem;
-        border-radius: var(--radius-xs);
-        font-family: var(--font-mono);
         font-size: 0.8125rem;
     }
 
-    .code-block {
+    .setup-step-hint code {
+        padding: 1px 5px;
+        color: var(--text-primary);
+        background: var(--surface-card);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-xs);
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+    }
+
+    .setup-command {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
-        background: var(--surface-well);
-        padding: 0.75rem 1rem;
-        border-radius: var(--radius-sm);
+        gap: 8px;
+        padding: 4px 4px 4px 10px;
+        background: var(--surface-console);
+        border: 1px solid var(--border-console);
+        border-radius: var(--radius-md);
     }
 
-    .code-block code {
-        background: transparent;
-        padding: 0;
+    .setup-command code {
         flex: 1;
+        min-width: 0;
+        overflow-x: auto;
+        color: var(--console-text);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        white-space: nowrap;
     }
 
-    .btn-copy-code {
-        background: transparent;
-        border: none;
-        color: var(--text-muted);
-        cursor: pointer;
-        padding: 0.25rem 0.5rem;
-        border-radius: var(--radius-xs);
+    .setup-command .btn-ghost {
+        color: var(--console-muted);
     }
 
-    .btn-copy-code:hover {
-        color: var(--text-primary);
-        background: var(--surface-card-hover);
+    .setup-command .btn-ghost:hover {
+        color: var(--console-text);
+        background: var(--surface-console-row-hover);
+    }
+
+    .setup-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 8px;
     }
 
     .connection-status {

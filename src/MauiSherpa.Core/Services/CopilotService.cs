@@ -343,6 +343,78 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         return null;
     }
 
+    // Set once an installed CLI turns out to speak a different protocol than this SDK.
+    private bool _useInProcessRuntime;
+
+    internal static bool IsProtocolMismatch(Exception ex) =>
+        ex.ToString().Contains("protocol version mismatch", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Starts a client against the installed CLI. If that CLI uses a protocol this SDK doesn't
+    /// support (e.g. a newer Homebrew/npm install), falls back to hosting the runtime bundled
+    /// with the SDK in-process, which always matches the SDK's protocol.
+    /// </summary>
+    private async Task<CopilotClient> StartClientAsync(CopilotLogLevel? logLevel = null)
+    {
+        if (_useInProcessRuntime)
+            return await StartInProcessClientAsync(logLevel);
+
+        var cliPath = ResolveCopilotCliPath();
+        if (cliPath != null)
+            _logger.LogInformation($"Resolved Copilot CLI path: {cliPath}");
+        else
+            _logger.LogWarning("Could not resolve Copilot CLI path from bundle, well-known locations, or PATH");
+
+        try
+        {
+            return await StartClientAsync(new CopilotClientOptions
+            {
+                Connection = RuntimeConnection.ForStdio(cliPath),
+                Environment = BuildCliEnvironment(cliPath)
+            }, logLevel);
+        }
+        catch (Exception ex) when (IsProtocolMismatch(ex))
+        {
+            _logger.LogWarning($"Copilot CLI at {cliPath} is incompatible with this SDK ({ex.Message}). Falling back to the bundled in-process runtime.");
+            _useInProcessRuntime = true;
+            return await StartInProcessClientAsync(logLevel);
+        }
+    }
+
+    private Task<CopilotClient> StartInProcessClientAsync(CopilotLogLevel? logLevel)
+    {
+        _logger.LogInformation("Starting bundled Copilot runtime in-process");
+        // In-process hosting is the SDK's supported way to use its bundled runtime; app bundling breaks the
+        // bundled stdio wrapper's runtime.node lookup. Experimental, but only used as a fallback.
+#pragma warning disable GHCP001
+        var connection = RuntimeConnection.ForInProcess();
+#pragma warning restore GHCP001
+        return StartClientAsync(new CopilotClientOptions { Connection = connection }, logLevel, setWorkingDirectory: false);
+    }
+
+    private async Task<CopilotClient> StartClientAsync(CopilotClientOptions options, CopilotLogLevel? logLevel, bool setWorkingDirectory = true)
+    {
+        // The in-process runtime shares the app's process and rejects a per-client working directory.
+        if (setWorkingDirectory)
+            options.WorkingDirectory = _copilotWorkingDirectory;
+        options.BaseDirectory = _copilotWorkingDirectory;
+        if (logLevel.HasValue)
+            options.LogLevel = logLevel.Value;
+
+        var client = new CopilotClient(options);
+        try
+        {
+            await client.StartAsync();
+            return client;
+        }
+        catch
+        {
+            try { await client.ForceStopAsync(); } catch { }
+            await client.DisposeAsync();
+            throw;
+        }
+    }
+
     public async Task<CopilotAvailability> CheckAvailabilityAsync(bool forceRefresh = false)
     {
         // Return cached result if available and not forcing refresh
@@ -367,24 +439,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             {
                 _logger.LogInformation("Checking Copilot availability via SDK...");
 
-                var cliPath = ResolveCopilotCliPath();
-                var cliEnvironment = BuildCliEnvironment(cliPath);
-
-                if (cliPath != null)
-                    _logger.LogInformation($"Resolved Copilot CLI path: {cliPath}");
-                else
-                    _logger.LogWarning("Could not resolve Copilot CLI path from bundle, well-known locations, or PATH");
-
-                var options = new CopilotClientOptions
-                {
-                    Connection = RuntimeConnection.ForStdio(cliPath),
-                    WorkingDirectory = _copilotWorkingDirectory,
-                    BaseDirectory = _copilotWorkingDirectory,
-                    Environment = cliEnvironment
-                };
-
-                tempClient = new CopilotClient(options);
-                await tempClient.StartAsync();
+                tempClient = await StartClientAsync();
                 tempClientStarted = true;
 
                 var statusResponse = await tempClient.GetStatusAsync();
@@ -517,22 +572,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
 
             _logger.LogInformation("Connecting to Copilot CLI...");
 
-            var cliPath = ResolveCopilotCliPath();
-            var cliEnvironment = BuildCliEnvironment(cliPath);
-            if (cliPath != null)
-                _logger.LogInformation($"Resolved Copilot CLI path: {cliPath}");
-
-            var options = new CopilotClientOptions
-            {
-                Connection = RuntimeConnection.ForStdio(cliPath),
-                WorkingDirectory = _copilotWorkingDirectory,
-                BaseDirectory = _copilotWorkingDirectory,
-                LogLevel = CopilotLogLevel.Info,
-                Environment = cliEnvironment
-            };
-
-            _client = new CopilotClient(options);
-            await _client.StartAsync();
+            _client = await StartClientAsync(CopilotLogLevel.Info);
 
             _cachedAvailability = _cachedAvailability is null
                 ? new CopilotAvailability(true, true, null, null, null)
