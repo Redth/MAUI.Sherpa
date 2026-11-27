@@ -162,6 +162,42 @@
                     </div>
                 </div>
             }
+            <div class="setting-item setting-item-start">
+                <div class="setting-copy">
+                    <label class="setting-label" for="dotnet-tool-nuget-feed">.NET Tools NuGet Feed</label>
+                    <span class="setting-description">
+                        Override the NuGet feed used to check for and install .NET tools (such as MAUI CLI) when <code>nuget.org</code> is blocked. Leave blank to use the default feed.
+                    </span>
+                </div>
+                <div class="setting-control setting-control-stack">
+                    <div class="sherpa-input-group setting-select-wide">
+                        <input id="dotnet-tool-nuget-feed"
+                               type="text"
+                               class="mono"
+                               @bind="dotnetToolNuGetFeedUrl"
+                               @bind:event="oninput"
+                               placeholder="@DotnetToolNuGetFeedOptions.DefaultFeedUrl"
+                               aria-label=".NET Tools NuGet feed URL" />
+                        @if (!string.IsNullOrWhiteSpace(dotnetToolNuGetFeedUrl))
+                        {
+                            <button type="button"
+                                    class="sherpa-input-group-btn"
+                                    title="Use default NuGet feed"
+                                    aria-label="Clear custom NuGet feed"
+                                    @onclick="@(() => dotnetToolNuGetFeedUrl = "")">
+                                <i class="fa-solid fa-xmark fa-fw" aria-hidden="true"></i>
+                            </button>
+                        }
+                    </div>
+                    @if (!IsDotnetToolNuGetFeedValid)
+                    {
+                        <span class="sherpa-field-error">
+                            <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i>
+                            Enter an <code>http://</code> or <code>https://</code> feed URL, or a local folder path.
+                        </span>
+                    }
+                </div>
+            </div>
         </div>
 
         <div class="setting-group">
@@ -1322,6 +1358,8 @@
     private string xcodeSelectionAction = XcodeSelectionActionOptions.Rename;
     private bool xcodeCreateSymlinkOnSelect = false;
     private string provisioningProfilesDirectory = ProvisioningProfilesDirectoryOptions.Auto;
+    private string dotnetToolNuGetFeedUrl = "";
+    private bool IsDotnetToolNuGetFeedValid => DotnetToolNuGetFeedOptions.IsValid(dotnetToolNuGetFeedUrl);
     private bool isNormalizingBundles = false;
     private string appVersion = "";
     private UpdateCheckResult? updateResult;
@@ -1400,6 +1438,7 @@
                 settings.Preferences.XcodeCreateSymlinkOnSelect;
             provisioningProfilesDirectory = NormalizeProvisioningProfilesDirectory(
                 settings.Preferences.ProvisioningProfilesDirectory);
+            dotnetToolNuGetFeedUrl = settings.Preferences.DotnetToolNuGetFeedUrl ?? "";
         }
         catch { }
     }
@@ -1648,11 +1687,13 @@
         switch (actionId)
         {
             case "save":
-                await SaveSettings();
-                // Signal completion to dismiss the sheet
-                var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
-                var settingsPage = nav?.ModalStack.OfType<MauiSherpa.Pages.Forms.SettingsPage>().FirstOrDefault();
-                settingsPage?.Complete(true);
+                if (await SaveSettings())
+                {
+                    // Signal completion to dismiss the sheet
+                    var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
+                    var settingsPage = nav?.ModalStack.OfType<MauiSherpa.Pages.Forms.SettingsPage>().FirstOrDefault();
+                    settingsPage?.Complete(true);
+                }
                 break;
             case "reset":
                 await ResetSettings();
@@ -1660,10 +1701,20 @@
         }
     }
 
-    private async Task SaveSettings()
+    private async Task<bool> SaveSettings()
     {
+        if (!IsDotnetToolNuGetFeedValid)
+        {
+            await AlertService.ShowAlertAsync(
+                "Invalid NuGet Feed",
+                "Enter a valid http:// or https:// NuGet feed URL, a local folder path, or leave the field blank to use the default feed.");
+            return false;
+        }
+
         try
         {
+            var normalizedFeed = DotnetToolNuGetFeedOptions.Normalize(dotnetToolNuGetFeedUrl);
+            dotnetToolNuGetFeedUrl = normalizedFeed ?? "";
             await EncryptedSettings.UpdateSettingsAsync(s => s with
             {
                 Preferences = s.Preferences with
@@ -1675,14 +1726,17 @@
                     XcodeSelectionAction = xcodeSelectionAction,
                     XcodeCreateSymlinkOnSelect = xcodeSelectionAction == XcodeSelectionActionOptions.None &&
                         xcodeCreateSymlinkOnSelect,
-                    ProvisioningProfilesDirectory = provisioningProfilesDirectory
+                    ProvisioningProfilesDirectory = provisioningProfilesDirectory,
+                    DotnetToolNuGetFeedUrl = normalizedFeed
                 }
             });
             await AlertService.ShowToastAsync("Settings saved");
+            return true;
         }
         catch (Exception ex)
         {
             await AlertService.ShowAlertAsync("Error", $"Failed to save settings: {ex.Message}");
+            return false;
         }
     }
 
@@ -1700,6 +1754,7 @@
         xcodeSelectionAction = XcodeSelectionActionOptions.Rename;
         xcodeCreateSymlinkOnSelect = false;
         provisioningProfilesDirectory = ProvisioningProfilesDirectoryOptions.Auto;
+        dotnetToolNuGetFeedUrl = "";
         ThemeService.SetTheme(ViewModel.Theme);
         ThemeService.SetFontScale(ViewModel.FontScale);
     }
@@ -2213,6 +2268,7 @@
             xcodeBundleSeparator = NormalizeXcodeBundleSeparator(settings.Preferences.XcodeBundleSeparator);
             provisioningProfilesDirectory = NormalizeProvisioningProfilesDirectory(
                 settings.Preferences.ProvisioningProfilesDirectory);
+            dotnetToolNuGetFeedUrl = settings.Preferences.DotnetToolNuGetFeedUrl ?? "";
             ThemeService.SetTheme(ViewModel.Theme);
             ThemeService.SetFontScale(ViewModel.FontScale);
         }

@@ -13,13 +13,22 @@ public sealed class MauiCliToolService : IMauiCliToolService
     private readonly IProcessExecutionService _process;
     private readonly ILoggingService _logger;
     private readonly Func<string?> _resolveExecutable;
-    private readonly Func<INuGetClient> _nugetClientFactory;
+    private readonly Func<string, INuGetClient> _nugetClientFactory;
+    private readonly Func<Task<string?>> _getFeedOverrideAsync;
     private INuGetClient? _nugetClient;
+    private string? _nugetClientSourceUrl;
 
+    [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
     public MauiCliToolService(
         IProcessExecutionService process,
-        ILoggingService logger)
-        : this(process, logger, () => MauiCliExecutableResolver.Resolve())
+        ILoggingService logger,
+        IEncryptedSettingsService? settingsService = null)
+        : this(
+            process,
+            logger,
+            () => MauiCliExecutableResolver.Resolve(),
+            feedUrl => new NuGetClient(feedUrl),
+            settingsService is null ? null : () => ReadConfiguredFeedAsync(settingsService, logger))
     {
     }
 
@@ -28,11 +37,27 @@ public sealed class MauiCliToolService : IMauiCliToolService
         ILoggingService logger,
         Func<string?> resolveExecutable,
         Func<INuGetClient>? nugetClientFactory = null)
+        : this(
+            process,
+            logger,
+            resolveExecutable,
+            nugetClientFactory is null ? (feedUrl => new NuGetClient(feedUrl)) : (_ => nugetClientFactory()),
+            getFeedOverrideAsync: null)
+    {
+    }
+
+    public MauiCliToolService(
+        IProcessExecutionService process,
+        ILoggingService logger,
+        Func<string?> resolveExecutable,
+        Func<string, INuGetClient>? nugetClientFactory,
+        Func<Task<string?>>? getFeedOverrideAsync)
     {
         _process = process;
         _logger = logger;
         _resolveExecutable = resolveExecutable;
-        _nugetClientFactory = nugetClientFactory ?? (() => new NuGetClient());
+        _nugetClientFactory = nugetClientFactory ?? (feedUrl => new NuGetClient(feedUrl));
+        _getFeedOverrideAsync = getFeedOverrideAsync ?? (() => Task.FromResult<string?>(null));
     }
 
     public async Task<MauiCliToolStatus> GetStatusAsync(CancellationToken ct = default)
@@ -110,8 +135,9 @@ public sealed class MauiCliToolService : IMauiCliToolService
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(UpdateCheckTimeout);
 
-            _nugetClient ??= _nugetClientFactory();
-            var versions = await _nugetClient.GetPackageVersionsAsync(
+            var feedUrl = await GetEffectiveFeedOverrideAsync() ?? NuGetClient.DefaultPackageSourceUrl;
+            var nugetClient = GetOrCreateNuGetClient(feedUrl);
+            var versions = await nugetClient.GetPackageVersionsAsync(
                 PackageId,
                 includePrerelease: installed?.IsPrerelease ?? true,
                 timeout.Token);
@@ -145,20 +171,22 @@ public sealed class MauiCliToolService : IMauiCliToolService
         }
     }
 
-    public Task<ProcessResult> InstallAsync(string? version = null, CancellationToken ct = default)
+    public async Task<ProcessResult> InstallAsync(string? version = null, CancellationToken ct = default)
     {
-        return ExecuteAsync(
+        var feedOverride = await GetEffectiveFeedOverrideAsync();
+        return await ExecuteAsync(
             "dotnet",
-            BuildToolArguments("install", version),
+            BuildToolArguments("install", version, feedOverride),
             "Installing MAUI CLI",
             ct);
     }
 
-    public Task<ProcessResult> UpdateAsync(string? version = null, CancellationToken ct = default)
+    public async Task<ProcessResult> UpdateAsync(string? version = null, CancellationToken ct = default)
     {
-        return ExecuteAsync(
+        var feedOverride = await GetEffectiveFeedOverrideAsync();
+        return await ExecuteAsync(
             "dotnet",
-            BuildToolArguments("update", version),
+            BuildToolArguments("update", version, feedOverride),
             "Updating MAUI CLI",
             ct);
     }
@@ -176,12 +204,62 @@ public sealed class MauiCliToolService : IMauiCliToolService
             : trimmed;
     }
 
-    private static string[] BuildToolArguments(string verb, string? version)
+    private static string[] BuildToolArguments(string verb, string? version, string? sourceOverride = null)
     {
-        string[] arguments = ["tool", verb, "--global", PackageId];
-        return string.IsNullOrWhiteSpace(version)
-            ? [.. arguments, "--prerelease"]
-            : [.. arguments, "--version", version];
+        List<string> arguments = ["tool", verb, "--global", PackageId];
+        if (string.IsNullOrWhiteSpace(version))
+        {
+            arguments.Add("--prerelease");
+        }
+        else
+        {
+            arguments.Add("--version");
+            arguments.Add(version);
+        }
+
+        if (!string.IsNullOrWhiteSpace(sourceOverride))
+        {
+            arguments.Add("--source");
+            arguments.Add(sourceOverride);
+        }
+
+        return [.. arguments];
+    }
+
+    private INuGetClient GetOrCreateNuGetClient(string feedUrl)
+    {
+        if (_nugetClient is not null &&
+            string.Equals(_nugetClientSourceUrl, feedUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            return _nugetClient;
+        }
+
+        (_nugetClient as IDisposable)?.Dispose();
+        _nugetClient = _nugetClientFactory(feedUrl);
+        _nugetClientSourceUrl = feedUrl;
+        return _nugetClient;
+    }
+
+    private async Task<string?> GetEffectiveFeedOverrideAsync()
+    {
+        var configured = await _getFeedOverrideAsync();
+        return DotnetToolNuGetFeedOptions.Normalize(configured);
+    }
+
+    private static async Task<string?> ReadConfiguredFeedAsync(
+        IEncryptedSettingsService settingsService,
+        ILoggingService logger)
+    {
+        try
+        {
+            var settings = await settingsService.GetSettingsAsync().ConfigureAwait(false);
+            return settings.Preferences.DotnetToolNuGetFeedUrl;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"Unable to read configured .NET tools NuGet feed: {ex.Message}");
+            return null;
+        }
     }
 
     public async Task<IReadOnlyList<MauiCliDevice>> GetDevicesAsync(CancellationToken ct = default)

@@ -162,6 +162,104 @@ public class MauiCliToolServiceTests
         info.Message.Should().Contain("feed offline");
     }
 
+    [Fact]
+    public async Task InstallAsync_UsesCustomNuGetSourceWhenConfigured()
+    {
+        const string customFeed = "https://pkgs.example.com/nuget/v3/index.json";
+        var process = new QueueProcessExecutionService(Completed("installed"));
+        var service = new MauiCliToolService(
+            process,
+            Mock.Of<ILoggingService>(),
+            () => null,
+            nugetClientFactory: null,
+            getFeedOverrideAsync: () => Task.FromResult<string?>(customFeed));
+
+        var result = await service.InstallAsync();
+
+        result.Success.Should().BeTrue();
+        process.Requests.Should().ContainSingle()
+            .Which.Arguments.Should().Equal(
+                "tool",
+                "install",
+                "--global",
+                "Microsoft.Maui.Cli",
+                "--prerelease",
+                "--source",
+                customFeed);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_UsesCustomNuGetSourceWhenConfigured()
+    {
+        const string customFeed = "https://pkgs.example.com/nuget/v3/index.json";
+        var process = new QueueProcessExecutionService(Completed("updated"));
+        var service = new MauiCliToolService(
+            process,
+            Mock.Of<ILoggingService>(),
+            () => "/fake/maui",
+            nugetClientFactory: null,
+            getFeedOverrideAsync: () => Task.FromResult<string?>(customFeed));
+
+        var result = await service.UpdateAsync("0.1.0-preview.12.26368.2");
+
+        result.Success.Should().BeTrue();
+        process.Requests.Should().ContainSingle()
+            .Which.Arguments.Should().Equal(
+                "tool",
+                "update",
+                "--global",
+                "Microsoft.Maui.Cli",
+                "--version",
+                "0.1.0-preview.12.26368.2",
+                "--source",
+                customFeed);
+    }
+
+    [Fact]
+    public async Task GetUpdateInfoAsync_UsesConfiguredFeedAndSwitchesWhenFeedChanges()
+    {
+        string? configuredFeed = "https://mirror-a.example.com/v3/index.json";
+        var requestedFeeds = new List<string>();
+        var service = new MauiCliToolService(
+            new QueueProcessExecutionService(),
+            Mock.Of<ILoggingService>(),
+            () => "/fake/maui",
+            feedUrl =>
+            {
+                requestedFeeds.Add(feedUrl);
+                return feedUrl.Contains("mirror-a")
+                    ? new StubNuGetClient("0.1.0-preview.12.26368.2")
+                    : new StubNuGetClient("0.1.0-preview.13.26400.1");
+            },
+            () => Task.FromResult(configuredFeed));
+
+        var status = new MauiCliToolStatus(MauiCliToolState.Available, "/fake/maui", "0.1.0-preview.12.26358.3");
+
+        var first = await service.GetUpdateInfoAsync(status);
+        first.LatestVersion.Should().Be("0.1.0-preview.12.26368.2");
+
+        configuredFeed = "https://mirror-b.example.com/v3/index.json";
+        var second = await service.GetUpdateInfoAsync(status);
+        second.LatestVersion.Should().Be("0.1.0-preview.13.26400.1");
+
+        requestedFeeds.Should().Equal(
+            "https://mirror-a.example.com/v3/index.json",
+            "https://mirror-b.example.com/v3/index.json");
+    }
+
+    [Theory]
+    [InlineData(null, true, null)]
+    [InlineData("   ", true, null)]
+    [InlineData("https://api.nuget.org/v3/index.json", true, null)]
+    [InlineData("  https://pkgs.example.com/nuget/v3/index.json  ", true, "https://pkgs.example.com/nuget/v3/index.json")]
+    [InlineData("ftp://pkgs.example.com/feed", false, "ftp://pkgs.example.com/feed")]
+    [InlineData("not-a-url", false, "not-a-url")]
+    public void DotnetToolNuGetFeedOptions_ValidatesAndNormalizes(string? input, bool expectedValid, string? expectedNormalized)
+    {
+        DotnetToolNuGetFeedOptions.IsValid(input).Should().Be(expectedValid);
+        DotnetToolNuGetFeedOptions.Normalize(input).Should().Be(expectedNormalized);
+    }
+
     private static MauiCliToolService CreateService(
         IProcessExecutionService process,
         Func<string?> resolver)

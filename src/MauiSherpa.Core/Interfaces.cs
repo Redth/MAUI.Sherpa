@@ -4931,6 +4931,39 @@ public record AppPreferences
     public string XcodeSelectionAction { get; init; } = XcodeSelectionActionOptions.Rename;
     public bool XcodeCreateSymlinkOnSelect { get; init; } = false;
     public string ProvisioningProfilesDirectory { get; init; } = ProvisioningProfilesDirectoryOptions.Auto;
+    public string? DotnetToolNuGetFeedUrl { get; init; }
+}
+
+public static class DotnetToolNuGetFeedOptions
+{
+    public const string DefaultFeedUrl = "https://api.nuget.org/v3/index.json";
+
+    public static string? Normalize(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var trimmed = value.Trim();
+        return string.Equals(trimmed, DefaultFeedUrl, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : trimmed;
+    }
+
+    public static bool IsValid(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return true;
+
+        var trimmed = value.Trim();
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) &&
+            (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+        {
+            return !string.IsNullOrWhiteSpace(uri.Host);
+        }
+
+        return Path.IsPathRooted(trimmed);
+    }
 }
 
 public static class XcodeArchiveExtractorOptions

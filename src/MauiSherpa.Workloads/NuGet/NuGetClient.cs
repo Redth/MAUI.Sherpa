@@ -13,6 +13,8 @@ namespace MauiSherpa.Workloads.NuGet;
 /// </summary>
 public class NuGetClient : INuGetClient, IDisposable
 {
+    public const string DefaultPackageSourceUrl = "https://api.nuget.org/v3/index.json";
+
     private readonly SourceCacheContext _cacheContext;
     private readonly ILogger _logger;
     private readonly SourceRepository _repository;
@@ -21,7 +23,7 @@ public class NuGetClient : INuGetClient, IDisposable
     /// <summary>
     /// Creates a new NuGetClient instance using the default nuget.org feed.
     /// </summary>
-    public NuGetClient() : this("https://api.nuget.org/v3/index.json")
+    public NuGetClient() : this(DefaultPackageSourceUrl)
     {
     }
 
