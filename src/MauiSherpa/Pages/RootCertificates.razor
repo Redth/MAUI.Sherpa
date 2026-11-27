@@ -56,15 +56,9 @@ else
         <h2 class="sherpa-section-title"><i class="fa-solid fa-shield-halved fa-fw"></i> Root Certificates</h2>
     </div>
     <div class="root-cert-list sherpa-list">
-        @if (isLoading && availableCerts.Count == 0)
+        @if (!hasLoaded || (isLoading && availableCerts.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner">
-                    <i class="fa-solid fa-fw fa-shield-halved"></i>
-                </div>
-                <div class="loading-title">Loading Certificates</div>
-                <div class="loading-description">Checking Apple root certificates...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading Apple root certificates..." />
         }
         else
         {
@@ -114,15 +108,9 @@ else
         <h2 class="sherpa-section-title"><i class="fa-solid fa-link fa-fw"></i> Intermediate Certificates</h2>
     </div>
     <div class="root-cert-list sherpa-list">
-        @if (isLoading && availableCerts.Count == 0)
+        @if (!hasLoaded || (isLoading && availableCerts.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner">
-                    <i class="fa-solid fa-fw fa-shield-halved"></i>
-                </div>
-                <div class="loading-title">Loading Certificates</div>
-                <div class="loading-description">Checking intermediate certificates...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading Apple root certificates..." />
         }
         else
         {
@@ -295,6 +283,7 @@ else
     private HashSet<string> installingCerts = new();
     private IReadOnlyDictionary<string, MauiSherpa.Core.Services.CachedCertInfo>? cachedCerts;
     private bool isLoading = false;
+    private bool hasLoaded;
     private string statusMessage = "";
 
     protected override async Task OnInitializedAsync()
@@ -367,6 +356,7 @@ else
         }
         finally
         {
+            hasLoaded = true;
             isLoading = false;
             statusMessage = "";
             if (toast != null) ToastService.Dismiss(toast);

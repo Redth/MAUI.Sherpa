@@ -41,6 +41,11 @@
 </div>
 
 <div class="agent-grid sherpa-list">
+    @if (!hasLoaded || (isLoading && agents.Count == 0))
+    {
+        <SherpaListSkeleton Rows="3" Label="Loading agents..." />
+    }
+
     @foreach (var agent in agents)
     {
         var supported = IsAgentSupported(agent);
@@ -96,7 +101,7 @@
         </div>
     }
 
-    @if (agents.Count == 0)
+    @if (hasLoaded && !isLoading && agents.Count == 0)
     {
         <div class="agent-card hint-card">
             <div class="agent-icon sherpa-icon-well hint-icon">
@@ -140,6 +145,7 @@
     private string manualHost = "localhost";
     private int manualPort = 9223;
     private bool isLoading;
+    private bool hasLoaded;
     private bool? brokerConnected;
     private bool autoRefresh;
     private List<BrokerAgent> agents = new();
@@ -184,6 +190,7 @@
         finally
         {
             isLoading = false;
+            hasLoaded = true;
             StateHasChanged();
         }
     }

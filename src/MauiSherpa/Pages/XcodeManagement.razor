@@ -99,13 +99,9 @@ else
     @* ====== INSTALLED TAB ====== *@
     @if (activeTab == "installed")
     {
-        @if (ViewModel.IsLoading && ViewModel.InstalledXcodes.Count == 0)
+        @if (!hasLoadedInstalled || (ViewModel.IsLoading && ViewModel.InstalledXcodes.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i></div>
-                <div class="loading-title">Discovering Xcode Installations</div>
-                <div class="loading-description">Scanning /Applications for Xcode bundles...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading installed Xcode versions..." />
         }
         else if (ViewModel.InstalledXcodes.Count == 0)
         {
@@ -190,7 +186,7 @@ else
             </div>
         }
 
-        @if (!(ViewModel.IsLoadingAvailable && filteredReleases.Count == 0))
+        @if (hasLoadedAvailable && !(ViewModel.IsLoadingAvailable && filteredReleases.Count == 0))
         {
             <div class="results-info available-results-info">
                 <span>Showing @filteredReleases.Count releases</span>
@@ -201,13 +197,9 @@ else
             </div>
         }
 
-        @if (ViewModel.IsLoadingAvailable && filteredReleases.Count == 0)
+        @if (!hasLoadedAvailable || (ViewModel.IsLoadingAvailable && filteredReleases.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i></div>
-                <div class="loading-title">Fetching Available Releases</div>
-                <div class="loading-description">Fetching releases and checking Apple archive availability...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading available Xcode releases..." />
         }
         else if (filteredReleases.Count > 0)
         {
@@ -341,15 +333,12 @@ else
     @* ====== RUNTIMES TAB ====== *@
     @if (activeTab == "runtimes")
     {
-        @if ((ViewModel.IsLoadingRuntimes || ViewModel.IsLoadingDownloadableRuntimes) &&
-             ViewModel.RuntimeStorage.Count == 0 &&
-             ViewModel.DownloadableRuntimes.Count == 0)
+        @if (!hasLoadedRuntimeData ||
+             ((ViewModel.IsLoadingRuntimes || ViewModel.IsLoadingDownloadableRuntimes) &&
+              ViewModel.RuntimeStorage.Count == 0 &&
+              ViewModel.DownloadableRuntimes.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i></div>
-                <div class="loading-title">Loading Simulator Runtimes</div>
-                <div class="loading-description">Querying installed and downloadable simulator runtimes...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading simulator runtimes..." />
         }
         else
         {
@@ -724,6 +713,8 @@ else
     private string searchQuery = "";
     private bool showBetas;
     private bool hasInitialized;
+    private bool hasLoadedInstalled;
+    private bool hasLoadedAvailable;
     private bool hasLoadedRuntimeData;
     private bool isInitialLoadPending = true;
     private bool isRefreshingActiveTab;
@@ -805,7 +796,7 @@ else
             {
                 if (DownloadAuthService.IsAuthenticated)
                     await DownloadAuthService.ValidateSessionAsync();
-                await ViewModel.LoadInstalledAsync();
+                await LoadInstalledDataAsync();
             }
             finally
             {
@@ -856,7 +847,7 @@ else
         {
             await Mediator.FlushStores("apple:xcode:available");
             if (activeTab == "available" && !ViewModel.IsLoadingAvailable)
-                await ViewModel.LoadAvailableAsync();
+                await LoadAvailableDataAsync();
             StateHasChanged();
         });
 
@@ -883,12 +874,12 @@ else
             if (activeTab == "installed")
             {
                 await Mediator.FlushStores("apple:xcode:installed");
-                await ViewModel.LoadInstalledAsync();
+                await LoadInstalledDataAsync();
             }
             else if (activeTab == "available")
             {
                 await Mediator.FlushStores("apple:xcode:available");
-                await ViewModel.LoadAvailableAsync();
+                await LoadAvailableDataAsync();
             }
             else if (activeTab == "runtimes")
                 await LoadRuntimeDataAsync(forceRefresh: true);
@@ -905,7 +896,9 @@ else
         activeTab = tab;
         UpdateToolbarItemStates();
         if (tab == "available" && ViewModel.AvailableReleases.Count == 0)
-            await ViewModel.LoadAvailableAsync();
+            await LoadAvailableDataAsync();
+        else if (tab == "available")
+            hasLoadedAvailable = true;
         else if (tab == "runtimes" && !hasLoadedRuntimeData)
             await LoadRuntimeDataAsync();
 
@@ -914,6 +907,30 @@ else
 
     private void UpdateToolbarItemStates() =>
         ToolbarService.SetItemEnabled("refresh", !IsActiveTabLoading);
+
+    private async Task LoadInstalledDataAsync()
+    {
+        try
+        {
+            await ViewModel.LoadInstalledAsync();
+        }
+        finally
+        {
+            hasLoadedInstalled = true;
+        }
+    }
+
+    private async Task LoadAvailableDataAsync()
+    {
+        try
+        {
+            await ViewModel.LoadAvailableAsync();
+        }
+        finally
+        {
+            hasLoadedAvailable = true;
+        }
+    }
 
     private bool MatchesSearch(XcodeInstallation xcode) =>
         ContainsSearchText(xcode.Version, xcode.BuildNumber, xcode.Path);
@@ -1124,11 +1141,16 @@ else
             await Mediator.FlushStores("apple:simulator:downloadable-runtimes");
         }
 
-        await Task.WhenAll(
-            ViewModel.LoadRuntimeStorageAsync(),
-            ViewModel.LoadDownloadableRuntimesAsync());
-
-        hasLoadedRuntimeData = true;
+        try
+        {
+            await Task.WhenAll(
+                ViewModel.LoadRuntimeStorageAsync(),
+                ViewModel.LoadDownloadableRuntimesAsync());
+        }
+        finally
+        {
+            hasLoadedRuntimeData = true;
+        }
     }
 
     private async Task OpenRuntimePicker()

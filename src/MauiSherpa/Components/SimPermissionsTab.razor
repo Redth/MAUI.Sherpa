@@ -5,13 +5,9 @@
 @inject IAlertService AlertService
 
 <div class="sim-permissions-tab">
-    @if (isLoading)
+    @if (!hasLoaded || (isLoading && appGroups.Count == 0))
     {
-        <div class="empty-state">
-            <span class="sherpa-icon-well sherpa-icon-well-apple"><i class="fa-solid fa-spinner fa-spin fa-fw" aria-hidden="true"></i></span>
-            <div class="empty-title">Loading permissions</div>
-            <div class="empty-description">Reading privacy settings from the selected simulator.</div>
-        </div>
+        <SherpaListSkeleton Rows="5" Label="Loading permissions..." />
     }
     else
     {
@@ -307,6 +303,7 @@
     [Parameter] public string Udid { get; set; } = "";
 
     private bool isLoading = true;
+    private bool hasLoaded;
     private bool isBusy;
     private bool showQuickActions;
 
@@ -372,6 +369,7 @@
         finally
         {
             isLoading = false;
+            hasLoaded = true;
             StateHasChanged();
         }
     }

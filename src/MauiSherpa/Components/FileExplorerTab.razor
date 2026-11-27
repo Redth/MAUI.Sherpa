@@ -35,13 +35,9 @@
     </div>
 
     <div class="file-list">
-        @if (isLoading)
+        @if (!hasLoaded || (isLoading && entries.Count == 0))
         {
-            <div class="empty-state">
-                <span class="sherpa-icon-well"><i class="fa-solid fa-spinner fa-spin fa-fw" aria-hidden="true"></i></span>
-                <div class="empty-title">Loading folder</div>
-                <div class="empty-description mono">@currentPath</div>
-            </div>
+            <SherpaListSkeleton Rows="5" Label="Loading files..." />
         }
         else if (entries.Count == 0)
         {
@@ -184,6 +180,7 @@
     private string currentPath = "/sdcard";
     private List<DeviceFileEntry> entries = new();
     private bool isLoading;
+    private bool hasLoaded;
 
     protected override async Task OnInitializedAsync()
     {
@@ -223,6 +220,7 @@
         finally
         {
             isLoading = false;
+            hasLoaded = true;
             StateHasChanged();
         }
     }

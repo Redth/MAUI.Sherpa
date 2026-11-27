@@ -164,15 +164,9 @@
     }
 
     <div class="cert-list sherpa-list">
-        @if (isLoading && certificates.Count == 0)
+        @if (!hasLoaded || (isLoading && certificates.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner">
-                    <i class="fa-solid fa-certificate"></i>
-                </div>
-                <div class="loading-title">Loading Certificates</div>
-                <div class="loading-description">Fetching certificates from App Store Connect...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading Apple certificates..." />
         }
         else if (!FilteredCertificates.Any())
         {
@@ -524,6 +518,7 @@
 @code {
     private List<AppleCertificate> certificates = new();
     private bool isLoading = true;
+    private bool hasLoaded;
     private bool demoMode = false;
     private string errorMessage = "";
     private string cloudSecretsErrorMessage = "";
@@ -658,6 +653,9 @@
     
     private void OnIdentityChanged()
     {
+        if (!string.Equals(_loadedIdentityId, IdentityState.SelectedIdentity?.Id, StringComparison.Ordinal))
+            hasLoaded = false;
+
         InvokeAsync(async () =>
         {
             UpdateToolbarItemStates();
@@ -748,6 +746,7 @@
             _loadedIdentityId = null;
             certificates.Clear();
             syncStatuses.Clear();
+            hasLoaded = false;
             isLoading = false;
             UpdateToolbarItemStates();
             return;
@@ -829,6 +828,7 @@
 
             if (IsCurrentCertificateLoad(loadVersion, identity.Id))
             {
+                hasLoaded = true;
                 // Let a failed load be retried for the same identity.
                 if (!string.IsNullOrEmpty(errorMessage))
                     _loadedIdentityId = null;

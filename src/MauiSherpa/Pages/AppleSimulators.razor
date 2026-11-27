@@ -45,13 +45,26 @@ else
         <button class="btn btn-secondary btn-sm" @onclick="RefreshPhysicalDevices" disabled="@isLoadingDevices">Retry</button>
     </div>
 }
-@if (isLoadingDevices)
+@if (!hasLoadedDevices || (isLoadingDevices && physicalDevices.Count == 0))
 {
-    <div class="loading-indicator"><i class="fa-solid fa-spinner fa-spin"></i> Scanning for devices...</div>
+    <SherpaListSkeleton Rows="2" Label="Scanning for Apple devices..." />
 }
-else if (physicalDevices.Count == 0 && physicalDevicesError == null)
+else if (hasLoadedDevices && !isLoadingDevices && physicalDevices.Count == 0 && physicalDevicesError == null)
 {
-    <div class="empty-hint">No physical Apple devices found. Connect a device by USB, or use Pair Device to set up a new connection.</div>
+    <div class="sherpa-empty-inline">
+        <div class="sherpa-empty-inline-lead">
+            <span class="sherpa-icon-well sherpa-icon-well-sm sherpa-icon-well-neutral">
+                <i class="fa-solid fa-plug fa-fw" aria-hidden="true"></i>
+            </span>
+            <div class="sherpa-row-stack">
+                <span class="sherpa-empty-inline-title">No devices connected</span>
+                <span class="sherpa-row-sub">Connect via USB or pair wirelessly</span>
+            </div>
+        </div>
+        <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="() => ShowPairing()" disabled="@(!PairingService.IsSupported || isUnpairing)">
+            <i class="fa-solid fa-link fa-fw" aria-hidden="true"></i> Pair Device
+        </button>
+    </div>
 }
 else
 {
@@ -222,17 +235,11 @@ else
 }
 
 <div class="simulator-list sherpa-list">
-    @if (isLoading && simulators.Count == 0)
+    @if (!hasLoadedSimulators || (isLoading && simulators.Count == 0))
     {
-        <div class="loading-state">
-            <div class="loading-spinner">
-                <i class="fa-solid fa-tablet-screen-button"></i>
-            </div>
-            <div class="loading-title">Loading Simulators</div>
-            <div class="loading-description">Discovering iOS Simulators...</div>
-        </div>
+        <SherpaListSkeleton Rows="4" Label="Loading Apple simulators..." />
     }
-    else if (simulators.Count == 0)
+    else if (hasLoadedSimulators && !isLoading && simulators.Count == 0)
     {
         <div class="empty-state">
             <div class="empty-icon"><i class="fa-solid fa-tablet-screen-button"></i></div>
@@ -576,6 +583,8 @@ else
     private HashSet<string> bootingSimulators = new();
     private bool isLoading = true;
     private bool isLoadingDevices = false;
+    private bool hasLoadedDevices;
+    private bool hasLoadedSimulators;
     private bool isUnpairing;
     private bool isDeletingSimulator;
     private bool isSelectionMode;
@@ -795,6 +804,7 @@ else
         }
         finally
         {
+            hasLoadedSimulators = true;
             isLoading = false;
             UpdateToolbarItemStates();
             if (toast != null) ToastService.Dismiss(toast);
@@ -1106,6 +1116,7 @@ else
         }
         finally
         {
+            hasLoadedDevices = true;
             isLoadingDevices = false;
             UpdateToolbarItemStates();
             StateHasChanged();

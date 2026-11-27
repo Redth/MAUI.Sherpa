@@ -92,15 +92,9 @@
     </div>
 
     <div class="device-list sherpa-list">
-        @if (isLoading && devices.Count == 0)
+        @if (!hasLoaded || (isLoading && devices.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner">
-                    <i class="fa-brands fa-apple"></i>
-                </div>
-                <div class="loading-title">Loading Devices</div>
-                <div class="loading-description">Fetching registered devices from App Store Connect...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading Apple devices..." />
         }
         else if (!FilteredDevices.Any())
         {
@@ -279,6 +273,8 @@
 @code {
     private List<AppleDevice> devices = new();
     private bool isLoading = true;
+    private bool hasLoaded;
+    private string? activeIdentityId;
     private bool demoMode = false;
     private string errorMessage = "";
 
@@ -351,6 +347,13 @@
 
     private void OnIdentityChanged()
     {
+        var selectedIdentityId = IdentityState.SelectedIdentity?.Id;
+        if (!string.Equals(activeIdentityId, selectedIdentityId, StringComparison.Ordinal))
+        {
+            activeIdentityId = selectedIdentityId;
+            hasLoaded = false;
+        }
+
         InvokeAsync(async () =>
         {
             UpdateToolbarItemStates();
@@ -417,13 +420,14 @@
 
     private async Task RefreshData(bool forceRefresh = false)
     {
-        if (IdentityState.SelectedIdentity == null || LocalVaultAccess.GetState().RequiresUserAction)
+        var identityId = IdentityState.SelectedIdentity?.Id;
+        if (string.IsNullOrWhiteSpace(identityId) || LocalVaultAccess.GetState().RequiresUserAction)
         {
             UpdateToolbarItemStates();
             return;
         }
 
-        if (IdentityState.SelectedIdentity == null) return;
+        activeIdentityId = identityId;
 
         isLoading = true;
         UpdateToolbarItemStates();
@@ -440,10 +444,10 @@
             // If force refresh, invalidate the cache first
             if (forceRefresh)
             {
-                await Mediator.FlushStores($"apple:devices:{IdentityState.SelectedIdentity.Id}");
+                await Mediator.FlushStores($"apple:devices:{identityId}");
             }
             
-            var request = new GetAppleDevicesRequest(IdentityState.SelectedIdentity.Id);
+            var request = new GetAppleDevicesRequest(identityId);
             var (_, result) = await Mediator.Request(request);
             devices = result.ToList();
         }
@@ -454,6 +458,11 @@
         finally
         {
             isLoading = false;
+            if (string.Equals(IdentityState.SelectedIdentity?.Id, identityId, StringComparison.Ordinal) &&
+                !LocalVaultAccess.GetState().RequiresUserAction)
+            {
+                hasLoaded = true;
+            }
             UpdateToolbarItemStates();
             if (toast != null) ToastService.Dismiss(toast);
             await InvokeAsync(StateHasChanged);

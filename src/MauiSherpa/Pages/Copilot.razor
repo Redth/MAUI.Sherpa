@@ -19,34 +19,52 @@
 {
     <div class="copilot-header">
         <div class="copilot-header__left">
-            <img src="_content/MauiSherpa/ghcp_icon_white.png" alt="" class="copilot-header__icon" onerror="this.style.display='none'" />
+            <span class="copilot-header__well" aria-hidden="true">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+            </span>
             <span class="copilot-header__title">Copilot</span>
-            <span class="copilot-header__dot @(CopilotService.IsConnected ? "connected" : "")"></span>
-            <span class="copilot-header__status">@(CopilotService.IsConnected ? "Connected" : "Disconnected")</span>
+            <span class="sherpa-badge @(CopilotService.IsConnected ? "sherpa-badge-success" : isConnecting ? "sherpa-badge-accent" : "sherpa-badge-neutral")">
+                @if (isConnecting)
+                {
+                    <i class="fa-solid fa-spinner fa-spin fa-fw" aria-hidden="true"></i>
+                    <span>Connecting</span>
+                }
+                else
+                {
+                    <span class="sherpa-dot @(CopilotService.IsConnected ? "sherpa-dot-success" : "sherpa-dot-danger")" aria-hidden="true"></span>
+                    <span>@(CopilotService.IsConnected ? "Connected" : "Disconnected")</span>
+                }
+            </span>
             @if (availability?.Login != null)
             {
-                <span class="copilot-header__badge">@@@(availability.Login)</span>
+                <span class="sherpa-badge sherpa-badge-accent">@@@(availability.Login)</span>
             }
             @if (availability?.Version != null)
             {
-                <span class="copilot-header__version">v@(availability.Version)</span>
+                <span class="sherpa-badge sherpa-badge-neutral mono">v@(availability.Version)</span>
             }
         </div>
         <div class="copilot-header__right">
             @if (isConnecting)
             {
-                <span class="copilot-header__connecting"><i class="fa-solid fa-spinner fa-spin"></i></span>
+                <button class="btn btn-secondary btn-sm" disabled>
+                    <i class="fa-solid fa-spinner fa-spin fa-fw" aria-hidden="true"></i> Connecting...
+                </button>
             }
             else if (!CopilotService.IsConnected)
             {
-                <button class="copilot-header__btn copilot-header__btn--connect" @onclick="Connect">Connect</button>
+                <button class="btn btn-primary btn-sm" @onclick="Connect">
+                    <i class="fa-solid fa-plug fa-fw" aria-hidden="true"></i> Connect
+                </button>
             }
             else
             {
-                <button class="copilot-header__btn copilot-header__btn--disconnect" @onclick="Disconnect">Disconnect</button>
+                <button class="btn btn-secondary btn-sm" @onclick="Disconnect">
+                    <i class="fa-solid fa-link-slash fa-fw" aria-hidden="true"></i> Disconnect
+                </button>
             }
-            <button class="copilot-header__btn copilot-header__btn--close" @onclick="OnClose" title="Close" aria-label="Close Copilot">
-                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+            <button class="btn btn-ghost btn-icon btn-sm" @onclick="OnClose" title="Close" aria-label="Close Copilot">
+                <i class="fa-solid fa-xmark fa-fw" aria-hidden="true"></i>
             </button>
         </div>
     </div>
@@ -319,22 +337,43 @@ else
 
     /* Checking/Loading State */
     .checking-status {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
         background: var(--surface-card);
         border: 1px solid var(--border-subtle);
         border-radius: var(--radius-lg);
-        padding: 3.75rem 2.5rem;
+        padding: 36px 24px;
         text-align: center;
     }
 
-    .checking-status .loading-spinner {
-        font-size: 48px;
-        color: var(--accent);
-        margin-bottom: 1rem;
+    .copilot-page.embedded .checking-status,
+    .copilot-page.embedded .welcome-section {
+        flex: 1 1 auto;
+        min-height: 0;
+        background: var(--surface-canvas);
+        border: 0;
+        border-radius: 0;
+        margin: 0;
+    }
+
+    .copilot-page.embedded .setup-required {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        background: var(--surface-canvas);
+        border: 0;
+        border-radius: 0;
+        padding: 24px;
     }
 
     .checking-status .loading-text {
-        color: var(--text-muted);
-        font-size: 1rem;
+        color: var(--text-secondary);
+        font-size: var(--font-size-md);
+        font-weight: 500;
     }
 
     /* Setup Required States */
@@ -789,114 +828,49 @@ else
         display: flex;
         align-items: center;
         justify-content: space-between;
-        background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-        padding: 0.625rem 1rem;
+        gap: 12px;
+        background: var(--surface-card);
+        border-bottom: 1px solid var(--border-subtle);
+        padding: 10px 16px;
         flex-shrink: 0;
-        min-height: 44px;
+        min-height: 46px;
         box-sizing: border-box;
     }
 
     .copilot-header__left {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        flex-wrap: wrap;
+        gap: 8px;
         min-width: 0;
     }
 
-    .copilot-header__icon {
-        width: 20px;
-        height: 20px;
+    .copilot-header__well {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        border-radius: var(--radius-md);
+        background: linear-gradient(135deg, #6366f1, #7c3aed);
+        color: #ffffff;
+        font-size: 12px;
         flex-shrink: 0;
     }
 
     .copilot-header__title {
-        font-size: 0.9375rem;
-        font-weight: 700;
-        color: var(--text-inverse);
-        white-space: nowrap;
-    }
-
-    .copilot-header__dot {
-        width: 8px;
-        height: 8px;
-        border-radius: var(--radius-pill);
-        background: var(--status-error-dot);
-        flex-shrink: 0;
-    }
-
-    .copilot-header__dot.connected {
-        background: var(--status-success-dot);
-    }
-
-    .copilot-header__status {
-        font-size: 0.75rem;
-        color: color-mix(in srgb, var(--text-inverse) 70%, transparent);
-        white-space: nowrap;
-    }
-
-    .copilot-header__badge {
-        font-size: 0.6875rem;
-        color: var(--text-inverse);
-        background: color-mix(in srgb, var(--text-inverse) 15%, transparent);
-        padding: 0.125rem 0.5rem;
-        border-radius: var(--radius-pill);
-        white-space: nowrap;
-    }
-
-    .copilot-header__version {
-        font-size: 0.6875rem;
-        color: color-mix(in srgb, var(--text-inverse) 50%, transparent);
+        font-size: var(--font-size-lg);
+        font-weight: 650;
+        letter-spacing: -0.01em;
+        color: var(--text-primary);
         white-space: nowrap;
     }
 
     .copilot-header__right {
         display: flex;
         align-items: center;
-        gap: 0.375rem;
+        gap: 6px;
         flex-shrink: 0;
-    }
-
-    .copilot-header__connecting {
-        color: var(--text-inverse);
-        font-size: 0.875rem;
-    }
-
-    .copilot-header__btn {
-        border: none;
-        border-radius: var(--radius-xs);
-        padding: 0.25rem 0.75rem;
-        font-size: 0.75rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: opacity 0.15s;
-        line-height: 1.4;
-    }
-
-    .copilot-header__btn:hover {
-        opacity: 0.85;
-    }
-
-    .copilot-header__btn--connect {
-        background: var(--text-inverse);
-        color: var(--accent);
-    }
-
-    .copilot-header__btn--disconnect {
-        background: color-mix(in srgb, var(--text-inverse) 15%, transparent);
-        color: var(--text-inverse);
-    }
-
-    .copilot-header__btn--close {
-        background: transparent;
-        color: color-mix(in srgb, var(--text-inverse) 70%, transparent);
-        font-size: 1rem;
-        padding: 0.125rem 0.375rem;
-        line-height: 1;
-    }
-
-    .copilot-header__btn--close:hover {
-        color: var(--text-inverse);
-        opacity: 1;
     }
     .model-selector__new-chat {
         margin-left: auto;

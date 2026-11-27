@@ -40,13 +40,9 @@
     </div>
 
     <div class="sim-apps-list">
-        @if (isLoading && simApps.Count == 0 && physicalApps.Count == 0)
+        @if (!hasLoaded || (isLoading && simApps.Count == 0 && physicalApps.Count == 0))
         {
-            <div class="empty-state">
-                <span class="sherpa-icon-well sherpa-icon-well-apple"><i class="fa-solid fa-spinner fa-spin fa-fw" aria-hidden="true"></i></span>
-                <div class="empty-title">Loading installed apps</div>
-                <div class="empty-description">Reading applications from the selected Apple device.</div>
-            </div>
+            <SherpaListSkeleton Rows="5" Label="Loading installed apps..." />
         }
         else if (IsSimulator && !FilteredSimApps.Any())
         {
@@ -211,6 +207,7 @@
     [Parameter] public bool IsSimulator { get; set; }
 
     private bool isLoading;
+    private bool hasLoaded;
     private string searchQuery = "";
     private string filterType = "";
     private static readonly IReadOnlyList<SherpaSelectOption<string>> AppTypeOptions =
@@ -271,6 +268,7 @@
         finally
         {
             isLoading = false;
+            hasLoaded = true;
             StateHasChanged();
         }
     }

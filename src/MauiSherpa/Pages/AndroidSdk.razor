@@ -22,13 +22,7 @@
 
 @if (!hasInitialized)
 {
-    <div class="loading-state">
-        <div class="loading-spinner">
-            <i class="fa-solid fa-cube"></i>
-        </div>
-        <div class="loading-title">Checking Android tooling</div>
-        <div class="loading-description">Looking for Java and the Android SDK...</div>
-    </div>
+    <SherpaListSkeleton Rows="5" Label="Loading Android SDK packages..." />
 }
 else
 {
@@ -55,7 +49,7 @@ else
 </div>
 }
 
-@if (IsReady)
+@if (IsReady && hasInitialized)
 {
     <SherpaTabs Items="AndroidPackageTabs"
                 ActiveKey="@activeTab"
@@ -108,7 +102,11 @@ else
     @if (activeTab == "installed")
     {
         <div class="package-groups sherpa-list">
-            @if (!FilteredInstalledPackages.Any())
+            @if (ViewModel.IsLoading && !FilteredInstalledPackages.Any())
+            {
+                <SherpaListSkeleton Rows="5" Label="Loading Android SDK packages..." />
+            }
+            else if (!FilteredInstalledPackages.Any())
             {
                 <div class="empty-state">
                     <div class="empty-icon"><i class="fa-solid fa-search"></i></div>
@@ -180,7 +178,11 @@ else
     @if (activeTab == "all")
     {
         <div class="package-groups sherpa-list">
-            @if (!FilteredAllPackages.Any())
+            @if (ViewModel.IsLoading && !FilteredAllPackages.Any())
+            {
+                <SherpaListSkeleton Rows="5" Label="Loading Android SDK packages..." />
+            }
+            else if (!FilteredAllPackages.Any())
             {
                 <div class="empty-state">
                     <div class="empty-icon"><i class="fa-solid fa-search"></i></div>
@@ -274,7 +276,11 @@ else
     @if (activeTab == "available")
     {
         <div class="package-groups sherpa-list">
-            @if (!FilteredAvailablePackages.Any())
+            @if (ViewModel.IsLoading && !FilteredAvailablePackages.Any())
+            {
+                <SherpaListSkeleton Rows="5" Label="Loading Android SDK packages..." />
+            }
+            else if (!FilteredAvailablePackages.Any())
             {
                 <div class="empty-state">
                     <div class="empty-icon"><i class="fa-solid fa-search"></i></div>

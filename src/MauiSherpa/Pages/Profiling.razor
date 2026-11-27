@@ -42,12 +42,9 @@
     </p>
 </div>
 
-@if (isLoadingSessions)
+@if (!hasLoaded || (isLoadingSessions && sessions.Count == 0))
 {
-    <div class="loading-state" role="status" aria-live="polite">
-        <i class="fa-solid fa-fw fa-spinner fa-spin" aria-hidden="true"></i>
-        <span>Loading profiles...</span>
-    </div>
+    <SherpaListSkeleton Rows="3" Label="Loading profiles..." />
 }
 else if (filteredSessions.Count == 0 && sessions.Count == 0)
 {
@@ -226,6 +223,7 @@ else
     private List<ProfilingSessionManifest> sessions = new();
     private List<ProfilingSessionManifest> filteredSessions = new();
     private bool isLoadingSessions;
+    private bool hasLoaded;
     private string sessionSearchText = "";
     private string? expandedSessionId;
     private MauiCliToolStatus? cliStatus;
@@ -419,6 +417,7 @@ else
         finally
         {
             isLoadingSessions = false;
+            hasLoaded = true;
             StateHasChanged();
         }
     }

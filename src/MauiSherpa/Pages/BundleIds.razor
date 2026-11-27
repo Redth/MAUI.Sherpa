@@ -80,15 +80,9 @@
 
         <div class="bundle-list sherpa-list">
         
-        @if (bundleIds.Count == 0 && isRefreshing)
+        @if (!hasLoaded || (isRefreshing && bundleIds.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner">
-                    <i class="fa-solid fa-fingerprint"></i>
-                </div>
-                <div class="loading-title">Loading Bundle IDs</div>
-                <div class="loading-description">Fetching bundle identifiers from App Store Connect...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading bundle IDs..." />
         }
         else if (!FilteredBundleIds.Any())
         {
@@ -299,6 +293,8 @@
 @code {
     private List<AppleBundleId> bundleIds = new();
     private bool isRefreshing = true;
+    private bool hasLoaded;
+    private string? activeIdentityId;
     private bool isBackgroundRefreshing = false;
     private bool demoMode = false;
     private string errorMessage = "";
@@ -357,6 +353,13 @@
 
     private void OnIdentityChanged()
     {
+        var selectedIdentityId = IdentityState.SelectedIdentity?.Id;
+        if (!string.Equals(activeIdentityId, selectedIdentityId, StringComparison.Ordinal))
+        {
+            activeIdentityId = selectedIdentityId;
+            hasLoaded = false;
+        }
+
         InvokeAsync(async () =>
         {
             UpdateToolbarItemStates();
@@ -416,11 +419,14 @@
 
     private async Task RefreshData(bool forceRefresh = false)
     {
-        if (IdentityState.SelectedIdentity == null || RequiresLocalVaultAccess)
+        var identityId = IdentityState.SelectedIdentity?.Id;
+        if (string.IsNullOrWhiteSpace(identityId) || RequiresLocalVaultAccess)
         {
             UpdateToolbarItemStates();
             return;
         }
+
+        activeIdentityId = identityId;
 
         // Set loading states
         isRefreshing = true;
@@ -446,10 +452,10 @@
             // If force refresh, invalidate the cache first
             if (forceRefresh)
             {
-                await Mediator.FlushStores($"apple:bundleids:{IdentityState.SelectedIdentity.Id}");
+                await Mediator.FlushStores($"apple:bundleids:{identityId}");
             }
             
-            var request = new GetBundleIdsRequest(IdentityState.SelectedIdentity.Id);
+            var request = new GetBundleIdsRequest(identityId);
             var (_, result) = await Mediator.Request(request);
             bundleIds = result.ToList();
         }
@@ -461,6 +467,11 @@
         {
             isRefreshing = false;
             isBackgroundRefreshing = false;
+            if (string.Equals(IdentityState.SelectedIdentity?.Id, identityId, StringComparison.Ordinal) &&
+                !RequiresLocalVaultAccess)
+            {
+                hasLoaded = true;
+            }
             UpdateToolbarItemStates();
             if (toast != null) ToastService.Dismiss(toast);
             await InvokeAsync(StateHasChanged);

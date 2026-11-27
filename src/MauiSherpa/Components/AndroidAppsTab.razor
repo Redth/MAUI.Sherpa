@@ -31,13 +31,9 @@
     </div>
 
     <div class="android-apps-list">
-        @if (isLoading && packages.Count == 0)
+        @if (!hasLoaded || (isLoading && packages.Count == 0))
         {
-            <div class="empty-state">
-                <span class="sherpa-icon-well sherpa-icon-well-android"><i class="fa-solid fa-spinner fa-spin fa-fw" aria-hidden="true"></i></span>
-                <div class="empty-title">Loading installed packages</div>
-                <div class="empty-description">Reading applications from the connected Android device.</div>
-            </div>
+            <SherpaListSkeleton Rows="5" Label="Loading installed packages..." />
         }
         else if (!FilteredPackages.Any())
         {
@@ -149,6 +145,7 @@
     [Parameter] public string Serial { get; set; } = "";
 
     private bool isLoading;
+    private bool hasLoaded;
     private string searchQuery = "";
     private string filterType = "";
     private static readonly IReadOnlyList<SherpaSelectOption<string>> AppTypeOptions =
@@ -189,6 +186,7 @@
         finally
         {
             isLoading = false;
+            hasLoaded = true;
             StateHasChanged();
         }
     }

@@ -180,6 +180,9 @@ styles is `src/MauiSherpa/wwwroot/css/app.css`.
   multi-select list or selection mode, clicking anywhere on the entire card or row
   must toggle selection (using `@onclick:stopPropagation` on the checkbox and nested
   buttons to avoid double-toggling).
+- **Loading & empty states:** Never show a "none found" empty state before the first
+  load has completed and confirmed zero items. Track initial load completion (`hasLoaded` /
+  `hasInitialized`) and render `<SherpaListSkeleton />` until data is ready.
 - **Cross-platform adaptation:** Never add ad-hoc platform CSS to individual pages.
   Platform differences are centralized in `app.css` through `.platform-macos`
   (Apple Blue, SF Pro at 13px, 12px cards), `.platform-windows` (Sherpa Violet,

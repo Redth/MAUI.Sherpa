@@ -77,6 +77,13 @@
                 || snapshot.BootedSimulators.Count > 0 || snapshot.ApplePhysicalDevices.Count > 0;
         }
 
+        @if (!hasDeviceSnapshot)
+        {
+            <div class="devices-loading">
+                <SherpaListSkeleton Rows="2" Label="Scanning connected devices..." ShowTrailingPill="false" />
+            </div>
+        }
+
         @foreach (var device in snapshot.AndroidDevices)
         {
             <div class="device-card">
@@ -145,11 +152,18 @@
             </div>
         }
 
-        @if (!hasAny)
+        @if (hasDeviceSnapshot && !hasAny)
         {
-            <div class="devices-empty">
-                <i class="fa-solid fa-plug fa-fw"></i>
-                <span>No devices connected or simulators running</span>
+            <div class="devices-empty sherpa-empty-inline">
+                <div class="sherpa-empty-inline-lead">
+                    <span class="sherpa-icon-well sherpa-icon-well-sm sherpa-icon-well-neutral">
+                        <i class="fa-solid fa-plug fa-fw" aria-hidden="true"></i>
+                    </span>
+                    <div class="sherpa-row-stack">
+                        <span class="sherpa-empty-inline-title">No devices connected</span>
+                        <span class="sherpa-row-sub">Connect a device or boot a simulator</span>
+                    </div>
+                </div>
             </div>
         }
     </div>
@@ -256,6 +270,16 @@
         text-overflow: ellipsis;
         white-space: nowrap;
     }
+    .environment-value-skeleton {
+        display: block;
+        width: 58%;
+        height: 16px;
+    }
+    .environment-detail-skeleton {
+        display: block;
+        width: 76%;
+        height: 10px;
+    }
 
     .environment-banner {
         display: flex;
@@ -302,6 +326,7 @@
         grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
         gap: var(--space-2);
     }
+    .devices-loading { grid-column: 1 / -1; }
 
     .device-card {
         display: flex;
@@ -358,6 +383,7 @@
 @code {
     private DoctorReport? doctorReport;
     private bool isDoctorLoading;
+    private bool hasDeviceSnapshot;
     private bool isReleaseNotesOpen;
     private string doctorError = "";
     private bool isDisposed;
@@ -368,12 +394,27 @@
         );
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
         DeviceMonitor.Changed += OnDevicesChanged;
+        hasDeviceSnapshot = HasConnectedDevices(DeviceMonitor.Current);
     }
 
     protected override Task OnInitializedAsync()
     {
         _ = RunDoctorAsync();
+        _ = CompleteInitialDeviceLoadAsync();
         return Task.CompletedTask;
+    }
+
+    private async Task CompleteInitialDeviceLoadAsync()
+    {
+        if (hasDeviceSnapshot)
+            return;
+
+        await Task.Delay(500);
+        if (!isDisposed)
+        {
+            hasDeviceSnapshot = true;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private async Task RunDoctorAsync()
@@ -416,8 +457,16 @@
                     <span>@GetStatusLabel(status)</span>
                 </span>
             </div>
-            <div class="environment-card-value">@value</div>
-            <div class="environment-card-detail">@detail</div>
+            @if (isDoctorLoading && doctorReport is null)
+            {
+                <div class="environment-card-value"><span class="sherpa-skeleton environment-value-skeleton"></span></div>
+                <div class="environment-card-detail"><span class="sherpa-skeleton environment-detail-skeleton"></span></div>
+            }
+            else
+            {
+                <div class="environment-card-value">@value</div>
+                <div class="environment-card-detail">@detail</div>
+            }
         </div>;
 
     private DependencyStatus? GetDependency(DependencyCategory category, string name) =>
@@ -505,8 +554,15 @@
 
     private void OnDevicesChanged(ConnectedDevicesSnapshot _)
     {
+        hasDeviceSnapshot = true;
         InvokeAsync(StateHasChanged);
     }
+
+    private static bool HasConnectedDevices(ConnectedDevicesSnapshot snapshot) =>
+        snapshot.AndroidDevices.Count > 0
+        || snapshot.AndroidEmulators.Count > 0
+        || snapshot.BootedSimulators.Count > 0
+        || snapshot.ApplePhysicalDevices.Count > 0;
 
     private async void OnToolbarItemClicked(string actionId)
     {

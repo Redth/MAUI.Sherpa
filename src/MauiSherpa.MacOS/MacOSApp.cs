@@ -68,6 +68,14 @@ class MacOSApp : Application
             window.Width = ScreenshotMode.WindowWidth;
             window.Height = ScreenshotMode.WindowHeight;
         }
+        else
+        {
+            var visibleFrame = NSScreen.MainScreen?.VisibleFrame;
+            var maxWidth = visibleFrame is { } vfW && (double)vfW.Width > 0 ? Math.Max(900, (double)vfW.Width - 80) : 1280;
+            var maxHeight = visibleFrame is { } vfH && (double)vfH.Height > 0 ? Math.Max(700, (double)vfH.Height - 60) : 920;
+            window.Width = Math.Min(1280, maxWidth);
+            window.Height = Math.Min(920, maxHeight);
+        }
 
         window.Destroying += OnMainWindowDestroying;
 

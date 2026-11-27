@@ -144,15 +144,9 @@
     }
 
     <div class="profile-list sherpa-list">
-        @if (isLoading && profiles.Count == 0)
+        @if (!hasLoaded || (isLoading && profiles.Count == 0))
         {
-            <div class="loading-state">
-                <div class="loading-spinner">
-                    <i class="fa-solid fa-id-card"></i>
-                </div>
-                <div class="loading-title">Loading Profiles</div>
-                <div class="loading-description">Fetching provisioning profiles from App Store Connect...</div>
-            </div>
+            <SherpaListSkeleton Rows="4" Label="Loading provisioning profiles..." />
         }
         else if (!FilteredProfiles.Any())
         {
@@ -481,6 +475,7 @@
     private string? profilesIdentityId;
     private int identitySelectionVersion;
     private bool isLoading = true;
+    private bool hasLoaded;
     private bool demoMode = false;
     private string errorMessage = "";
     private string? openDropdown = null;
@@ -606,6 +601,7 @@
     private void OnIdentityChanged()
     {
         Interlocked.Increment(ref identitySelectionVersion);
+        hasLoaded = false;
         InvokeAsync(async () =>
         {
             profiles.Clear();
@@ -726,6 +722,7 @@
         {
             if (IsCurrentIdentity(identityId, identityVersion))
             {
+                hasLoaded = true;
                 isLoading = false;
                 UpdateToolbarItemStates();
             }

@@ -38,13 +38,26 @@
         <button class="btn btn-secondary btn-sm" @onclick="RefreshDevices" disabled="@isLoadingDevices">Retry</button>
     </div>
 }
-@if (isLoadingDevices && devices.Count == 0)
+@if (!hasLoadedDevices || (isLoadingDevices && devices.Count == 0))
 {
-    <div class="empty-hint"><i class="fa-solid fa-spinner fa-spin"></i> Scanning for devices...</div>
+    <SherpaListSkeleton Rows="2" Label="Scanning for Android devices..." />
 }
-else if (!PhysicalDevices.Any() && deviceError == null)
+else if (hasLoadedDevices && !isLoadingDevices && !PhysicalDevices.Any() && deviceError == null)
 {
-    <div class="empty-hint">No physical Android devices found. Connect a device by USB or use Pair Device to set up wireless debugging.</div>
+    <div class="sherpa-empty-inline">
+        <div class="sherpa-empty-inline-lead">
+            <span class="sherpa-icon-well sherpa-icon-well-sm sherpa-icon-well-neutral">
+                <i class="fa-solid fa-plug fa-fw" aria-hidden="true"></i>
+            </span>
+            <div class="sherpa-row-stack">
+                <span class="sherpa-empty-inline-title">No devices connected</span>
+                <span class="sherpa-row-sub">Connect via USB or pair wirelessly</span>
+            </div>
+        </div>
+        <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="PairDevice" disabled="@(IsBusy || !hasInitialized || string.IsNullOrEmpty(SdkService.SdkPath))">
+            <i class="fa-solid fa-link fa-fw" aria-hidden="true"></i> Pair Device
+        </button>
+    </div>
 }
 else
 {
@@ -173,11 +186,11 @@ else
 }
 
 <div class="device-list @(FilteredEmulators.Any() ? "sherpa-list" : "")">
-    @if (isLoadingEmulators && emulators.Count == 0)
+    @if (!hasLoadedEmulators || (isLoadingEmulators && emulators.Count == 0))
     {
-        <div class="empty-hint"><i class="fa-solid fa-spinner fa-spin"></i> Loading emulators...</div>
+        <SherpaListSkeleton Rows="4" Label="Loading Android emulators..." />
     }
-    else if (emulators.Count == 0)
+    else if (hasLoadedEmulators && !isLoadingEmulators && emulators.Count == 0)
     {
         <div class="empty-state"><div class="empty-title">No emulators configured</div><div class="empty-description">Use Create Emulator to set up an Android Virtual Device.</div></div>
     }
@@ -215,7 +228,7 @@ else
                             }
                             @(isStarting ? "Starting" : instance != null ? "Running" : CanVerifyEmulatorState ? "Stopped" : "Unknown")
                         </span>
-                        @if (!string.IsNullOrEmpty(emulator.Target)) { <span class="sherpa-badge sherpa-badge-neutral">@emulator.Target</span> }
+                        @if (!string.IsNullOrEmpty(emulator.Target)) { <span class="sherpa-badge sherpa-badge-neutral" title="@emulator.Target">@FormatEmulatorTarget(emulator.Target)</span> }
                         @if (emulator.Properties.TryGetValue("hw.cpu.arch", out var arch)) { <span class="sherpa-badge sherpa-badge-neutral mono">@arch</span> }
                         @if (!HasSystemImage(emulator))
                         {
@@ -336,6 +349,8 @@ else
     private bool isLoadingDevices;
     private bool isOperating;
     private bool hasInitialized;
+    private bool hasLoadedDevices;
+    private bool hasLoadedEmulators;
     private bool isSelectionMode;
     private bool hasAdbSnapshot;
     private bool demoMode = true;
@@ -363,8 +378,25 @@ else
     [
         new("", "All Versions"),
         .. EmulatorTargets.Select(target =>
-            new SherpaSelectOption<string>(target, target))
+            new SherpaSelectOption<string>(target, FormatEmulatorTarget(target)))
     ];
+
+    private static string FormatEmulatorTarget(string target)
+    {
+        var trimmed = target.Trim();
+        var parenIdx = trimmed.LastIndexOf(" (", StringComparison.Ordinal);
+        if (parenIdx > 0 && trimmed.EndsWith(')'))
+        {
+            var suffix = trimmed[(parenIdx + 2)..^1];
+            if (suffix.Contains("Google", StringComparison.OrdinalIgnoreCase) ||
+                suffix.Contains("Android Open Source", StringComparison.OrdinalIgnoreCase) ||
+                suffix.Contains("AOSP", StringComparison.OrdinalIgnoreCase))
+            {
+                return trimmed[..parenIdx].TrimEnd();
+            }
+        }
+        return trimmed;
+    }
 
     private bool IsBusy => isLoadingEmulators || isOperating;
     private bool HasUnknownEmulatorIdentities => runningEmulators.Any(e => string.IsNullOrEmpty(e.AvdName));
@@ -470,6 +502,8 @@ else
         finally
         {
             isLoadingEmulators = false;
+            if (sdkPath == SdkService.SdkPath)
+                hasLoadedEmulators = true;
             UpdateToolbarItemStates();
             StateHasChanged();
             if (emulatorRefreshPending)
@@ -521,6 +555,7 @@ else
         finally
         {
             isLoadingDevices = false;
+            hasLoadedDevices = true;
             UpdateToolbarItemStates();
             deviceRefreshGate.Release();
             if (!disposeCts.IsCancellationRequested) StateHasChanged();
@@ -874,6 +909,7 @@ else
     private async Task SdkChangedAsync()
     {
         selectedEmulators.Clear();
+        hasLoadedEmulators = false;
         UpdateToolbarItemStates();
         try
         {
