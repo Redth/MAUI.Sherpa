@@ -1,0 +1,37 @@
+@inject IJSRuntime JS
+@inject MauiSherpa.Core.Interfaces.ILoggingService Logger
+@implements IDisposable
+
+<DynamicComponent Type="@ContentType" Parameters="@ContentParameters" />
+
+@code {
+    [Parameter, EditorRequired] public Type ContentType { get; set; } = default!;
+    [Parameter] public IDictionary<string, object>? ContentParameters { get; set; }
+    [Parameter, EditorRequired] public Func<double, Task> ContentReady { get; set; } = default!;
+    private bool _disposed;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        try
+        {
+            // Wait for the document to paint, not just for WebView initialization.
+            var height = await JS.InvokeAsync<double>("eval",
+                "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(document.body.scrollHeight))))");
+            if (!_disposed)
+                await ContentReady(height);
+        }
+        catch (JSDisconnectedException) when (_disposed)
+        {
+        }
+        catch (JSException ex)
+        {
+            Logger.LogError("Failed to detect hybrid content readiness", ex);
+            throw;
+        }
+    }
+
+    public void Dispose() => _disposed = true;
+}

@@ -19,7 +19,7 @@ namespace MauiSherpa.Pages.Forms;
 public abstract class HybridViewPage : ContentPage, INativeModalDismissible
 {
     private readonly TaskCompletionSource _tcs = new();
-    private View? _webView;
+    private HybridLoadingView? _loadingView;
 
     protected abstract string FormTitle { get; }
     protected abstract string BlazorRoute { get; }
@@ -52,7 +52,7 @@ public abstract class HybridViewPage : ContentPage, INativeModalDismissible
 
     protected void CompleteClose()
     {
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
+        _loadingView?.StopLoading();
         _tcs.TrySetResult();
     }
 
@@ -70,27 +70,22 @@ public abstract class HybridViewPage : ContentPage, INativeModalDismissible
         var headerSeparator = new BoxView { HeightRequest = 1 };
         headerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
 
-        ModalWebViewReadySignal.Ready += OnBlazorReady;
-        View webView;
 #if MACOSAPP
-        var blazorWebView = new MacOSBlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = BlazorRoute,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new BlazorRootComponent
         {
             Selector = "#app",
             ComponentType = typeof(Components.ModalApp)
         });
-        webView = blazorWebView;
 #else
-        var blazorWebView = new BlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = BlazorRoute,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new RootComponent
         {
@@ -98,9 +93,9 @@ public abstract class HybridViewPage : ContentPage, INativeModalDismissible
             ComponentType = typeof(Components.ModalApp)
         });
         HandlerProperties.SetDisconnectPolicy(blazorWebView, HandlerDisconnectPolicy.Manual);
-        webView = blazorWebView;
 #endif
-        _webView = webView;
+        var webView = new HybridLoadingView(blazorWebView);
+        _loadingView = webView;
 
         var footerSeparator = new BoxView { HeightRequest = 1 };
         footerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
@@ -160,15 +155,5 @@ public abstract class HybridViewPage : ContentPage, INativeModalDismissible
     private void OnCloseClicked(object? sender, EventArgs e)
     {
         CompleteClose();
-    }
-
-    private void OnBlazorReady(double contentHeight)
-    {
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
-        Dispatcher.Dispatch(async () =>
-        {
-            if (_webView != null)
-                await _webView.FadeToAsync(1, 200, Easing.CubicIn);
-        });
     }
 }

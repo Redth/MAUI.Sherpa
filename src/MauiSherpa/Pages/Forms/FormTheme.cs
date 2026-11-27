@@ -11,6 +11,7 @@ namespace MauiSherpa.Pages.Forms;
 public static class FormTheme
 {
     // Resource keys
+    public const string WindowBg = "AppWindowBg";
     public const string PageBg = "FormPageBg";
     public const string TextPrimary = "FormTextPrimary";
     public const string TextSecondary = "FormTextSecondary";
@@ -40,6 +41,7 @@ public static class FormTheme
     public static int ControlCornerRadius => 4;
     public static int ActionButtonHeight => 32;
 #elif LINUXGTK
+    static readonly Color LightWindowBg = Color.FromArgb("#FAFAFA");
     static readonly Color LightPageBg = Color.FromArgb("#FFFFFF");
     static readonly Color LightCardBg = Color.FromArgb("#FFFFFF");
     static readonly Color LightAccentPrimary = Color.FromArgb("#3584E4");
@@ -101,6 +103,11 @@ public static class FormTheme
 
     static void ApplyTheme(ResourceDictionary resources, bool dark)
     {
+#if LINUXGTK
+        resources[WindowBg] = dark ? DarkPageBg : LightWindowBg;
+#else
+        resources[WindowBg] = dark ? DarkPageBg : LightPageBg;
+#endif
         resources[PageBg] = dark ? DarkPageBg : LightPageBg;
         resources[TextPrimary] = dark ? DarkTextPrimary : LightTextPrimary;
         resources[TextSecondary] = dark ? DarkTextSecondary : LightTextSecondary;

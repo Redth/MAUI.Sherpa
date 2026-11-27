@@ -22,7 +22,6 @@ public class HybridProgressPage : ContentPage
     private readonly ProgressBridgeHolder _bridgeHolder;
     private readonly string _route;
     private readonly string _initialTitle;
-    private View? _webView;
     private Label? _titleLabel;
     private readonly Button[] _footerButtons = new Button[4];
     private HorizontalStackLayout? _footerLayout;
@@ -82,27 +81,22 @@ public class HybridProgressPage : ContentPage
 
 
         // BlazorWebView
-        ModalWebViewReadySignal.Ready += OnBlazorReady;
-        View webView;
 #if MACOSAPP
-        var blazorWebView = new MacOSBlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = _route,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new BlazorRootComponent
         {
             Selector = "#app",
             ComponentType = typeof(Components.ModalApp)
         });
-        webView = blazorWebView;
 #else
-        var blazorWebView = new BlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = _route,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new RootComponent
         {
@@ -110,9 +104,8 @@ public class HybridProgressPage : ContentPage
             ComponentType = typeof(Components.ModalApp)
         });
         HandlerProperties.SetDisconnectPolicy(blazorWebView, HandlerDisconnectPolicy.Manual);
-        webView = blazorWebView;
 #endif
-        _webView = webView;
+        var webView = new HybridLoadingView(blazorWebView);
 
         // Footer separator
         var footerSeparator = new BoxView { HeightRequest = 1 };
@@ -263,15 +256,5 @@ public class HybridProgressPage : ContentPage
                 btn.IsVisible = false;
             }
         }
-    }
-
-    private void OnBlazorReady(double contentHeight)
-    {
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
-        Dispatcher.Dispatch(async () =>
-        {
-            if (_webView != null)
-                await _webView.FadeToAsync(1, 200, Easing.CubicIn);
-        });
     }
 }

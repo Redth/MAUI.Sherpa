@@ -186,6 +186,19 @@ public class HybridFormBridgeTests
     }
 
     [Fact]
+    public void ActionStateCanDisableAndRestoreTheSecondaryButton()
+    {
+        var bridge = new HybridFormBridge();
+        var states = new List<bool>();
+        bridge.ActionStateChanged += () => states.Add(bridge.SecondaryActionEnabled);
+
+        bridge.SetActionState(false, busy: true, secondaryEnabled: false);
+        bridge.SetActionState(true);
+
+        Assert.Equal([false, true], states);
+    }
+
+    [Fact]
     public void RemovingAClosedParentKeepsTheActiveNestedBridge()
     {
         var holder = new HybridFormBridgeHolder();

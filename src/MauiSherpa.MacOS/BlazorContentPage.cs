@@ -67,6 +67,7 @@ public class BlazorContentPage : ContentPage
     public BlazorContentPage(IServiceProvider serviceProvider)
     {
         Title = "";
+        this.SetDynamicResource(BackgroundColorProperty, Pages.Forms.FormTheme.WindowBg);
 
         _toolbarService = serviceProvider.GetRequiredService<IToolbarService>();
         _toolbarService.ToolbarChanged += OnToolbarChanged;
@@ -93,7 +94,7 @@ public class BlazorContentPage : ContentPage
         _splashService = serviceProvider.GetRequiredService<ISplashService>();
         _splashService.OnBlazorReady += OnBlazorReady;
 
-        _blazorWebView = new MacOSBlazorWebView
+        _blazorWebView = new ThemedBlazorWebView
         {
             HostPage = "wwwroot/index.html",
             ContentInsets = new Thickness(0, 52, 0, 0),
@@ -157,14 +158,12 @@ public class BlazorContentPage : ContentPage
         _loadingOverlay?.RemoveFromSuperview();
         _loadingOverlay = null;
 
-        var bgColor = AppKit.NSColor.WindowBackground;
-
         _loadingOverlay = new AppKit.NSView(superview.Bounds)
         {
             AutoresizingMask = AppKit.NSViewResizingMask.WidthSizable | AppKit.NSViewResizingMask.HeightSizable,
             WantsLayer = true,
         };
-        _loadingOverlay.Layer!.BackgroundColor = bgColor.CGColor;
+        UpdateLoadingBackground();
 
         // Add a native spinner
         var spinner = new AppKit.NSProgressIndicator(new CoreGraphics.CGRect(0, 0, 24, 24))
@@ -180,6 +179,19 @@ public class BlazorContentPage : ContentPage
         spinner.CenterYAnchor.ConstraintEqualTo(_loadingOverlay.CenterYAnchor).Active = true;
 
         superview.AddSubview(_loadingOverlay, AppKit.NSWindowOrderingMode.Above, webViewNative);
+    }
+
+    protected override void OnPropertyChanged(string? propertyName = null)
+    {
+        base.OnPropertyChanged(propertyName);
+        if (propertyName == BackgroundColorProperty.PropertyName && _loadingOverlay != null)
+            Dispatcher.Dispatch(UpdateLoadingBackground);
+    }
+
+    private void UpdateLoadingBackground()
+    {
+        if (_loadingOverlay?.Layer is { } layer && BackgroundColor is { } color)
+            layer.BackgroundColor = NSColor.FromRgba(color.Red, color.Green, color.Blue, color.Alpha).CGColor;
     }
 
     /// <summary>

@@ -1,23 +1,16 @@
 @page "/modal/local-vault-intro"
 @using MauiSherpa.Core.Interfaces
-@inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
+@using MauiSherpa.Pages.Forms
+@inject HybridFormBridgeHolder BridgeHolder
 @inject ICloudSecretsService CloudSecrets
 @inject ILocalVaultAccessService LocalVaultAccess
 @inject ILocalVaultIntroductionService LocalVaultIntro
 @inject ILoggingService Logger
+@implements IDisposable
 
 <div class="vault-intro">
-    <div class="dialog-header">
-        <div class="icon-wrap" aria-hidden="true">
-            <i class="fa-solid fa-vault"></i>
-        </div>
-        <div>
-            <p class="eyebrow">New secure storage option</p>
-            <h2>Use Sherpa's Local Vault</h2>
-        </div>
-    </div>
-
     <div class="dialog-body">
+        <p class="eyebrow"><i class="fas fa-vault" aria-hidden="true"></i> New secure storage option</p>
         @if (previewOnly)
         {
             <div class="preview-note">
@@ -84,31 +77,16 @@
             </div>
         }
     </div>
-
-    <div class="dialog-footer">
-        <button class="btn btn-secondary" @onclick="DeclineAsync" disabled="@isBusy">
-            @SecondaryActionText
-        </button>
-        <button class="btn btn-primary" @onclick="EnableAsync" disabled="@isBusy">
-            @if (isBusy)
-            {
-                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-                <span>Enabling...</span>
-            }
-            else
-            {
-                <i class="fa-solid fa-lock" aria-hidden="true"></i>
-                <span>@PrimaryActionText</span>
-            }
-        </button>
-    </div>
 </div>
 
 @code {
+    private HybridFormBridge? bridge;
     private bool previewOnly;
     private bool isLoadingProviders = true;
     private bool hasExistingProvider;
     private bool isBusy;
+    private bool isEnabling;
+    private bool disposed;
     private string? errorMessage;
 
     private string PrimaryActionText => hasExistingProvider ? "Enable & Make Default" : "Enable Local Vault";
@@ -121,7 +99,11 @@
 
     protected override async Task OnInitializedAsync()
     {
-        previewOnly = ModalParams.Get<bool>("PreviewOnly");
+        bridge = BridgeHolder.Current ?? throw new InvalidOperationException("The native Local Vault dialog is unavailable.");
+        previewOnly = bridge.Parameters.TryGetValue("PreviewOnly", out var value) && value is true;
+        bridge.SubmitRequested += EnableAsync;
+        bridge.CancelRequested += OnDecline;
+        UpdateActions();
 
         try
         {
@@ -135,8 +117,17 @@
         finally
         {
             isLoadingProviders = false;
+            if (!disposed)
+                UpdateActions();
         }
     }
+
+    private void UpdateActions() => bridge?.SetActionState(
+        enabled: !isBusy,
+        busy: isBusy,
+        actionText: isBusy && isEnabling ? "Enabling..." : PrimaryActionText,
+        secondaryActionText: isBusy && !isEnabling ? "Configuring..." : SecondaryActionText,
+        secondaryEnabled: !isBusy);
 
     private async Task EnableAsync()
     {
@@ -147,11 +138,14 @@
 
         if (previewOnly)
         {
-            ModalParams.Complete(LocalVaultIntroductionResult.EnableLocal);
+            Complete(LocalVaultIntroductionResult.EnableLocal);
             return;
         }
 
         isBusy = true;
+        isEnabling = true;
+        UpdateActions();
+        StateHasChanged();
         try
         {
             var accessState = await LocalVaultAccess.RequestAccessAsync();
@@ -164,7 +158,7 @@
 
             await LocalVaultIntro.MarkEnabledAsync();
             await CloudSecrets.EnableDefaultLocalProviderAsync(setActiveProvider: true);
-            ModalParams.Complete(LocalVaultIntroductionResult.EnableLocal);
+            Complete(LocalVaultIntroductionResult.EnableLocal);
         }
         catch (Exception ex)
         {
@@ -174,23 +168,73 @@
         finally
         {
             isBusy = false;
+            isEnabling = false;
+            if (!disposed)
+            {
+                UpdateActions();
+                StateHasChanged();
+            }
         }
     }
+
+    private void OnDecline() => _ = InvokeAsync(DeclineAsync);
 
     private async Task DeclineAsync()
     {
         if (isBusy)
             return;
 
-        if (!previewOnly)
+        errorMessage = null;
+        if (previewOnly)
+        {
+            Complete(LocalVaultIntroductionResult.DeclineLocal);
+            return;
+        }
+
+        isBusy = true;
+        UpdateActions();
+        StateHasChanged();
+        try
         {
             await LocalVaultIntro.MarkDeclinedAsync();
             if (CloudSecrets.ActiveProvider?.ProviderType == CloudSecretsProviderType.Local)
                 await CloudSecrets.SetActiveProviderAsync(null);
             await CloudSecrets.InitializeAsync();
+            Complete(LocalVaultIntroductionResult.DeclineLocal);
         }
+        catch (Exception ex)
+        {
+            Logger.LogError("Failed to defer Local Vault", ex);
+            errorMessage = "Sherpa couldn't save your Local Vault choice. You can try again.";
+        }
+        finally
+        {
+            isBusy = false;
+            if (!disposed)
+            {
+                UpdateActions();
+                StateHasChanged();
+            }
+        }
+    }
 
-        ModalParams.Complete(LocalVaultIntroductionResult.DeclineLocal);
+    private void Complete(LocalVaultIntroductionResult result)
+    {
+        if (disposed || bridge == null)
+            return;
+
+        bridge.Result = result;
+        bridge.RequestClose();
+    }
+
+    public void Dispose()
+    {
+        disposed = true;
+        if (bridge != null)
+        {
+            bridge.SubmitRequested -= EnableAsync;
+            bridge.CancelRequested -= OnDecline;
+        }
     }
 }
 
@@ -212,30 +256,8 @@
         font-size: 13px;
     }
 
-    .vault-intro .dialog-header {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        padding: 1rem 1.25rem 0.875rem;
-        border-bottom: 1px solid var(--border-subtle);
-        background: var(--surface-canvas);
-    }
-
-    .vault-intro .icon-wrap {
-        width: 2.5rem;
-        height: 2.5rem;
-        border-radius: var(--radius-lg);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: color-mix(in srgb, var(--accent) 14%, transparent);
-        color: var(--accent);
-        font-size: 1.05rem;
-        flex-shrink: 0;
-    }
-
     .vault-intro .eyebrow {
-        margin: 0 0 0.15rem;
+        margin: 0 0 0.75rem;
         font-size: 0.68rem;
         font-weight: 700;
         letter-spacing: 0.08em;
@@ -243,18 +265,11 @@
         color: var(--accent);
     }
 
-    .vault-intro h2 {
-        margin: 0;
-        font-size: 1.12rem;
-        line-height: 1.2;
-        font-weight: 700;
-        color: var(--text-primary);
-    }
-
     .vault-intro .dialog-body {
         flex: 1;
-        overflow-y: auto; overscroll-behavior: contain;
-        padding: 1rem 1.25rem;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding: 1rem 1.75rem;
     }
 
     .vault-intro .lead {
@@ -363,49 +378,4 @@
         color: var(--text-secondary);
     }
 
-    .vault-intro .dialog-footer {
-        display: flex;
-        justify-content: flex-end;
-        gap: 0.6rem;
-        padding: 0.75rem 1.25rem 1rem;
-        border-top: 1px solid var(--border-subtle);
-        background: var(--surface-canvas);
-    }
-
-    .vault-intro .btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.4rem;
-        min-height: 2.25rem;
-        padding: 0.45rem 0.85rem;
-        border-radius: var(--radius-md);
-        font-weight: 600;
-        font-size: 0.82rem;
-        border: 1px solid transparent;
-        cursor: pointer;
-        transition: opacity 0.15s ease, transform 0.15s ease;
-    }
-
-    .vault-intro .btn:disabled {
-        opacity: 0.55;
-        cursor: not-allowed;
-    }
-
-    .vault-intro .btn:not(:disabled):active {
-        transform: scale(0.98);
-    }
-
-    .vault-intro .btn-primary {
-        color: var(--text-inverse);
-        background: var(--accent);
-        border-color: var(--accent);
-        box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 28%, transparent);
-    }
-
-    .vault-intro .btn-secondary {
-        color: var(--text-primary);
-        background: var(--surface-popover);
-        border-color: var(--border-subtle);
-    }
 </style>

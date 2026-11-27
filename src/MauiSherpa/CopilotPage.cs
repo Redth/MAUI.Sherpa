@@ -31,6 +31,7 @@ public class CopilotPage : ContentPage
         ICopilotService copilotService,
         IServiceProvider serviceProvider)
     {
+        this.SetDynamicResource(BackgroundColorProperty, Pages.Forms.FormTheme.PageBg);
         // --- Modal sizing: window minus padding, with minimums ---
         double winWidth = 0, winHeight = 0;
 
@@ -70,9 +71,8 @@ public class CopilotPage : ContentPage
 #endif
 
         // --- BlazorWebView for the full Copilot UI ---
-        View webView;
 #if MACOSAPP
-        var blazorWebView = new MacOSBlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = "/copilot-modal",
@@ -82,9 +82,8 @@ public class CopilotPage : ContentPage
             Selector = "#app",
             ComponentType = typeof(Components.CopilotModalApp)
         });
-        webView = blazorWebView;
 #elif LINUXGTK
-        var blazorWebView = new BlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = "/copilot-modal",
@@ -94,9 +93,8 @@ public class CopilotPage : ContentPage
             Selector = "#app",
             ComponentType = typeof(Components.CopilotModalApp)
         });
-        webView = blazorWebView;
 #else
-        var blazorWebView = new BlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = "/copilot-modal",
@@ -107,7 +105,6 @@ public class CopilotPage : ContentPage
             ComponentType = typeof(Components.CopilotModalApp)
         });
         HandlerProperties.SetDisconnectPolicy(blazorWebView, HandlerDisconnectPolicy.Manual);
-        webView = blazorWebView;
 #endif
 
         // --- Page layout: full-screen BlazorWebView ---
@@ -118,7 +115,7 @@ public class CopilotPage : ContentPage
                 new RowDefinition(GridLength.Star),
             },
         };
-        layout.Add(webView, 0, 0);
+        layout.Add(new HybridLoadingView(blazorWebView), 0, 0);
 
         Content = layout;
 

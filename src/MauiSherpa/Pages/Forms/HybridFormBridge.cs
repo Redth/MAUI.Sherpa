@@ -102,6 +102,7 @@ public partial class HybridFormBridge
     public bool ActionBusy { get; private set; }
     public string? ActionText { get; private set; }
     public string? SecondaryActionText { get; private set; }
+    public bool SecondaryActionEnabled { get; private set; } = true;
 
     /// <summary>When true, native Cancel does not close the modal (Blazor handles it).</summary>
     public bool PreventClose { get; set; }
@@ -137,7 +138,8 @@ public partial class HybridFormBridge
         bool busy = false,
         string? actionText = null,
         string? secondaryActionText = null,
-        bool visible = true)
+        bool visible = true,
+        bool secondaryEnabled = true)
     {
         HasActionState = true;
         ActionEnabled = enabled;
@@ -145,6 +147,7 @@ public partial class HybridFormBridge
         ActionBusy = busy;
         ActionText = actionText;
         SecondaryActionText = secondaryActionText;
+        SecondaryActionEnabled = secondaryEnabled;
         ActionStateChanged?.Invoke();
     }
 

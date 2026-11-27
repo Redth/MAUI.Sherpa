@@ -36,6 +36,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
     private bool _isSubmitting;
     private bool _isClosed;
     private View? _webView;
+    private HybridLoadingView? _loadingView;
 
     /// <summary>Page title shown in the native header.</summary>
     protected abstract string FormTitle { get; }
@@ -149,27 +150,22 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
 
 
         // BlazorWebView
-        ModalWebViewReadySignal.Ready += OnBlazorReady;
-        View webView;
 #if MACOSAPP
-        var blazorWebView = new MacOSBlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = BlazorRoute,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new BlazorRootComponent
         {
             Selector = "#app",
             ComponentType = typeof(Components.ModalApp)
         });
-        webView = blazorWebView;
 #else
-        var blazorWebView = new BlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = BlazorRoute,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new RootComponent
         {
@@ -177,9 +173,11 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             ComponentType = typeof(Components.ModalApp)
         });
         HandlerProperties.SetDisconnectPolicy(blazorWebView, HandlerDisconnectPolicy.Manual);
-        webView = blazorWebView;
 #endif
-        _webView = webView;
+        _webView = blazorWebView;
+        var webView = new HybridLoadingView(blazorWebView);
+        webView.ContentReady += OnBlazorReady;
+        _loadingView = webView;
 
         // Footer separator — full width
         var footerSeparator = new BoxView { HeightRequest = 1 };
@@ -406,7 +404,10 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             return;
 
         if (_cancelButton != null)
+        {
             _cancelButton.Text = _bridge.SecondaryActionText ?? "Cancel";
+            _cancelButton.IsEnabled = _bridge.SecondaryActionEnabled;
+        }
 
         if (_submittingIndicator != null)
         {
@@ -452,7 +453,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             return;
 
         _isClosed = true;
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
+        _loadingView?.StopLoading();
         _bridge.ActionStateChanged -= OnActionStateChanged;
         _bridge.ActionFocusRequested -= OnActionFocusRequested;
         _bridge.HeaderActionsChanged -= OnHeaderActionsChanged;
@@ -463,16 +464,11 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
 
     private void OnBlazorReady(double contentHeight)
     {
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
-        Dispatcher.Dispatch(async () =>
+        if (!_isClosed && _webView != null)
         {
-            if (_webView != null)
-            {
 #if !WINDOWS
-                _webView.HeightRequest = Math.Max(contentHeight, 200);
+            _webView.HeightRequest = Math.Max(contentHeight, 200);
 #endif
-                await _webView.FadeToAsync(1, 200, Easing.CubicIn);
-            }
-        });
+        }
     }
 }

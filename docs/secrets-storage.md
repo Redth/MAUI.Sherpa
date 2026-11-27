@@ -123,7 +123,7 @@ While the decision is `NotSet` or `Declined`, compatibility adapters intentional
 - `EncryptedSettingsService` reads and writes `settings.enc` instead of opening the vault.
 - `CloudSecretsService` stores provider metadata/settings in the legacy JSON files until Local Vault is enabled. It still surfaces Local while the decision is `NotSet` or `Declined`; declined only prevents Local from being preferred over an available remote provider.
 
-The startup flow shows the Local Vault introduction before update prompts, and the modal's enable action calls `ILocalVaultAccessService.RequestAccessAsync()` before marking Local Vault as enabled. If the OS secure-storage prompt is denied or unavailable, Sherpa leaves the decision unset so the user can retry or decline without leaving a half-enabled Local provider.
+The startup flow shows the Local Vault introduction in a native modal with hybrid content before update prompts, and the modal's enable action calls `ILocalVaultAccessService.RequestAccessAsync()` before marking Local Vault as enabled. If the OS secure-storage prompt is denied or unavailable, Sherpa leaves the decision unset so the user can retry or decline without leaving a half-enabled Local provider.
 
 ## Canonical secret paths
 

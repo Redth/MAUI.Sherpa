@@ -15,7 +15,6 @@
 @inject NavigationManager NavManager
 @inject ICopilotContextService CopilotContext
 @inject IBackgroundTaskService BackgroundTasks
-@inject LocalVaultIntroModalService LocalVaultIntroModalService
 @implements IDisposable
 
 <div class="main-layout @ThemeClass @PlatformClass">
@@ -149,15 +148,6 @@
     <MauiSherpa.Components.LinuxModalHost IsMainHost="true" />
 }
 
-@if (PlatformInfo.IsLinux && LocalVaultIntroModalService.IsVisible)
-{
-    <div class="linux-local-vault-intro-host">
-        <div class="linux-local-vault-intro-dialog">
-            <MauiSherpa.Pages.Modals.LocalVaultIntroModal />
-        </div>
-    </div>
-}
-
 <!-- Global Toast Notifications -->
 <MauiSherpa.Components.ToastContainer />
 
@@ -181,7 +171,6 @@
     {
         ThemeService.ThemeChanged += OnThemeChanged;
         ToolbarService.NavigationRequested += OnNavigationRequested;
-        LocalVaultIntroModalService.VisibilityChanged += OnLocalVaultIntroVisibilityChanged;
     }
     
     protected override void OnAfterRender(bool firstRender)
@@ -290,10 +279,7 @@
         ThemeService.ThemeChanged -= OnThemeChanged;
         NavManager.LocationChanged -= OnLocationChanged;
         ToolbarService.NavigationRequested -= OnNavigationRequested;
-        LocalVaultIntroModalService.VisibilityChanged -= OnLocalVaultIntroVisibilityChanged;
     }
-
-    private void OnLocalVaultIntroVisibilityChanged() => InvokeAsync(StateHasChanged);
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
         => NotifyRouteChanged(e.Location);
@@ -655,24 +641,4 @@
         display: none;
     }
 
-    .linux-local-vault-intro-host {
-        position: fixed;
-        inset: 0;
-        z-index: 10002;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 1rem;
-        background: var(--modal-overlay, rgba(0, 0, 0, 0.5));
-    }
-
-    .linux-local-vault-intro-dialog {
-        width: min(620px, 100%);
-        height: min(520px, calc(100vh - 2rem));
-        overflow: auto;
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: var(--card-radius, 1rem);
-        background: var(--bg-primary, #fff);
-        box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.25);
-    }
 </style>

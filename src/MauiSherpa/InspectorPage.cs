@@ -11,8 +11,9 @@ public class InspectorPage : ContentPage
     public InspectorPage(string startPath, string title, Type? rootComponentType = null)
     {
         Title = title;
+        this.SetDynamicResource(BackgroundColorProperty, Pages.Forms.FormTheme.WindowBg);
 
-        var blazorWebView = new BlazorWebView
+        var blazorWebView = new ThemedBlazorWebView
         {
             HostPage = "wwwroot/index.html",
             StartPath = startPath,
@@ -22,6 +23,6 @@ public class InspectorPage : ContentPage
             Selector = "#app",
             ComponentType = rootComponentType ?? typeof(Components.App)
         });
-        Content = blazorWebView;
+        Content = new HybridLoadingView(blazorWebView);
     }
 }

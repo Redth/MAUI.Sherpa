@@ -32,6 +32,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
     private List<AppKit.NSButton>? _macHeaderButtons;
 #endif
     private View? _webView;
+    private HybridLoadingView? _loadingView;
     private bool _isOnLastStep;
     private bool _isClosed;
 
@@ -116,27 +117,22 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
         headerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
 
         // BlazorWebView
-        ModalWebViewReadySignal.Ready += OnBlazorReady;
-        View webView;
 #if MACOSAPP
-        var blazorWebView = new MacOSBlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = BlazorRoute,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new BlazorRootComponent
         {
             Selector = "#app",
             ComponentType = typeof(Components.ModalApp)
         });
-        webView = blazorWebView;
 #else
-        var blazorWebView = new BlazorWebView
+        var blazorWebView = new ThemedBlazorWebView(isModal: true)
         {
             HostPage = "wwwroot/index.html",
             StartPath = BlazorRoute,
-            Opacity = 0,
         };
         blazorWebView.RootComponents.Add(new RootComponent
         {
@@ -144,9 +140,10 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             ComponentType = typeof(Components.ModalApp)
         });
         HandlerProperties.SetDisconnectPolicy(blazorWebView, HandlerDisconnectPolicy.Manual);
-        webView = blazorWebView;
 #endif
-        _webView = webView;
+        _webView = blazorWebView;
+        var webView = new HybridLoadingView(blazorWebView);
+        _loadingView = webView;
 
         // Footer separator
         var footerSeparator = new BoxView { HeightRequest = 1 };
@@ -400,21 +397,11 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
     {
         if (_isClosed) return;
         _isClosed = true;
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
+        _loadingView?.StopLoading();
         _bridge.WizardStateChanged -= OnWizardStateChanged;
         _bridge.HeaderActionsChanged -= OnHeaderActionsChanged;
         _bridge.CloseRequested -= OnCloseRequested;
         _bridgeHolder.Remove(_bridge);
         _tcs.TrySetResult(result);
-    }
-
-    private void OnBlazorReady(double contentHeight)
-    {
-        ModalWebViewReadySignal.Ready -= OnBlazorReady;
-        Dispatcher.Dispatch(async () =>
-        {
-            if (_webView != null)
-                await _webView.FadeToAsync(1, 200, Easing.CubicIn);
-        });
     }
 }
