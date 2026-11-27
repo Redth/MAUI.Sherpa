@@ -21,7 +21,7 @@
     <div class="page-title-row">
         <h1><i class="fa-solid fa-fw fa-chart-line"></i> Profiling</h1>
         <button type="button"
-                class="maui-cli-indicator @MauiCliIndicatorClass"
+                class="maui-cli-indicator sherpa-badge @MauiCliIndicatorClass"
                 @onclick="OpenMauiCliDetailsAsync"
                 disabled="@isCheckingCli"
                 title="@MauiCliIndicatorTitle"
@@ -76,7 +76,7 @@ else
             {
                 var isExpanded = expandedSessionId == session.Id;
                 var primaryArtifact = GetPrimaryArtifact(session);
-                <article class="session-card @(isExpanded ? "expanded" : "")">
+                <article class="session-card sherpa-list-row @(isExpanded ? "expanded" : "")">
                     <div class="session-card-header">
                         <button data-screenshot-external type="button"
                                 class="session-card-main"
@@ -107,16 +107,16 @@ else
                             <span class="session-card-badges">
                                 @if (session.MauiProfile is not null)
                                 {
-                                    <span class="badge badge-kind">@GetFormatDisplayName(session.MauiProfile.Format)</span>
+                                    <span class="sherpa-badge sherpa-badge-accent">@GetFormatDisplayName(session.MauiProfile.Format)</span>
                                 }
                                 else
                                 {
                                     @foreach (var kind in session.CaptureKinds.Take(2))
                                     {
-                                        <span class="badge badge-kind">@kind</span>
+                                        <span class="sherpa-badge sherpa-badge-accent">@kind</span>
                                     }
                                 }
-                                <span class="badge badge-status badge-@session.Status.ToString().ToLowerInvariant()">
+                                <span class="sherpa-badge @GetStatusBadgeClass(session.Status)">
                                     @session.Status
                                 </span>
                             </span>
@@ -553,6 +553,14 @@ else
             _ => session.CaptureKinds.FirstOrDefault().ToString()
         };
 
+    private static string GetStatusBadgeClass(ProfilingSessionStatus status) => status switch
+    {
+        ProfilingSessionStatus.Completed => "sherpa-badge-success",
+        ProfilingSessionStatus.Failed => "sherpa-badge-danger",
+        ProfilingSessionStatus.Cancelled => "sherpa-badge-warning",
+        _ => "sherpa-badge-info"
+    };
+
     private static string GetFormatDisplayName(MauiProfileOutputFormat format) => format switch
     {
         MauiProfileOutputFormat.NetTrace => "Nettrace",
@@ -865,22 +873,16 @@ else
         display: inline-flex;
         align-items: center;
         gap: 0.4rem;
-        min-height: 2rem;
-        padding: 0.3rem 0.5rem;
-        border: 0;
-        border-radius: var(--radius-sm);
-        background: transparent;
+        min-height: 20px;
+        padding: 2px 7px;
         color: var(--text-secondary);
-        font: inherit;
-        font-size: 0.78rem;
-        font-weight: 500;
         cursor: pointer;
         transition: background-color 0.15s ease, color 0.15s ease;
     }
 
     .maui-cli-indicator:hover:not(:disabled) {
-        background: var(--surface-well);
         color: var(--text-primary);
+        background: var(--surface-card-hover);
     }
 
     .maui-cli-indicator:focus-visible {
@@ -893,21 +895,31 @@ else
         opacity: 0.7;
     }
 
-    .maui-cli-indicator.installed > i,
-    .maui-cli-indicator.update-available > i {
-        color: color-mix(in srgb, var(--status-success-fg) 72%, var(--text-secondary));
+    .maui-cli-indicator.installed {
+        color: var(--status-success-fg);
+        background: var(--status-success-bg);
+        border-color: var(--status-success-border);
     }
 
-    .maui-cli-indicator.missing > i {
-        color: color-mix(in srgb, var(--status-warning-fg) 72%, var(--text-secondary));
+    .maui-cli-indicator.update-available,
+    .maui-cli-indicator.missing {
+        color: var(--status-warning-fg);
+        background: var(--status-warning-bg);
+        border-color: var(--status-warning-border);
+    }
+
+    .maui-cli-indicator.checking {
+        color: var(--text-secondary);
+        background: var(--surface-well);
+        border-color: var(--border-hairline);
     }
 
     .maui-cli-indicator-update {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 1rem;
-        height: 1rem;
+        width: 15px;
+        height: 15px;
         border-radius: var(--radius-pill);
         background: var(--status-info-bg);
         color: var(--status-info-fg);
@@ -935,33 +947,31 @@ else
 
     .empty-state {
         text-align: center;
-        padding: 60px 40px;
+        padding: 32px 24px;
         color: var(--text-muted);
-        border: 1px dashed var(--border-subtle);
-        border-radius: var(--radius-xl);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         background: var(--surface-card);
     }
 
     .empty-state.compact {
-        padding: 40px;
+        padding: 24px;
     }
 
     .empty-icon {
-        width: 4rem;
-        height: 4rem;
-        display: grid;
-        place-items: center;
-        margin-bottom: 0.5rem;
-        border-radius: var(--radius-lg);
+        width: 34px;
+        height: 34px;
+        margin-bottom: 0.25rem;
         color: var(--accent);
         background: var(--accent-soft);
-        font-size: 1.5rem;
+        border-color: var(--accent-border);
+        font-size: 14px;
     }
 
     .empty-state h2 {
         color: var(--text-primary);
         margin: 0;
-        font-size: 1.25rem;
+        font-size: 1rem;
     }
 
     .empty-state p {
@@ -976,42 +986,31 @@ else
     }
 
     .empty-action {
-        min-height: 44px;
         margin-bottom: 0.2rem;
     }
 
     .session-list {
-        display: grid;
-        gap: 0;
-        overflow: hidden;
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        background: var(--surface-card);
+        display: block;
     }
 
     .session-card {
-        background: var(--surface-card);
+        display: block;
+        padding: 0;
         border: 0;
         border-radius: 0;
         overflow: hidden;
-        transition: box-shadow 0.15s;
-    }
-    .session-card + .session-card { border-top: 1px solid var(--border-hairline); }
-
-    .session-card.expanded {
-        border-color: var(--accent-border);
+        background: transparent;
     }
 
     .session-card-header {
         display: flex;
         align-items: center;
         gap: 0.75rem;
-        padding: 0.75rem 1rem;
+        padding: var(--row-padding-y) var(--row-padding-x);
     }
 
     .session-card-main {
         min-width: 0;
-        min-height: 44px;
         flex: 1;
         display: flex;
         align-items: center;
@@ -1073,30 +1072,6 @@ else
         flex-shrink: 0;
     }
 
-    .badge {
-        display: inline-block;
-        padding: 0.15rem 0.5rem;
-        border-radius: var(--radius-sm);
-        font-size: 0.7rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-    }
-
-    .badge-kind {
-        background: var(--accent-soft);
-        color: var(--accent);
-    }
-
-    .badge-status {
-        border: 1px solid;
-    }
-
-    .badge-completed { background: var(--status-success-bg); border-color: var(--status-success-border); color: var(--status-success-fg); }
-    .badge-failed { background: var(--status-error-bg); border-color: var(--status-error-border); color: var(--status-error-fg); }
-    .badge-cancelled { background: var(--status-warning-bg); border-color: var(--status-warning-border); color: var(--status-warning-fg); }
-    .badge-inprogress { background: var(--status-info-bg); border-color: var(--status-info-border); color: var(--status-info-fg); }
-
     .session-card-expand {
         color: var(--text-muted);
         font-size: 0.8rem;
@@ -1104,7 +1079,6 @@ else
     }
 
     .session-primary-action {
-        min-height: 40px;
         flex-shrink: 0;
         white-space: nowrap;
     }
@@ -1144,7 +1118,7 @@ else
     }
 
     .session-card-actions .btn {
-        min-height: 40px;
+        min-height: var(--control-height-sm);
     }
 
     .destructive-action {
@@ -1163,10 +1137,10 @@ else
     .artifact-list {
         display: flex;
         flex-direction: column;
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        overflow: hidden;
-        background: var(--surface-well);
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        overflow: visible;
     }
 
     .log-files-section {

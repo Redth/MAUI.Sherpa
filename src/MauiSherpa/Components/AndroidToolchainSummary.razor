@@ -7,6 +7,7 @@
 @inject MauiSherpa.Services.OpenJdkModalService JdkModal
 @inject IPlatformService Platform
 @inject IAndroidSdkPathService PathService
+@inject IFileSystemService Files
 @inject IDialogService Dialogs
 @inject IAlertService Alerts
 @inject ILoggingService Logger
@@ -95,11 +96,8 @@
                             <i class="fa-solid fa-wrench" aria-hidden="true"></i> Fix PATH...
                         </button>
                     }
-                    else if (ConfigurePath.HasDelegate && !Platform.HasNativeToolbar)
-                    {
-                        <button type="button" data-screenshot-external class="btn btn-secondary btn-sm" disabled="@(busy || Sdk.IsBusy)" @onclick="ConfigurePathAsync">PATH...</button>
-                    }
                     <button id="manage-android-sdk" type="button" data-screenshot-external class="btn btn-secondary btn-sm" disabled="@(busy || Sdk.IsBusy)" @onclick="ManageSdk">Manage...</button>
+                    <SherpaActionMenu Items="@GetAndroidSdkMenuItems()" AriaLabel="More Android SDK actions" />
                 }
             </div>
         </div>
@@ -232,6 +230,61 @@
             if (copiedPath == path) { copiedPath = null; StateHasChanged(); }
         }
         catch (Exception ex) { Logger.LogError($"Could not copy {label} path.", ex); await Alerts.ShowAlertAsync("Could Not Copy Path", ex.Message); }
+    }
+
+    private IReadOnlyList<SherpaMenuItem> GetAndroidSdkMenuItems()
+    {
+        var items = new List<SherpaMenuItem>
+        {
+            SherpaMenuItem.Action(
+                "Switch SDK...",
+                "fa-solid fa-arrows-rotate",
+                () => ManageSdk.InvokeAsync(),
+                disabled: busy || Sdk.IsBusy),
+            SherpaMenuItem.Action(
+                "Install Android SDK...",
+                "fa-solid fa-download",
+                () => InstallSdk.InvokeAsync(),
+                disabled: busy || Sdk.IsBusy)
+        };
+
+        if (ConfigurePath.HasDelegate)
+        {
+            items.Add(SherpaMenuItem.Action(
+                "Check / Configure PATH...",
+                "fa-solid fa-terminal",
+                ConfigurePathAsync,
+                disabled: busy || Sdk.IsBusy || Sdk.SdkPath == null));
+        }
+
+        if (Sdk.SdkPath != null)
+        {
+            items.Add(SherpaMenuItem.Divider);
+            items.Add(SherpaMenuItem.Action(
+                Platform.IsMacCatalyst || OperatingSystem.IsMacOS() ? "Show in Finder" : "Open SDK Folder",
+                "fa-solid fa-folder-open",
+                OpenSdkFolder));
+            items.Add(SherpaMenuItem.Action(
+                "Copy SDK Path",
+                "fa-regular fa-copy",
+                () => CopyPathAsync(Sdk.SdkPath, "Android SDK")));
+        }
+
+        return items;
+    }
+
+    private void OpenSdkFolder()
+    {
+        try
+        {
+            if (Sdk.SdkPath is { } path)
+                Files.RevealInFileManager(path);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError("Could not open Android SDK folder.", ex);
+            _ = Alerts.ShowAlertAsync("Could Not Open Folder", ex.Message);
+        }
     }
 
     private async Task ConfigurePathAsync()

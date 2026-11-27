@@ -24,14 +24,14 @@
                     <option value="warn">Warning</option>
                     <option value="error">Error</option>
                 </select>
-                <button class="btn-icon @(showColumnFilters ? "active" : "")" @onclick="() => showColumnFilters = !showColumnFilters" title="Column filters">
-                    <i class="fas fa-filter"></i>
+                <button class="btn-icon @(showColumnFilters ? "active" : "")" @onclick="() => showColumnFilters = !showColumnFilters" title="Column filters" aria-label="Column filters">
+                    <i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i>
                 </button>
-                <button class="btn-icon" @onclick="ResetGrid" title="Reset grid">
-                    <i class="fas fa-undo"></i>
+                <button class="btn-icon" @onclick="ResetGrid" title="Reset grid" aria-label="Reset grid">
+                    <i class="fa-solid fa-rotate-left fa-fw" aria-hidden="true"></i>
                 </button>
-                <button class="btn-icon" @onclick="@(() => OnClearLogs.InvokeAsync())" title="Clear">
-                    <i class="fas fa-trash"></i>
+                <button class="btn-icon" @onclick="@(() => OnClearLogs.InvokeAsync())" title="Clear console" aria-label="Clear console">
+                    <i class="fa-solid fa-trash-can fa-fw" aria-hidden="true"></i>
                 </button>
             </div>
         </div>
@@ -48,11 +48,11 @@
         @if (!cdpAvailable)
         {
             <div class="cdp-unavailable">
-                <i class="fas fa-globe" style="font-size: 1.5rem; opacity: 0.4;"></i>
+                <i class="fa-solid fa-globe" style="font-size: 1.5rem; opacity: 0.4;" aria-hidden="true"></i>
                 <div style="font-weight: 500;">No WebView Available</div>
                 <div style="font-size: 0.75rem; opacity: 0.6;">Navigate to a page with a BlazorWebView to use JavaScript, DOM queries, and page source.</div>
                 <button class="btn btn-sm btn-secondary" @onclick="RefreshTargets" style="margin-top: 0.5rem;">
-                    <i class="fas fa-sync-alt"></i> Retry
+                    <i class="fa-solid fa-arrows-rotate fa-fw" aria-hidden="true"></i> Retry
                 </button>
             </div>
         }
@@ -65,7 +65,7 @@
             <div class="js-input-row">
                 <input type="text" @bind="jsExpression" @onkeydown="OnJsKeyDown" placeholder="Enter JavaScript expression..." class="js-input" spellcheck="false" autocorrect="off" autocapitalize="off" data-form-type="other" />
                 <button class="btn btn-sm btn-primary" @onclick="EvaluateJs">
-                    <i class="fas fa-play"></i>
+                    <i class="fa-solid fa-play"></i>
                 </button>
             </div>
             @if (jsResults.Count > 0)
@@ -90,7 +90,7 @@
             <div class="js-input-row">
                 <input type="text" @bind="cssSelector" @onkeydown="OnSelectorKeyDown" placeholder="CSS selector (e.g. .my-class, #id)" class="js-input" spellcheck="false" autocorrect="off" autocapitalize="off" data-form-type="other" />
                 <button class="btn btn-sm btn-secondary" @onclick="RunQuery">
-                    <i class="fas fa-search"></i>
+                    <i class="fa-solid fa-search"></i>
                 </button>
             </div>
             @if (queryResults.Count > 0)
@@ -123,7 +123,7 @@
             <span>Page Source</span>
             <div class="pane-actions">
                 <button class="btn-icon" @onclick="FetchPageSource" title="Fetch page source">
-                    <i class="fas fa-code"></i>
+                    <i class="fa-solid fa-code"></i>
                 </button>
             </div>
         </div>
@@ -434,8 +434,8 @@
         align-items: center;
         justify-content: space-between;
         padding: 0.5rem 0.75rem;
-        background: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
+        background: var(--surface-well);
+        border-bottom: 1px solid var(--border-hairline);
         font-size: 0.85rem;
         font-weight: 600;
         flex-shrink: 0;
@@ -449,18 +449,18 @@
     }
 
     .btn-icon {
-        background: none;
-        border: none;
+        background: transparent;
+        border: 1px solid transparent;
         color: var(--text-secondary);
         cursor: pointer;
-        padding: 0.25rem 0.4rem;
-        border-radius: 4px;
+        padding: 0;
+        border-radius: var(--radius-sm);
         font-size: 0.8rem;
     }
 
     .btn-icon:hover {
         color: var(--text-primary);
-        background: var(--bg-tertiary);
+        background: var(--surface-card-hover);
     }
 
     .resize-handle {
@@ -475,7 +475,7 @@
 
     .resize-handle:hover,
     .resize-handle:active {
-        background: var(--accent-color, #3b82f6);
+        background: var(--accent);
         opacity: 0.5;
     }
 
@@ -501,7 +501,7 @@
     }
 
     .btn-icon.active {
-        color: var(--accent-color, #3b82f6);
+        color: var(--accent);
     }
 
     .col-time {
@@ -521,27 +521,27 @@
         text-transform: uppercase;
     }
 
-    .level-info .console-level-text { color: #3b82f6; }
-    .level-warn .console-level-text, .level-warning .console-level-text { color: #f59e0b; }
-    .level-error .console-level-text { color: #ef4444; }
-    .level-warn, .level-warning { background: rgba(245, 158, 11, 0.05); }
-    .level-error { background: rgba(239, 68, 68, 0.05); }
+    .level-info .console-level-text { color: var(--status-info-fg); }
+    .level-warn .console-level-text, .level-warning .console-level-text { color: var(--status-warning-fg); }
+    .level-error .console-level-text { color: var(--status-error-fg); }
+    .level-warn, .level-warning { background: var(--status-warning-bg); }
+    .level-error { background: var(--status-error-bg); }
 
     .level-filter {
         font-size: 0.75rem;
         padding: 0.15rem 0.4rem;
-        border-radius: 4px;
-        border: 1px solid var(--border-color);
-        background: var(--bg-primary);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-control);
+        background: var(--surface-control);
         color: var(--text-primary);
     }
 
     .target-selector {
         font-size: 0.7rem;
         padding: 0.15rem 0.4rem;
-        border-radius: 4px;
-        border: 1px solid var(--accent-color, #2196F3);
-        background: color-mix(in srgb, var(--accent-color, #2196F3) 8%, var(--bg-primary));
+        border-radius: var(--radius-md);
+        border: 1px solid var(--accent-border);
+        background: var(--accent-soft);
         color: var(--text-primary);
         max-width: 160px;
     }
@@ -558,12 +558,12 @@
 
     .js-input {
         flex: 1;
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-family: var(--font-mono);
         font-size: 0.8rem;
         padding: 0.4rem 0.6rem;
-        border: 1px solid var(--border-color);
-        border-radius: 4px;
-        background: var(--bg-primary);
+        border: 1px solid var(--border-control);
+        border-radius: var(--radius-md);
+        background: var(--surface-control);
         color: var(--text-primary);
     }
 
@@ -580,18 +580,18 @@
 
     .js-result-entry {
         padding: 0.3rem 0.5rem;
-        border-bottom: 1px solid var(--border-color);
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        border-bottom: 1px solid var(--border-hairline);
+        font-family: var(--font-mono);
         font-size: 0.75rem;
     }
 
     .js-prompt {
-        color: #22c55e;
+        color: var(--status-success-fg);
         margin-right: 0.3rem;
     }
 
     .js-error .js-prompt {
-        color: #ef4444;
+        color: var(--status-error-fg);
     }
 
     .js-expr {
@@ -605,7 +605,7 @@
     }
 
     .js-error .js-output {
-        color: #ef4444;
+        color: var(--status-error-fg);
     }
 
     .query-results-header {
@@ -625,21 +625,22 @@
         gap: 0.4rem;
         padding: 0.2rem 0.4rem;
         font-size: 0.8rem;
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-family: var(--font-mono);
     }
 
-    .tree-type { color: #e06c75; }
-    .tree-aid { color: #61afef; }
-    .tree-class { color: #c678dd; }
+    .tree-type { color: var(--syntax-tag); }
+    .tree-aid { color: var(--status-info-fg); }
+    .tree-class { color: var(--data-purple); }
     .tree-text { color: var(--text-tertiary); font-style: italic; }
 
     .page-source {
         flex: 1;
         overflow: auto;
         padding: 0.5rem;
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-family: var(--font-mono);
         font-size: 0.7rem;
-        background: var(--bg-secondary);
+        background: var(--surface-console);
+        color: var(--console-text);
         margin: 0;
         min-height: 100px;
         white-space: pre-wrap;
@@ -648,15 +649,11 @@
 
     /* Syntax highlighting */
     .hl-bracket { color: var(--text-muted); }
-    .hl-tag { color: #e06c75; }
-    .hl-attr { color: #d19a66; }
-    .hl-val { color: #98c379; }
-    .hl-comment { color: var(--text-tertiary, #6a737d); font-style: italic; }
-    .hl-doctype { color: var(--text-tertiary, #6a737d); }
-
-    :global(.theme-light) .hl-tag { color: #d73a49; }
-    :global(.theme-light) .hl-attr { color: #e36209; }
-    :global(.theme-light) .hl-val { color: #22863a; }
+    .hl-tag { color: var(--syntax-tag); }
+    .hl-attr { color: var(--syntax-attr); }
+    .hl-val { color: var(--syntax-value); }
+    .hl-comment,
+    .hl-doctype { color: var(--text-muted); font-style: italic; }
 
     .cdp-unavailable {
         display: flex;

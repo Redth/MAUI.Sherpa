@@ -66,19 +66,10 @@
     {
         Settings.SdkPathChanged += OnChanged;
         Sdk.BusyChanged += OnBusyChanged;
-        Toolbar.ToolbarItemClicked += OnAction;
-        UpdateMenu();
     }
-    private void OnBusyChanged() => _ = InvokeAsync(() => { UpdateMenu(); StateHasChanged(); });
-    private void UpdateMenu()
-    {
-        Toolbar.SetItemEnabled("sdk-switch", !busy && !Sdk.IsBusy);
-        Toolbar.SetItemEnabled("sdk-install", !busy && !Sdk.IsBusy);
-        Toolbar.SetItemEnabled("sdk-open", Sdk.SdkPath != null);
-        Toolbar.SetItemEnabled("sdk-copy", Sdk.SdkPath != null);
-        Toolbar.SetItemEnabled("sdk-path", !busy && !Sdk.IsBusy && Sdk.SdkPath != null);
-    }
-    private void OnChanged() => _ = InvokeAsync(async () => { UpdateMenu(); StateHasChanged(); await Changed.InvokeAsync(); });
+    private void OnBusyChanged() => _ = InvokeAsync(StateHasChanged);
+    private void UpdateMenu() { }
+    private void OnChanged() => _ = InvokeAsync(async () => { StateHasChanged(); await Changed.InvokeAsync(); });
     private void OnAction(string id) => _ = InvokeAsync(async () =>
     {
         switch (id)
@@ -146,6 +137,5 @@
     {
         Settings.SdkPathChanged -= OnChanged;
         Sdk.BusyChanged -= OnBusyChanged;
-        Toolbar.ToolbarItemClicked -= OnAction;
     }
 }
