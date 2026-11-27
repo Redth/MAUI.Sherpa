@@ -1,4 +1,5 @@
 @page "/xcode-management"
+@using System.ComponentModel
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.ViewModels
 @using MauiSherpa.Pages.Forms
@@ -724,6 +725,8 @@ else
     private bool showBetas;
     private bool hasInitialized;
     private bool hasLoadedRuntimeData;
+    private bool isInitialLoadPending = true;
+    private bool isRefreshingActiveTab;
     private IReadOnlyList<SherpaTabItem> XcodeTabs =>
     [
         new("installed", "Installed", "fa-solid fa-hard-drive", ViewModel.InstalledXcodes.Count),
@@ -774,12 +777,13 @@ else
             .Where(runtime => runtime.SizeBytes.HasValue)
             .Sum(runtime => runtime.SizeBytes!.Value);
 
-    private bool IsActiveTabLoading => activeTab switch
-    {
-        "available" => ViewModel.IsLoadingAvailable,
-        "runtimes" => ViewModel.IsLoadingRuntimes || ViewModel.IsLoadingDownloadableRuntimes,
-        _ => ViewModel.IsLoading,
-    };
+    private bool IsActiveTabLoading => isInitialLoadPending || isRefreshingActiveTab ||
+        (activeTab switch
+        {
+            "available" => ViewModel.IsLoadingAvailable,
+            "runtimes" => ViewModel.IsLoadingRuntimes || ViewModel.IsLoadingDownloadableRuntimes,
+            _ => ViewModel.IsLoading,
+        });
 
     protected override async Task OnInitializedAsync()
     {
@@ -787,17 +791,27 @@ else
         {
             hasInitialized = true;
             DownloadAuthService.AuthStateChanged += OnDownloadAuthStateChanged;
+            ViewModel.PropertyChanged += OnViewModelPropertyChanged;
             ToolbarService.ClearItems();
             ToolbarService.SetItems(
                 new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
             );
+            UpdateToolbarItemStates();
             ToolbarService.SetSearch("Search Xcode versions or runtimes...");
             ToolbarService.SetFilters();
             ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
             ToolbarService.SearchTextChanged += OnSearchTextChanged;
-            if (DownloadAuthService.IsAuthenticated)
-                await DownloadAuthService.ValidateSessionAsync();
-            await ViewModel.LoadInstalledAsync();
+            try
+            {
+                if (DownloadAuthService.IsAuthenticated)
+                    await DownloadAuthService.ValidateSessionAsync();
+                await ViewModel.LoadInstalledAsync();
+            }
+            finally
+            {
+                isInitialLoadPending = false;
+                UpdateToolbarItemStates();
+            }
         }
     }
 
@@ -808,17 +822,24 @@ else
 
         InvokeAsync(async () =>
         {
-            ToolbarService.SetItemEnabled("refresh", false);
-            try
-            {
-                await RefreshAll();
-            }
-            finally
-            {
-                ToolbarService.SetItemEnabled("refresh", true);
-                StateHasChanged();
-            }
+            await RefreshAll();
+            StateHasChanged();
         });
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is nameof(XcodeManagementViewModel.IsLoading) or
+            nameof(XcodeManagementViewModel.IsLoadingAvailable) or
+            nameof(XcodeManagementViewModel.IsLoadingRuntimes) or
+            nameof(XcodeManagementViewModel.IsLoadingDownloadableRuntimes))
+        {
+            InvokeAsync(() =>
+            {
+                UpdateToolbarItemStates();
+                StateHasChanged();
+            });
+        }
     }
 
     private void OnSearchTextChanged(string text)
@@ -842,32 +863,47 @@ else
     public void Dispose()
     {
         DownloadAuthService.AuthStateChanged -= OnDownloadAuthStateChanged;
+        ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
     }
 
     private async Task RefreshAll()
     {
-        if (activeTab != "available" && DownloadAuthService.IsAuthenticated)
-            await DownloadAuthService.ValidateSessionAsync();
+        if (isRefreshingActiveTab)
+            return;
 
-        if (activeTab == "installed")
+        isRefreshingActiveTab = true;
+        UpdateToolbarItemStates();
+        try
         {
-            await Mediator.FlushStores("apple:xcode:installed");
-            await ViewModel.LoadInstalledAsync();
+            if (activeTab != "available" && DownloadAuthService.IsAuthenticated)
+                await DownloadAuthService.ValidateSessionAsync();
+
+            if (activeTab == "installed")
+            {
+                await Mediator.FlushStores("apple:xcode:installed");
+                await ViewModel.LoadInstalledAsync();
+            }
+            else if (activeTab == "available")
+            {
+                await Mediator.FlushStores("apple:xcode:available");
+                await ViewModel.LoadAvailableAsync();
+            }
+            else if (activeTab == "runtimes")
+                await LoadRuntimeDataAsync(forceRefresh: true);
         }
-        else if (activeTab == "available")
+        finally
         {
-            await Mediator.FlushStores("apple:xcode:available");
-            await ViewModel.LoadAvailableAsync();
+            isRefreshingActiveTab = false;
+            UpdateToolbarItemStates();
         }
-        else if (activeTab == "runtimes")
-            await LoadRuntimeDataAsync(forceRefresh: true);
     }
 
     private async Task SwitchTab(string tab)
     {
         activeTab = tab;
+        UpdateToolbarItemStates();
         if (tab == "available" && ViewModel.AvailableReleases.Count == 0)
             await ViewModel.LoadAvailableAsync();
         else if (tab == "runtimes" && !hasLoadedRuntimeData)
@@ -875,6 +911,9 @@ else
 
         StateHasChanged();
     }
+
+    private void UpdateToolbarItemStates() =>
+        ToolbarService.SetItemEnabled("refresh", !IsActiveTabLoading);
 
     private bool MatchesSearch(XcodeInstallation xcode) =>
         ContainsSearchText(xcode.Version, xcode.BuildNumber, xcode.Path);

@@ -480,7 +480,7 @@
     private List<AppleProfile> profiles = new();
     private string? profilesIdentityId;
     private int identitySelectionVersion;
-    private bool isLoading = false;
+    private bool isLoading = true;
     private bool demoMode = false;
     private string errorMessage = "";
     private string? openDropdown = null;
@@ -598,6 +598,7 @@
 
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
+        LocalVaultAccess.StateChanged += OnLocalVaultStateChanged;
         if (IdentityState.SelectedIdentity != null)
             await RefreshData();
     }
@@ -612,12 +613,16 @@
             isLoading = false;
             if (isSelectionMode)
                 CancelSelectionMode();
+            else
+                UpdateToolbarItemStates();
 
             StateHasChanged();
             await RefreshData();
             StateHasChanged();
         });
     }
+
+    private void OnLocalVaultStateChanged() => OnIdentityChanged();
 
     private void OnSearchTextChanged(string text)
     {
@@ -650,6 +655,7 @@
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
+        LocalVaultAccess.StateChanged -= OnLocalVaultStateChanged;
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -658,10 +664,7 @@
         {
             switch (actionId)
             {
-                case "refresh":
-                    ToolbarService.SetItemEnabled("refresh", false);
-                    try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
-                    break;
+                case "refresh": await RefreshData(forceRefresh: true); break;
                 case "create": await ShowCreateDialog(); break;
                 case "profiles-folder": await RevealProfilesFolder(); break;
                 case "cleanup": await ShowCleanupDialog(); break;
@@ -679,10 +682,14 @@
     {
         var identityId = IdentityState.SelectedIdentity?.Id;
         if (string.IsNullOrWhiteSpace(identityId) || LocalVaultAccess.GetState().RequiresUserAction)
+        {
+            UpdateToolbarItemStates();
             return;
+        }
 
         var identityVersion = Volatile.Read(ref identitySelectionVersion);
         isLoading = true;
+        UpdateToolbarItemStates();
         errorMessage = "";
         
         ToastMessage? toast = null;
@@ -708,7 +715,7 @@
             profilesIdentityId = identityId;
             selectedProfileIds.IntersectWith(profiles.Select(profile => profile.Id));
             if (isSelectionMode)
-                UpdateSelectionToolbar();
+                UpdateToolbarItemStates();
         }
         catch (Exception ex)
         {
@@ -718,7 +725,10 @@
         finally
         {
             if (IsCurrentIdentity(identityId, identityVersion))
+            {
                 isLoading = false;
+                UpdateToolbarItemStates();
+            }
             if (toast != null) ToastService.Dismiss(toast);
             await InvokeAsync(StateHasChanged);
         }
@@ -746,6 +756,7 @@
     {
         openDropdown = null;
         isLoading = true;
+        UpdateToolbarItemStates();
         try
         {
             // Save to Downloads folder by default
@@ -759,6 +770,7 @@
         finally
         {
             isLoading = false;
+            UpdateToolbarItemStates();
         }
     }
     
@@ -766,6 +778,7 @@
     {
         openDropdown = null;
         isLoading = true;
+        UpdateToolbarItemStates();
         try
         {
             var folder = await DialogService.PickFolderAsync("Select Download Location");
@@ -780,6 +793,7 @@
         finally
         {
             isLoading = false;
+            UpdateToolbarItemStates();
         }
     }
     
@@ -960,7 +974,6 @@
                 new ToolbarAction("install-selected", "Install", "square.and.arrow.down"),
                 new ToolbarAction("export-selected", "Export", "square.and.arrow.up"),
                 new ToolbarAction("cancel-selection", "Cancel", "xmark", IsPrimary: false));
-            UpdateSelectionToolbar();
         }
         else
         {
@@ -971,6 +984,7 @@
                 new ToolbarAction("cleanup", "Clean Up", "trash"),
                 new ToolbarAction("select", "Select", "checkmark.circle"));
         }
+        UpdateToolbarItemStates();
 
         // SetItems resets the native search field and filters; put them back with the
         // page's current values so switching modes doesn't strand active filters.
@@ -1016,7 +1030,7 @@
             selectedProfileIds.Add(profileId);
         else
             selectedProfileIds.Remove(profileId);
-        UpdateSelectionToolbar();
+        UpdateToolbarItemStates();
     }
 
     private void ToggleAllVisible(ChangeEventArgs args)
@@ -1026,15 +1040,29 @@
             selectedProfileIds.UnionWith(visibleIds);
         else
             selectedProfileIds.ExceptWith(visibleIds);
-        UpdateSelectionToolbar();
+        UpdateToolbarItemStates();
     }
 
-    private void UpdateSelectionToolbar()
+    private void UpdateToolbarItemStates()
     {
-        var hasSelection = selectedProfileIds.Count > 0;
-        ToolbarService.SetItemEnabled("backup-selected", hasSelection);
-        ToolbarService.SetItemEnabled("install-selected", hasSelection);
-        ToolbarService.SetItemEnabled("export-selected", hasSelection);
+        var ready = IdentityState.SelectedIdentity != null &&
+            !LocalVaultAccess.GetState().RequiresUserAction &&
+            !isLoading;
+
+        if (isSelectionMode)
+        {
+            var hasSelection = ready && selectedProfileIds.Count > 0;
+            ToolbarService.SetItemEnabled("backup-selected", hasSelection);
+            ToolbarService.SetItemEnabled("install-selected", hasSelection);
+            ToolbarService.SetItemEnabled("export-selected", hasSelection);
+        }
+        else
+        {
+            ToolbarService.SetItemEnabled("refresh", ready);
+            ToolbarService.SetItemEnabled("create", ready);
+            ToolbarService.SetItemEnabled("cleanup", ready && profiles.Count > 0);
+            ToolbarService.SetItemEnabled("select", ready && profiles.Count > 0);
+        }
     }
 
     private List<AppleProfile> GetSelectedProfiles() => profiles
@@ -1109,6 +1137,7 @@
             return;
 
         isLoading = true;
+        UpdateToolbarItemStates();
         var saved = 0;
         var failures = new List<string>();
         try
@@ -1130,6 +1159,7 @@
         finally
         {
             isLoading = false;
+            UpdateToolbarItemStates();
         }
 
         if (failures.Count > 0)

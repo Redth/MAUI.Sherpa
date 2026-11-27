@@ -128,26 +128,28 @@ public class SettingsPage : ContentPage, INativeModalDismissible
         {
             Text = "Reset to Defaults",
             FontSize = 13,
-            BackgroundColor = Colors.Transparent,
-            BorderWidth = 0,
+            BorderWidth = 1,
             CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
             HeightRequest = FormTheme.ActionButtonHeight,
         };
-        resetButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextMuted);
+        resetButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.SecondaryButtonBg);
+        resetButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextPrimary);
+        resetButton.SetDynamicResource(Button.BorderColorProperty, FormTheme.ButtonOutlineBorder);
         resetButton.Clicked += async (_, _) => await _bridge.RequestActionAsync("reset");
 
         var cancelButton = new Button
         {
             Text = "Cancel",
             FontSize = 13,
-            BackgroundColor = Colors.Transparent,
-            BorderWidth = 0,
+            BorderWidth = 1,
             CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
             HeightRequest = FormTheme.ActionButtonHeight,
         };
-        cancelButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimary);
+        cancelButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.SecondaryButtonBg);
+        cancelButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextPrimary);
+        cancelButton.SetDynamicResource(Button.BorderColorProperty, FormTheme.ButtonOutlineBorder);
         cancelButton.Clicked += (_, _) => Complete(false);
 
         var saveButton = new Button

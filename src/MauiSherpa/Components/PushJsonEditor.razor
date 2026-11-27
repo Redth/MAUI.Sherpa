@@ -5,7 +5,7 @@
 
 <div class="push-json-editor @(isInvalid ? "invalid" : "")">
     <div class="push-json-toolbar">
-        <span class="push-json-file"><i class="fas fa-code"></i> @FileName</span>
+        <span class="push-json-file"><i class="fa-solid fa-code"></i> @FileName</span>
         <div class="push-json-meta">
             @if (MaxBytes.HasValue)
             {
@@ -17,12 +17,12 @@
             @if (!string.IsNullOrWhiteSpace(Value))
             {
                 <span class="push-json-state @(isInvalid ? "invalid" : "valid")">
-                    <i class="fas @(isInvalid ? "fa-circle-exclamation" : "fa-circle-check")"></i>
+                    <i class="fa-solid @(isInvalid ? "fa-circle-exclamation" : "fa-circle-check")"></i>
                     @(isInvalid ? "Invalid JSON" : "Valid JSON")
                 </span>
             }
             <button type="button" class="push-link-btn" @onclick="Format" disabled="@(isInvalid || string.IsNullOrWhiteSpace(Value))" title="Pretty-print the JSON">
-                <i class="fas fa-align-left"></i> Format
+                <i class="fa-solid fa-align-left"></i> Format
             </button>
         </div>
     </div>
@@ -30,26 +30,26 @@
               value="@Value" @oninput="OnInput"></textarea>
     @if (isInvalid && !string.IsNullOrEmpty(parseError))
     {
-        <div class="push-json-error"><i class="fas fa-triangle-exclamation"></i> @parseError</div>
+        <div class="push-json-error"><i class="fa-solid fa-triangle-exclamation"></i> @parseError</div>
     }
 </div>
 
 <style>
     .push-json-editor {
-        border: 1px solid var(--input-border);
-        border-radius: 0.6rem;
+        border: 1px solid var(--border-console);
+        border-radius: var(--radius-lg);
         overflow: hidden;
-        background: var(--input-bg);
+        background: var(--surface-console);
         transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
 
     .push-json-editor:focus-within {
         border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 20%, transparent);
+        box-shadow: 0 0 0 3px var(--accent-ring);
     }
 
     .push-json-editor.invalid {
-        border-color: color-mix(in srgb, var(--accent-danger) 65%, var(--input-border));
+        border-color: var(--status-error-border);
     }
 
     .push-json-toolbar {
@@ -58,21 +58,21 @@
         justify-content: space-between;
         gap: 0.5rem;
         padding: 0.35rem 0.4rem 0.35rem 0.8rem;
-        border-bottom: 1px solid var(--input-border);
-        background: color-mix(in srgb, var(--input-bg) 94%, var(--text-primary));
+        border-bottom: 1px solid var(--border-console);
+        background: var(--surface-console-header);
     }
 
     .push-json-file {
         display: inline-flex;
         align-items: center;
         gap: 0.45rem;
-        font-family: 'SF Mono', 'Menlo', 'Cascadia Code', 'Consolas', monospace;
+        font-family: var(--font-mono);
         font-size: 0.72rem;
-        color: var(--text-secondary);
+        color: var(--console-muted);
     }
 
     .push-json-file i {
-        color: var(--accent-primary);
+        color: var(--accent);
     }
 
     .push-json-meta {
@@ -82,14 +82,14 @@
     }
 
     .push-json-size {
-        font-family: 'SF Mono', 'Menlo', 'Cascadia Code', 'Consolas', monospace;
+        font-family: var(--font-mono);
         font-size: 0.68rem;
-        color: var(--text-muted);
+        color: var(--console-muted);
     }
 
     .push-json-size.over {
         font-weight: 700;
-        color: var(--accent-danger);
+        color: var(--status-error-fg);
     }
 
     .push-json-state {
@@ -97,7 +97,7 @@
         align-items: center;
         gap: 0.3rem;
         padding: 0.12rem 0.5rem;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         font-size: 0.68rem;
         font-weight: 600;
     }
@@ -113,14 +113,15 @@
         border: none;
         outline: none;
         background: transparent;
-        color: var(--text-primary);
-        font-family: 'SF Mono', 'Menlo', 'Cascadia Code', 'Consolas', monospace;
+        color: var(--console-text);
+        font-family: var(--font-mono);
         font-size: 0.78rem;
         line-height: 1.55;
         white-space: pre;
         tab-size: 2;
         resize: vertical;
         box-sizing: border-box;
+        overscroll-behavior: contain;
     }
 
     .push-json-error {
@@ -128,7 +129,7 @@
         align-items: flex-start;
         gap: 0.45rem;
         padding: 0.5rem 0.8rem;
-        border-top: 1px solid var(--input-border);
+        border-top: 1px solid var(--status-error-border);
         background: var(--status-error-bg);
         color: var(--status-error-text);
         font-size: 0.72rem;

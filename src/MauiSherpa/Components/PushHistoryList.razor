@@ -4,14 +4,14 @@
     <div class="push-section-head">
         <div class="push-section-head-main">
             <h2>
-                <span class="push-section-icon"><i class="fas fa-clock-rotate-left"></i></span>
+                <span class="push-section-icon"><i class="fa-solid fa-clock-rotate-left"></i></span>
                 Send History
                 <span class="push-count">@History.Count</span>
             </h2>
         </div>
         <div class="push-section-actions">
             <button type="button" class="push-link-btn muted" @onclick="OnClear">
-                <i class="fas fa-eraser"></i> Clear
+                <i class="fa-solid fa-eraser"></i> Clear
             </button>
         </div>
     </div>
@@ -21,7 +21,7 @@
         {
             <div class="push-history-row @(entry.Success ? "success" : "error")" @key="entry.Id">
                 <div class="push-history-status">
-                    <i class="fas @(entry.Success ? "fa-check" : "fa-xmark")"></i>
+                    <i class="fa-solid @(entry.Success ? "fa-check" : "fa-xmark")"></i>
                 </div>
                 <div class="push-history-body">
                     <div class="push-history-headline">
@@ -34,11 +34,11 @@
                     <div class="push-history-meta">
                         @if (!string.IsNullOrEmpty(entry.Target))
                         {
-                            <span class="push-mono"><i class="fas @TargetIcon(entry.Target)"></i> @entry.Target</span>
+                            <span class="push-mono"><i class="fa-solid @TargetIcon(entry.Target)"></i> @entry.Target</span>
                         }
                         @if (entry.Success && !string.IsNullOrEmpty(entry.MessageId))
                         {
-                            <span class="push-mono push-history-id" title="@entry.MessageId"><i class="fas fa-fingerprint"></i> @entry.MessageId</span>
+                            <span class="push-mono push-history-id" title="@entry.MessageId"><i class="fa-solid fa-fingerprint"></i> @entry.MessageId</span>
                         }
                     </div>
                     @if (!entry.Success && (!string.IsNullOrEmpty(entry.ErrorReason) || !string.IsNullOrEmpty(entry.ErrorDescription)))
@@ -64,8 +64,8 @@
 <style>
     .push-count {
         padding: 0.05rem 0.5rem;
-        border-radius: 999px;
-        background: var(--bg-tertiary);
+        border-radius: var(--radius-pill);
+        background: var(--surface-well);
         color: var(--text-secondary);
         font-size: 0.72rem;
         font-weight: 600;
@@ -73,8 +73,10 @@
 
     .push-history {
         overflow: hidden;
-        border-radius: var(--card-radius);
-        background: var(--card-bg);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        background: var(--surface-card);
+        overscroll-behavior: contain;
     }
 
     .push-history-row {
@@ -102,7 +104,7 @@
         justify-content: center;
         width: 1.9rem;
         height: 1.9rem;
-        border-radius: 50%;
+        border-radius: var(--radius-pill);
         font-size: 0.8rem;
     }
 
@@ -128,8 +130,8 @@
 
     .push-history-code {
         padding: 0.05rem 0.4rem;
-        border-radius: 0.35rem;
-        font-family: 'SF Mono', 'Menlo', 'Cascadia Code', 'Consolas', monospace;
+        border-radius: var(--radius-sm);
+        font-family: var(--font-mono);
         font-size: 0.66rem;
         font-weight: 700;
     }
@@ -170,10 +172,11 @@
     .push-history-error {
         max-height: 5.5rem;
         overflow-y: auto;
+        overscroll-behavior: contain;
         margin-top: 0.45rem;
         padding: 0.45rem 0.6rem;
-        border-radius: 0.5rem;
-        background: color-mix(in srgb, var(--accent-danger) 10%, transparent);
+        border-radius: var(--radius-md);
+        background: var(--status-error-bg);
         font-size: 0.74rem;
         line-height: 1.4;
         word-break: break-word;
@@ -181,7 +184,7 @@
 
     .push-history-reason {
         font-weight: 600;
-        color: var(--accent-danger);
+        color: var(--status-error-fg);
     }
 
     .push-history-description {
@@ -191,7 +194,7 @@
 
     .push-history-time {
         padding-top: 0.3rem;
-        font-family: 'SF Mono', 'Menlo', 'Cascadia Code', 'Consolas', monospace;
+        font-family: var(--font-mono);
         font-size: 0.7rem;
         white-space: nowrap;
         color: var(--text-muted);

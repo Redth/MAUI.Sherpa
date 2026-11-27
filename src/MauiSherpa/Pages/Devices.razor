@@ -335,6 +335,7 @@ else
     private bool isLoadingEmulators;
     private bool isLoadingDevices;
     private bool isOperating;
+    private bool hasInitialized;
     private bool isSelectionMode;
     private bool hasAdbSnapshot;
     private bool demoMode = true;
@@ -385,6 +386,15 @@ else
 
     private RunningAndroidEmulator? RunningInstance(string name) => runningEmulators.FirstOrDefault(e => e.AvdName == name);
 
+    private void UpdateToolbarItemStates()
+    {
+        var sdkAvailable = hasInitialized && !string.IsNullOrEmpty(SdkService.SdkPath);
+        ToolbarService.SetItemEnabled("refresh", hasInitialized && !IsBusy && !isLoadingDevices);
+        ToolbarService.SetItemEnabled("pair", sdkAvailable && !IsBusy);
+        ToolbarService.SetItemEnabled("create", sdkAvailable && !IsBusy);
+        ToolbarService.SetItemEnabled("device-actions", sdkAvailable && !IsBusy);
+    }
+
     protected override async Task OnInitializedAsync()
     {
         var pairAction = new ToolbarAction("pair", "Pair Device", "link");
@@ -397,6 +407,7 @@ else
             MauiSherpa.Components.AndroidSdkContext.Menu,
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             ..deviceActions]);
+        UpdateToolbarItemStates();
         ToolbarService.SetSearch("Search emulators...");
         UpdateToolbarFilters();
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
@@ -417,6 +428,8 @@ else
         try { await SdkSettings.InitializeAsync(); }
         catch (Exception ex) { await AlertService.ShowAlertAsync("Android SDK Unavailable", ex.Message); }
         await Task.WhenAll(RefreshEmulators(), RefreshDevices());
+        hasInitialized = true;
+        UpdateToolbarItemStates();
     }
 
     private async Task RefreshAll()
@@ -430,6 +443,7 @@ else
         if (isLoadingEmulators) { emulatorRefreshPending |= forceRefresh; return; }
         var sdkPath = SdkService.SdkPath;
         isLoadingEmulators = true;
+        UpdateToolbarItemStates();
         StateHasChanged();
         try
         {
@@ -456,6 +470,7 @@ else
         finally
         {
             isLoadingEmulators = false;
+            UpdateToolbarItemStates();
             StateHasChanged();
             if (emulatorRefreshPending)
             {
@@ -485,6 +500,7 @@ else
         }
 
         isLoadingDevices = true;
+        UpdateToolbarItemStates();
         try
         {
             var snapshot = await AdbService.GetSnapshotAsync(disposeCts.Token);
@@ -505,6 +521,7 @@ else
         finally
         {
             isLoadingDevices = false;
+            UpdateToolbarItemStates();
             deviceRefreshGate.Release();
             if (!disposeCts.IsCancellationRequested) StateHasChanged();
         }
@@ -514,6 +531,7 @@ else
     {
         if (IsBusy) return;
         isOperating = true;
+        UpdateToolbarItemStates();
         try
         {
             if (await FormModalService.ShowAsync<bool>(new Modals.AndroidDevicePairingPage(BridgeHolder)))
@@ -526,6 +544,7 @@ else
         finally
         {
             isOperating = false;
+            UpdateToolbarItemStates();
         }
     }
 
@@ -533,6 +552,7 @@ else
     {
         if (IsBusy) return;
         isOperating = true;
+        UpdateToolbarItemStates();
         try
         {
             var sysImgTask = Mediator.Request(new GetSystemImagesRequest());
@@ -592,6 +612,7 @@ else
         finally
         {
             isOperating = false;
+            UpdateToolbarItemStates();
         }
     }
 
@@ -599,6 +620,7 @@ else
     {
         if (IsBusy || !CanVerifyEmulatorState) return;
         isOperating = true;
+        UpdateToolbarItemStates();
         startingEmulators.Add(emulator.Name);
         try
         {
@@ -642,6 +664,7 @@ else
         {
             startingEmulators.Remove(emulator.Name);
             isOperating = false;
+            UpdateToolbarItemStates();
             await RefreshDevices();
         }
     }
@@ -652,6 +675,7 @@ else
         var instances = runningEmulators.Where(e => e.AvdName == emulator.Name).ToList();
         if (instances.Count == 0) return;
         isOperating = true;
+        UpdateToolbarItemStates();
         try
         {
             await OperationModal.RunAsync("Stop Emulator", $"Stopping {emulator.Name}...", async context =>
@@ -665,6 +689,7 @@ else
         finally
         {
             isOperating = false;
+            UpdateToolbarItemStates();
             await RefreshDevices();
         }
     }
@@ -674,6 +699,7 @@ else
         if (IsBusy) return;
         if (!await AlertService.ShowConfirmAsync("Stop Emulator", $"Stop '{name}' ({instance.Serial})?")) return;
         isOperating = true;
+        UpdateToolbarItemStates();
         try
         {
             await OperationModal.RunAsync("Stop Emulator", $"Stopping {name}...",
@@ -682,6 +708,7 @@ else
         finally
         {
             isOperating = false;
+            UpdateToolbarItemStates();
             await RefreshDevices();
         }
     }
@@ -690,6 +717,7 @@ else
     {
         if (IsBusy || !CanVerifyEmulatorState || startingEmulators.Contains(emulator.Name)) return;
         isOperating = true;
+        UpdateToolbarItemStates();
         try
         {
             if (!await AlertService.ShowConfirmAsync("Delete Emulator",
@@ -703,6 +731,7 @@ else
         finally
         {
             isOperating = false;
+            UpdateToolbarItemStates();
         }
     }
 
@@ -741,6 +770,7 @@ else
         var selected = emulators.Where(e => selectedEmulators.Contains(e.Name)).ToList();
         if (selected.Count == 0) return;
         isOperating = true;
+        UpdateToolbarItemStates();
         try
         {
             var operations = selected.Select(e => new OperationItem(e.Name, e.Name, e.Target ?? e.Path,
@@ -760,6 +790,7 @@ else
         finally
         {
             isOperating = false;
+            UpdateToolbarItemStates();
         }
     }
 
@@ -843,7 +874,15 @@ else
     private async Task SdkChangedAsync()
     {
         selectedEmulators.Clear();
-        await Task.WhenAll(RefreshEmulators(true), RefreshDevices());
+        UpdateToolbarItemStates();
+        try
+        {
+            await Task.WhenAll(RefreshEmulators(true), RefreshDevices());
+        }
+        finally
+        {
+            UpdateToolbarItemStates();
+        }
     }
     private void OnDevicesChanged(IReadOnlyList<DeviceInfo> ignored) => _ = InvokeAsync(RefreshDevices);
 

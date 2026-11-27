@@ -278,7 +278,7 @@
 
 @code {
     private List<AppleDevice> devices = new();
-    private bool isLoading = false;
+    private bool isLoading = true;
     private bool demoMode = false;
     private string errorMessage = "";
 
@@ -332,6 +332,7 @@
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("create", "Register Device", "plus")
         );
+        UpdateToolbarItemStates();
         ToolbarService.SetSearch("Search devices...");
         ToolbarService.SetFilters(
             new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"]),
@@ -343,6 +344,7 @@
 
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
+        LocalVaultAccess.StateChanged += OnLocalVaultStateChanged;
         if (IdentityState.SelectedIdentity != null)
             await RefreshData(forceRefresh: false); // Use cache on initial load
     }
@@ -351,10 +353,13 @@
     {
         InvokeAsync(async () =>
         {
+            UpdateToolbarItemStates();
             await RefreshData(forceRefresh: false); // Use cache when identity changes (different identity = different cache key)
             StateHasChanged();
         });
     }
+
+    private void OnLocalVaultStateChanged() => OnIdentityChanged();
 
     private void OnSearchTextChanged(string text)
     {
@@ -384,6 +389,7 @@
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
+        LocalVaultAccess.StateChanged -= OnLocalVaultStateChanged;
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -392,10 +398,7 @@
         {
             switch (actionId)
             {
-                case "refresh":
-                    ToolbarService.SetItemEnabled("refresh", false);
-                    try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
-                    break;
+                case "refresh": await RefreshData(forceRefresh: true); break;
                 case "create": await ShowRegisterDialog(); break;
             }
             StateHasChanged();
@@ -415,11 +418,15 @@
     private async Task RefreshData(bool forceRefresh = false)
     {
         if (IdentityState.SelectedIdentity == null || LocalVaultAccess.GetState().RequiresUserAction)
+        {
+            UpdateToolbarItemStates();
             return;
+        }
 
         if (IdentityState.SelectedIdentity == null) return;
 
         isLoading = true;
+        UpdateToolbarItemStates();
         errorMessage = "";
         
         ToastMessage? toast = null;
@@ -447,9 +454,19 @@
         finally
         {
             isLoading = false;
+            UpdateToolbarItemStates();
             if (toast != null) ToastService.Dismiss(toast);
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private void UpdateToolbarItemStates()
+    {
+        var ready = IdentityState.SelectedIdentity != null &&
+            !LocalVaultAccess.GetState().RequiresUserAction &&
+            !isLoading;
+        ToolbarService.SetItemEnabled("refresh", ready);
+        ToolbarService.SetItemEnabled("create", ready);
     }
 
     private async Task ShowRegisterDialog()
@@ -684,6 +701,7 @@
     private async Task ToggleDevice(AppleDevice device, bool enable)
     {
         isLoading = true;
+        UpdateToolbarItemStates();
         try
         {
             await AppleService.UpdateDeviceStatusAsync(device.Id, enable);
@@ -697,6 +715,7 @@
         finally
         {
             isLoading = false;
+            UpdateToolbarItemStates();
         }
     }
 

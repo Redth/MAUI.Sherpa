@@ -692,6 +692,7 @@ else
     private string activeTab = "all";
     private HashSet<string> expandedGroups = new();
     private bool hasInitialized = false;
+    private bool isUpdatingPackages;
     private string? detectedJdkPath;
 
     // Filter state
@@ -852,6 +853,7 @@ else
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("update-all", "Update Packages", "arrow.triangle.2.circlepath")
         );
+        UpdateToolbarStates();
         ToolbarService.SetSearch("Search packages...");
         ToolbarService.SetFilters(
             new ToolbarFilter("category", "Category", ["All Categories", ..GetAllCategories()]),
@@ -861,6 +863,7 @@ else
         ToolbarService.SearchTextChanged += OnSearchTextChanged;
         ToolbarService.FilterChanged += OnFilterChanged;
         JdkSettings.JdkPathChanged += OnJdkPathChanged;
+        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
 
         try
         {
@@ -870,19 +873,33 @@ else
         catch (Exception ex) { await AlertService.ShowAlertAsync("Android SDK Unavailable", ex.Message); }
         await RefreshSetupStateAsync();
         hasInitialized = true;
+        UpdateToolbarStates();
     }
 
-    private void UpdateToolbarState()
+    private void UpdateToolbarStates()
     {
-        ToolbarService.SetItemEnabled("refresh", IsReady);
-        ToolbarService.SetItemEnabled("update-all", IsReady);
+        var canUseSdk = hasInitialized && IsReady && !ViewModel.IsLoading;
+        ToolbarService.SetItemEnabled("refresh", canUseSdk);
+        ToolbarService.SetItemEnabled("update-all",
+            canUseSdk && !isUpdatingPackages && GetUpdatablePackages().Any());
     }
 
     private async Task RefreshSetupStateAsync()
     {
         await JdkSettings.InitializeAsync();
         detectedJdkPath = await JdkSettings.GetEffectiveJdkPathAsync();
-        UpdateToolbarState();
+        UpdateToolbarStates();
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(AndroidSdkViewModel.IsLoading)
+            or nameof(AndroidSdkViewModel.IsSdkInstalled)
+            or nameof(AndroidSdkViewModel.InstalledPackages)
+            or nameof(AndroidSdkViewModel.AvailablePackages))
+        {
+            _ = InvokeAsync(UpdateToolbarStates);
+        }
     }
 
     private void OnSearchTextChanged(string text)
@@ -916,7 +933,7 @@ else
             {
                 case "refresh":
                     ToolbarService.SetItemEnabled("refresh", false);
-                    try { await RefreshData(); } finally { UpdateToolbarState(); }
+                    try { await RefreshData(); } finally { UpdateToolbarStates(); }
                     break;
                 case "update-all" when IsReady:
                     await UpdatePackages();
@@ -932,6 +949,7 @@ else
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
+        ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
     }
 
     private IEnumerable<IGrouping<string, SdkPackageInfo>> GetPackageGroups(IEnumerable<SdkPackageInfo> packages)
@@ -1290,14 +1308,24 @@ else
             description += " Side-by-side tools (build-tools, NDK, CMake) install alongside existing versions — tick the older versions you want removed.";
         }
 
-        var result = await MultiOpModal.RunAsync(
-            "Update SDK Packages",
-            description,
-            operations);
-
-        if (result.Completed > 0)
+        isUpdatingPackages = true;
+        UpdateToolbarStates();
+        try
         {
-            await ViewModel.RefreshPackagesAsync(forceRefresh: true);
+            var result = await MultiOpModal.RunAsync(
+                "Update SDK Packages",
+                description,
+                operations);
+
+            if (result.Completed > 0)
+            {
+                await ViewModel.RefreshPackagesAsync(forceRefresh: true);
+            }
+        }
+        finally
+        {
+            isUpdatingPackages = false;
+            UpdateToolbarStates();
         }
     }
 

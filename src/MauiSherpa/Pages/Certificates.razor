@@ -523,7 +523,7 @@
 
 @code {
     private List<AppleCertificate> certificates = new();
-    private bool isLoading = false;
+    private bool isLoading = true;
     private bool demoMode = false;
     private string errorMessage = "";
     private string cloudSecretsErrorMessage = "";
@@ -660,6 +660,7 @@
     {
         InvokeAsync(async () =>
         {
+            UpdateToolbarItemStates();
             await RefreshData();
             StateHasChanged();
         });
@@ -711,6 +712,7 @@
     {
         InvokeAsync(async () =>
         {
+            UpdateToolbarItemStates();
             if (!LocalVaultAccess.GetState().RequiresUserAction)
                 await InitializeCloudSecretsAsync();
 
@@ -725,10 +727,7 @@
         {
             switch (actionId)
             {
-                case "refresh":
-                    ToolbarService.SetItemEnabled("refresh", false);
-                    try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
-                    break;
+                case "refresh": await RefreshData(forceRefresh: true); break;
                 case "create": await ShowCreateDialog(); break;
                 case "select": await BeginSelectionModeAsync(); break;
                 case "backup-selected": await BackUpSelectedAsync(); break;
@@ -750,6 +749,7 @@
             certificates.Clear();
             syncStatuses.Clear();
             isLoading = false;
+            UpdateToolbarItemStates();
             return;
         }
 
@@ -761,6 +761,7 @@
         var loadVersion = ++_certificateLoadVersion;
         _loadedIdentityId = identity.Id;
         isLoading = true;
+        UpdateToolbarItemStates();
         errorMessage = "";
         
         ToastMessage? toast = null;
@@ -833,6 +834,7 @@
                     _loadedIdentityId = null;
 
                 isLoading = false;
+                UpdateToolbarItemStates();
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -1077,7 +1079,6 @@
                 new ToolbarAction("install-selected", "Install", "square.and.arrow.down"),
                 new ToolbarAction("export-selected", "Export Selected...", "square.and.arrow.up", ToolTip: "Export"),
                 new ToolbarAction("cancel-selection", "Cancel", "xmark", IsPrimary: false));
-            UpdateSelectionToolbar();
         }
         else
         {
@@ -1086,6 +1087,7 @@
                 new ToolbarAction("create", "Create Certificate", "plus"),
                 new ToolbarAction("select", "Select", "checkmark.circle"));
         }
+        UpdateToolbarItemStates();
 
         // SetItems resets the native search field and filters; restore the current values.
         ToolbarService.SetSearch("Search certificates...");
@@ -1126,7 +1128,7 @@
             selectedCertificateIds.Add(certificateId);
         else
             selectedCertificateIds.Remove(certificateId);
-        UpdateSelectionToolbar();
+        UpdateToolbarItemStates();
     }
 
     private void ToggleAllVisible(ChangeEventArgs args)
@@ -1139,15 +1141,28 @@
             selectedCertificateIds.UnionWith(visibleIds);
         else
             selectedCertificateIds.ExceptWith(visibleIds);
-        UpdateSelectionToolbar();
+        UpdateToolbarItemStates();
     }
 
-    private void UpdateSelectionToolbar()
+    private void UpdateToolbarItemStates()
     {
-        var hasSelection = selectedCertificateIds.Count > 0;
-        ToolbarService.SetItemEnabled("backup-selected", hasSelection);
-        ToolbarService.SetItemEnabled("install-selected", hasSelection);
-        ToolbarService.SetItemEnabled("export-selected", hasSelection);
+        var ready = IdentityState.SelectedIdentity != null &&
+            !LocalVaultAccess.GetState().RequiresUserAction &&
+            !isLoading;
+
+        if (isSelectionMode)
+        {
+            var hasSelection = ready && selectedCertificateIds.Count > 0;
+            ToolbarService.SetItemEnabled("backup-selected", hasSelection);
+            ToolbarService.SetItemEnabled("install-selected", hasSelection);
+            ToolbarService.SetItemEnabled("export-selected", hasSelection);
+        }
+        else
+        {
+            ToolbarService.SetItemEnabled("refresh", ready);
+            ToolbarService.SetItemEnabled("create", ready);
+            ToolbarService.SetItemEnabled("select", ready && certificates.Count > 0);
+        }
     }
 
     private List<AppleCertificate> GetSelectedCertificates() => certificates

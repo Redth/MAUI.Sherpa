@@ -157,13 +157,14 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
         {
             Text = "Cancel",
             FontSize = 13,
-            BackgroundColor = Colors.Transparent,
-            BorderWidth = 0,
+            BorderWidth = 1,
             CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
             HeightRequest = FormTheme.ActionButtonHeight,
         };
-        cancelButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimary);
+        cancelButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.SecondaryButtonBg);
+        cancelButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextPrimary);
+        cancelButton.SetDynamicResource(Button.BorderColorProperty, FormTheme.ButtonOutlineBorder);
         cancelButton.Clicked += OnCancelClicked;
 
         // Back button (right side, beside primary)
@@ -171,13 +172,14 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
         {
             Text = "← Back",
             FontSize = 13,
-            BackgroundColor = Colors.Transparent,
-            BorderWidth = 0,
+            BorderWidth = 1,
             CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
             HeightRequest = FormTheme.ActionButtonHeight,
         };
-        _backButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextSecondary);
+        _backButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.SecondaryButtonBg);
+        _backButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextPrimary);
+        _backButton.SetDynamicResource(Button.BorderColorProperty, FormTheme.ButtonOutlineBorder);
         _backButton.Clicked += OnBackClicked;
 
         // Submitting indicator

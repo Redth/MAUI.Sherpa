@@ -316,6 +316,7 @@ All modal creation/edit forms use **Native Hybrid (`HybridFormPage<T>`)** — na
 - **Do** keep `FormTheme.cs` synchronized with `app.css` whenever platform surfaces or accents change.
 - **Do** validate every UI change in both **Light** and **Dark** themes and consider macOS, Windows, and Linux GTK token behavior.
 - **Do** add `aria-label` on icon-only buttons and `aria-hidden="true"` on decorative icons.
+- **Do** synchronize native toolbar enabled states via `ToolbarService.SetItemEnabled(...)` immediately after `SetItems(...)` and on every loading/busy/prerequisite change so toolbar buttons are disabled until ready instead of silently ignoring clicks.
 
 ### Don't
 - **Don't** add raw `<select>` elements or custom per-page dropdown CSS.

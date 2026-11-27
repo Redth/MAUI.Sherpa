@@ -574,7 +574,7 @@ else
     private List<SimulatorDeviceType> availableDeviceTypes = new();
     private List<PhysicalDevice> physicalDevices = new();
     private HashSet<string> bootingSimulators = new();
-    private bool isLoading = false;
+    private bool isLoading = true;
     private bool isLoadingDevices = false;
     private bool isUnpairing;
     private bool isDeletingSimulator;
@@ -687,6 +687,7 @@ else
         if (selected.Count == 0) return;
 
         isDeletingSimulator = true;
+        UpdateToolbarItemStates();
         try
         {
             var operations = selected.Select(sim => new OperationItem(
@@ -713,6 +714,7 @@ else
         finally
         {
             isDeletingSimulator = false;
+            UpdateToolbarItemStates();
         }
     }
 
@@ -725,6 +727,7 @@ else
             new ToolbarAction("pair", "Pair Device", "link"),
             new ToolbarAction("create", "Create Simulator", "plus")
         );
+        UpdateToolbarItemStates();
         ToolbarService.SetSearch("Search by name...");
         ToolbarService.SetFilters(
             new ToolbarFilter("state", "State", ["All States", "Booted", "Shutdown"]),
@@ -745,6 +748,7 @@ else
     private async Task RefreshSimulators(bool forceRefresh = false)
     {
         isLoading = true;
+        UpdateToolbarItemStates();
         StateHasChanged();
 
         ToastMessage? toast = null;
@@ -792,6 +796,7 @@ else
         finally
         {
             isLoading = false;
+            UpdateToolbarItemStates();
             if (toast != null) ToastService.Dismiss(toast);
             StateHasChanged();
         }
@@ -910,6 +915,7 @@ else
     {
         if (isDeletingSimulator || bootingSimulators.Contains(sim.Udid)) return;
         isDeletingSimulator = true;
+        UpdateToolbarItemStates();
         try
         {
             var confirm = await AlertService.ShowConfirmAsync(
@@ -934,6 +940,7 @@ else
         finally
         {
             isDeletingSimulator = false;
+            UpdateToolbarItemStates();
         }
     }
 
@@ -1022,6 +1029,7 @@ else
     {
         if (showPairing || isUnpairing) return;
         showPairing = true;
+        UpdateToolbarItemStates();
         try
         {
             await FormModalService.ShowAsync<bool>(new Modals.AppleDevicePairingPage(BridgeHolder, identifier));
@@ -1034,6 +1042,7 @@ else
         finally
         {
             showPairing = false;
+            UpdateToolbarItemStates();
             if (!Platform.HasNativeToolbar)
             {
                 try { await pairButton.FocusAsync(); }
@@ -1048,6 +1057,7 @@ else
     {
         if (isUnpairing || showPairing) return;
         isUnpairing = true;
+        UpdateToolbarItemStates();
         try
         {
             if (!await AlertService.ShowConfirmAsync("Unpair Device",
@@ -1074,6 +1084,7 @@ else
         finally
         {
             isUnpairing = false;
+            UpdateToolbarItemStates();
         }
     }
 
@@ -1081,6 +1092,7 @@ else
     {
         if (isLoadingDevices) return;
         isLoadingDevices = true;
+        UpdateToolbarItemStates();
         physicalDevicesError = null;
         try
         {
@@ -1095,8 +1107,19 @@ else
         finally
         {
             isLoadingDevices = false;
+            UpdateToolbarItemStates();
             StateHasChanged();
         }
+    }
+
+    private void UpdateToolbarItemStates()
+    {
+        ToolbarService.SetItemEnabled("refresh",
+            SimulatorService.IsSupported && !isLoading && !isLoadingDevices && !isDeletingSimulator);
+        ToolbarService.SetItemEnabled("create",
+            SimulatorService.IsSupported && !isLoading && !isDeletingSimulator);
+        ToolbarService.SetItemEnabled("pair",
+            SimulatorService.IsSupported && PairingService.IsSupported && !isUnpairing && !showPairing);
     }
 
     private async Task InstallAppOnDevice(PhysicalDevice device)
@@ -1159,10 +1182,7 @@ else
             if (isDeletingSimulator) return;
             switch (actionId)
             {
-                case "refresh":
-                    ToolbarService.SetItemEnabled("refresh", false);
-                    try { await RefreshAll(); } finally { ToolbarService.SetItemEnabled("refresh", true); }
-                    break;
+                case "refresh": await RefreshAll(); break;
                 case "pair": await ShowPairing(); break;
                 case "create": await ShowCreateDialog(); break;
             }

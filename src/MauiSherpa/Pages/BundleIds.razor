@@ -298,7 +298,7 @@
 
 @code {
     private List<AppleBundleId> bundleIds = new();
-    private bool isRefreshing = false;
+    private bool isRefreshing = true;
     private bool isBackgroundRefreshing = false;
     private bool demoMode = false;
     private string errorMessage = "";
@@ -339,6 +339,7 @@
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("create", "Register Bundle ID", "plus")
         );
+        UpdateToolbarItemStates();
         ToolbarService.SetSearch("Search bundle IDs...");
         ToolbarService.SetFilters(
             new ToolbarFilter("platform", "Platform", ["All Platforms", "Universal", "iOS", "macOS"])
@@ -349,6 +350,7 @@
 
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
+        LocalVaultAccess.StateChanged += OnLocalVaultStateChanged;
         if (IdentityState.SelectedIdentity != null)
             await RefreshData(forceRefresh: false); // Use cache on initial load
     }
@@ -357,6 +359,7 @@
     {
         InvokeAsync(async () =>
         {
+            UpdateToolbarItemStates();
             if (RequiresLocalVaultAccess)
             {
                 StateHasChanged();
@@ -367,6 +370,8 @@
             StateHasChanged();
         });
     }
+
+    private void OnLocalVaultStateChanged() => OnIdentityChanged();
 
     private void OnSearchTextChanged(string text)
     {
@@ -393,6 +398,7 @@
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
+        LocalVaultAccess.StateChanged -= OnLocalVaultStateChanged;
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -401,10 +407,7 @@
         {
             switch (actionId)
             {
-                case "refresh":
-                    ToolbarService.SetItemEnabled("refresh", false);
-                    try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
-                    break;
+                case "refresh": await RefreshData(forceRefresh: true); break;
                 case "create": await ShowCreateDialog(); break;
             }
             StateHasChanged();
@@ -414,10 +417,14 @@
     private async Task RefreshData(bool forceRefresh = false)
     {
         if (IdentityState.SelectedIdentity == null || RequiresLocalVaultAccess)
+        {
+            UpdateToolbarItemStates();
             return;
+        }
 
         // Set loading states
         isRefreshing = true;
+        UpdateToolbarItemStates();
         if (!forceRefresh && bundleIds.Count > 0)
         {
             // Only show background indicator if we already have data
@@ -454,9 +461,19 @@
         {
             isRefreshing = false;
             isBackgroundRefreshing = false;
+            UpdateToolbarItemStates();
             if (toast != null) ToastService.Dismiss(toast);
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private void UpdateToolbarItemStates()
+    {
+        var ready = IdentityState.SelectedIdentity != null &&
+            !LocalVaultAccess.GetState().RequiresUserAction &&
+            !isRefreshing;
+        ToolbarService.SetItemEnabled("refresh", ready);
+        ToolbarService.SetItemEnabled("create", ready);
     }
 
     private async Task ShowCreateDialog()

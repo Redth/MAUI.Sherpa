@@ -213,6 +213,7 @@
     private IReadOnlyList<DotnetWorkloadInventory> workloadInventories = [];
     private bool loadingWorkloads;
     private bool workloadBusy;
+    private bool hasInitialized;
 
     private IReadOnlyList<DotnetUpdatePreview>? updatePreviews;
     private bool checkingUpdates;
@@ -340,7 +341,10 @@
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        UpdateToolbar();
         await Refresh();
+        hasInitialized = true;
+        UpdateToolbarItemStates();
     }
 
     private void UpdateToolbar()
@@ -348,6 +352,14 @@
         ToolbarService.SetItems(
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("open-project", "Open Project Folder", "folder"));
+        UpdateToolbarItemStates();
+    }
+
+    private void UpdateToolbarItemStates()
+    {
+        var enabled = hasInitialized && !isLoading && !workloadBusy;
+        ToolbarService.SetItemEnabled("refresh", enabled);
+        ToolbarService.SetItemEnabled("open-project", enabled);
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -370,6 +382,7 @@
     private async Task Refresh()
     {
         isLoading = true;
+        UpdateToolbarItemStates();
         errorMessage = null;
         updatePreviews = null;
         updatesUnresolved = false;
@@ -402,7 +415,7 @@
         {
             checkingToolUpdate = false;
             isLoading = false;
-            UpdateToolbar();
+            UpdateToolbarItemStates();
             StateHasChanged();
         }
 
@@ -779,6 +792,7 @@
         string version)
     {
         workloadBusy = true;
+        UpdateToolbarItemStates();
         await InvokeAsync(StateHasChanged);
         try
         {
@@ -802,6 +816,7 @@
         finally
         {
             workloadBusy = false;
+            UpdateToolbarItemStates();
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -830,6 +845,7 @@
         string failureMessage)
         {
             workloadBusy = true;
+            UpdateToolbarItemStates();
             await InvokeAsync(StateHasChanged);
             try
             {
@@ -850,6 +866,7 @@
             finally
             {
                 workloadBusy = false;
+                UpdateToolbarItemStates();
                 await InvokeAsync(StateHasChanged);
             }
         }
